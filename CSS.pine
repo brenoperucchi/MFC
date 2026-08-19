@@ -1,0 +1,183 @@
+//@version=6
+indicator("CSS Cyclic Macro Dashboard v9", shorttitle="CSSDASH", overlay=false, dynamic_requests=true, precision=2, max_bars_back=5000)
+
+// Currency Slope Strength dashboard
+// Macro: MN + W1 + D1, weighted score from -3 to +3.
+// Operational: H4 + H1, for confirmation/correction analysis.
+// Data model: 7 liquid USD-hub pairs x 5 real timeframes = 35 request contexts.
+
+// ===== Inputs
+groupCalc = "1. Calculation"
+exchangeCode = input.string("OANDA", "Exchange / data source", options=["OANDA", "FOREXCOM", "FX_IDC", "SAXO", "PEPPERSTONE"], group=groupCalc)
+symbolSuffix = input.string("", "Symbol suffix", group=groupCalc)
+lineTf = input.string("H1", "Timeframe plotted by lines", options=["H1", "H4", "D1", "W1", "MN"], group=groupCalc)
+maType = input.string("EMA", "Pair moving average", options=["EMA", "SMA", "RMA", "WMA"], group=groupCalc)
+maLength = input.int(20, "Pair MA period", minval=2, maxval=300, group=groupCalc)
+slopeStep = input.int(1, "Pair slope step", minval=1, maxval=20, group=groupCalc)
+directionLookback = input.int(3, "CSS direction lookback", minval=1, maxval=10, tooltip="Bars used to decide whether each CSS line is rising, falling or flat.", group=groupCalc)
+atrLength = input.int(100, "ATR period", minval=5, maxval=500, group=groupCalc)
+slopeSmooth = input.int(5, "Slope EMA smoothing", minval=1, maxval=100, group=groupCalc)
+historyBars = input.int(2000, "History bars per context", minval=300, maxval=5000, group=groupCalc)
+normalizationScale = input.float(0.50, "Normalization scale", minval=0.01, maxval=5.00, step=0.05, group=groupCalc)
+closedBars = input.bool(false, "Use only closed timeframe bars", group=groupCalc)
+
+groupScore = "2. Score"
+boxLevel = input.float(0.20, "Box limit", minval=0.05, maxval=0.45, step=0.05, group=groupScore)
+strongLevel = input.float(0.50, "Strength line", minval=0.25, maxval=0.80, step=0.05, group=groupScore)
+extremeLevel = input.float(0.75, "Extreme line", minval=0.50, maxval=0.95, step=0.05, group=groupScore)
+flatTolerance = input.float(0.01, "Direction flat tolerance", minval=0.001, maxval=0.10, step=0.001, group=groupScore)
+
+groupView = "3. Display"
+displayMode = input.string("ALL", "Line display mode", options=["ALL", "CHART PAIR", "MANUAL", "EXTREMES", "NONE"], group=groupView)
+showUSD = input.bool(true,"USD",inline="a",group=groupView), showEUR=input.bool(true,"EUR",inline="a",group=groupView), showGBP=input.bool(true,"GBP",inline="a",group=groupView), showJPY=input.bool(true,"JPY",inline="a",group=groupView)
+showAUD = input.bool(true,"AUD",inline="b",group=groupView), showNZD=input.bool(true,"NZD",inline="b",group=groupView), showCAD=input.bool(true,"CAD",inline="b",group=groupView), showCHF=input.bool(true,"CHF",inline="b",group=groupView)
+showMacro = input.bool(true, "Show macro dashboard", group=groupView)
+showOperational = input.bool(true, "Show operational dashboard", group=groupView)
+macroPosition = input.string("Top Right", "Macro position", options=["Top Left","Top Right","Bottom Left","Bottom Right"], group=groupView)
+operPosition = input.string("Bottom Right", "Operational position", options=["Top Left","Top Right","Bottom Left","Bottom Right"], group=groupView)
+macroOffset = input.int(2,"Macro vertical offset",minval=0,maxval=12,group=groupView)
+operOffset = input.int(1,"Operational vertical offset",minval=0,maxval=12,group=groupView)
+lineWidth = input.int(2,"Line width",minval=1,maxval=4,group=groupView)
+
+// ===== Colors
+color C_USD=color.rgb(242,54,69), C_EUR=color.rgb(0,180,90), C_GBP=color.rgb(130,70,230), C_JPY=color.rgb(210,85,220)
+color C_AUD=color.rgb(253,216,53), C_NZD=color.rgb(185,165,125), C_CAD=color.rgb(145,25,25), C_CHF=color.rgb(235,235,240)
+color C_BG=color.rgb(20,22,27), C_HEAD=color.rgb(45,48,58), C_TEXT=color.rgb(225,227,232), C_MUTED=color.rgb(135,138,148)
+color C_UP=color.rgb(0,230,118), C_DOWN=color.rgb(242,54,69), C_FLAT=color.rgb(255,193,7), C_UP2=color.rgb(110,210,145), C_DOWN2=color.rgb(230,120,125)
+var array<string> CCYS=array.from("USD","EUR","GBP","JPY","AUD","NZD","CAD","CHF")
+
+f_pos(string p)=>p=="Top Left"?position.top_left:p=="Bottom Left"?position.bottom_left:p=="Bottom Right"?position.bottom_right:position.top_right
+f_ccy_color(int i)=>i==0?C_USD:i==1?C_EUR:i==2?C_GBP:i==3?C_JPY:i==4?C_AUD:i==5?C_NZD:i==6?C_CAD:C_CHF
+
+// Returns smoothed normalized pair slope and the same series N bars ago.
+f_pair_metrics()=>
+    float e=ta.ema(close,maLength), s=ta.sma(close,maLength), r=ta.rma(close,maLength), w=ta.wma(close,maLength)
+    float m=maType=="SMA"?s:maType=="RMA"?r:maType=="WMA"?w:e
+    float a=ta.atr(atrLength)
+    int o=closedBars?1:0
+    float raw=not na(m[o]) and not na(m[o+slopeStep]) and not na(a[o]) and a[o]>0?(m[o]-m[o+slopeStep])/a[o]:na
+    float sm=ta.ema(raw,slopeSmooth)
+    [sm,sm[directionLookback]]
+
+f_req(string pair,string tf)=>request.security(exchangeCode+":"+pair+symbolSuffix,tf,f_pair_metrics(),gaps=barmerge.gaps_off,lookahead=barmerge.lookahead_off,ignore_invalid_symbol=true,calc_bars_count=historyBars)
+
+// Converts seven USD-hub pair slopes to eight centered and Softsign-normalized currencies.
+f_matrix(float eu,float gu,float uj,float au,float nu,float uc,float uf)=>
+    float er=eu, gr=gu, jr=-uj, ar=au, nr=nu, cr=-uc, fr=-uf
+    float ur=-(er+gr+jr+ar+nr+cr+fr)/7.0
+    float mean=(ur+er+gr+jr+ar+nr+cr+fr)/8.0
+    float u=ur-mean, e=er-mean, g=gr-mean, j=jr-mean, a=ar-mean, n=nr-mean, c=cr-mean, f=fr-mean
+    [u/(normalizationScale+math.abs(u)),e/(normalizationScale+math.abs(e)),g/(normalizationScale+math.abs(g)),j/(normalizationScale+math.abs(j)),a/(normalizationScale+math.abs(a)),n/(normalizationScale+math.abs(n)),c/(normalizationScale+math.abs(c)),f/(normalizationScale+math.abs(f))]
+
+// Each call below is one unique symbol/timeframe context.
+[euH1,euH1p]=f_req("EURUSD","60"), [guH1,guH1p]=f_req("GBPUSD","60"), [ujH1,ujH1p]=f_req("USDJPY","60"), [auH1,auH1p]=f_req("AUDUSD","60"), [nuH1,nuH1p]=f_req("NZDUSD","60"), [ucH1,ucH1p]=f_req("USDCAD","60"), [ufH1,ufH1p]=f_req("USDCHF","60")
+[euH4,euH4p]=f_req("EURUSD","240"), [guH4,guH4p]=f_req("GBPUSD","240"), [ujH4,ujH4p]=f_req("USDJPY","240"), [auH4,auH4p]=f_req("AUDUSD","240"), [nuH4,nuH4p]=f_req("NZDUSD","240"), [ucH4,ucH4p]=f_req("USDCAD","240"), [ufH4,ufH4p]=f_req("USDCHF","240")
+[euD1,euD1p]=f_req("EURUSD","1D"), [guD1,guD1p]=f_req("GBPUSD","1D"), [ujD1,ujD1p]=f_req("USDJPY","1D"), [auD1,auD1p]=f_req("AUDUSD","1D"), [nuD1,nuD1p]=f_req("NZDUSD","1D"), [ucD1,ucD1p]=f_req("USDCAD","1D"), [ufD1,ufD1p]=f_req("USDCHF","1D")
+[euW1,euW1p]=f_req("EURUSD","1W"), [guW1,guW1p]=f_req("GBPUSD","1W"), [ujW1,ujW1p]=f_req("USDJPY","1W"), [auW1,auW1p]=f_req("AUDUSD","1W"), [nuW1,nuW1p]=f_req("NZDUSD","1W"), [ucW1,ucW1p]=f_req("USDCAD","1W"), [ufW1,ufW1p]=f_req("USDCHF","1W")
+[euMN,euMNp]=f_req("EURUSD","1M"), [guMN,guMNp]=f_req("GBPUSD","1M"), [ujMN,ujMNp]=f_req("USDJPY","1M"), [auMN,auMNp]=f_req("AUDUSD","1M"), [nuMN,nuMNp]=f_req("NZDUSD","1M"), [ucMN,ucMNp]=f_req("USDCAD","1M"), [ufMN,ufMNp]=f_req("USDCHF","1M")
+
+[uH1,eH1,gH1,jH1,aH1,nH1,cH1,fH1]=f_matrix(euH1,guH1,ujH1,auH1,nuH1,ucH1,ufH1)
+[uH1p,eH1p,gH1p,jH1p,aH1p,nH1p,cH1p,fH1p]=f_matrix(euH1p,guH1p,ujH1p,auH1p,nuH1p,ucH1p,ufH1p)
+[uH4,eH4,gH4,jH4,aH4,nH4,cH4,fH4]=f_matrix(euH4,guH4,ujH4,auH4,nuH4,ucH4,ufH4)
+[uH4p,eH4p,gH4p,jH4p,aH4p,nH4p,cH4p,fH4p]=f_matrix(euH4p,guH4p,ujH4p,auH4p,nuH4p,ucH4p,ufH4p)
+[uD1,eD1,gD1,jD1,aD1,nD1,cD1,fD1]=f_matrix(euD1,guD1,ujD1,auD1,nuD1,ucD1,ufD1)
+[uD1p,eD1p,gD1p,jD1p,aD1p,nD1p,cD1p,fD1p]=f_matrix(euD1p,guD1p,ujD1p,auD1p,nuD1p,ucD1p,ufD1p)
+[uW1,eW1,gW1,jW1,aW1,nW1,cW1,fW1]=f_matrix(euW1,guW1,ujW1,auW1,nuW1,ucW1,ufW1)
+[uW1p,eW1p,gW1p,jW1p,aW1p,nW1p,cW1p,fW1p]=f_matrix(euW1p,guW1p,ujW1p,auW1p,nuW1p,ucW1p,ufW1p)
+[uMN,eMN,gMN,jMN,aMN,nMN,cMN,fMN]=f_matrix(euMN,guMN,ujMN,auMN,nuMN,ucMN,ufMN)
+[uMNp,eMNp,gMNp,jMNp,aMNp,nMNp,cMNp,fMNp]=f_matrix(euMNp,guMNp,ujMNp,auMNp,nuMNp,ucMNp,ufMNp)
+
+var array<float> H1=array.new_float(8),H1P=array.new_float(8),H4=array.new_float(8),H4P=array.new_float(8),D1=array.new_float(8),D1P=array.new_float(8),W1=array.new_float(8),W1P=array.new_float(8),MN=array.new_float(8),MNP=array.new_float(8)
+f_set8(array<float> x,float u,float e,float g,float j,float a,float n,float c,float f)=>
+    array.set(x,0,u),array.set(x,1,e),array.set(x,2,g),array.set(x,3,j),array.set(x,4,a),array.set(x,5,n),array.set(x,6,c),array.set(x,7,f)
+f_set8(H1,uH1,eH1,gH1,jH1,aH1,nH1,cH1,fH1), f_set8(H1P,uH1p,eH1p,gH1p,jH1p,aH1p,nH1p,cH1p,fH1p)
+f_set8(H4,uH4,eH4,gH4,jH4,aH4,nH4,cH4,fH4), f_set8(H4P,uH4p,eH4p,gH4p,jH4p,aH4p,nH4p,cH4p,fH4p)
+f_set8(D1,uD1,eD1,gD1,jD1,aD1,nD1,cD1,fD1), f_set8(D1P,uD1p,eD1p,gD1p,jD1p,aD1p,nD1p,cD1p,fD1p)
+f_set8(W1,uW1,eW1,gW1,jW1,aW1,nW1,cW1,fW1), f_set8(W1P,uW1p,eW1p,gW1p,jW1p,aW1p,nW1p,cW1p,fW1p)
+f_set8(MN,uMN,eMN,gMN,jMN,aMN,nMN,cMN,fMN), f_set8(MNP,uMNp,eMNp,gMNp,jMNp,aMNp,nMNp,cMNp,fMNp)
+
+f_tf_score(float v,float prev)=>
+    float d=v-prev
+    int dir=na(d)?0:d>flatTolerance?1:d<-flatTolerance?-1:0
+    int score=0
+    if dir>0
+        // Cyclical logic: rising from a deeply negative region is maximum positive force.
+        score:=math.abs(v)>=strongLevel?3:math.abs(v)>=boxLevel?2:1
+    else if dir<0
+        // Symmetric logic: falling from a deeply positive region is maximum negative force.
+        score:=math.abs(v)>=strongLevel?-3:math.abs(v)>=boxLevel?-2:-1
+    else
+        score:=0
+    score
+
+f_macro(int i)=>
+    int sm=f_tf_score(array.get(MN,i),array.get(MNP,i))
+    int sw=f_tf_score(array.get(W1,i),array.get(W1P,i))
+    int sd=f_tf_score(array.get(D1,i),array.get(D1P,i))
+    float result=(sm+sw+sd)/3.0
+    [sm,sw,sd,result]
+
+var array<float> macroScores=array.new_float(8,na)
+var array<int> macroOrder=array.new_int(8),macroUsed=array.new_int(8)
+for i=0 to 7
+    [xm,xw,xd,ms]=f_macro(i)
+    array.set(macroScores,i,ms)
+array.fill(macroUsed,0)
+for rank=0 to 7
+    int best=-1
+    float bv=-100.0
+    for i=0 to 7
+        float v=array.get(macroScores,i)
+        if array.get(macroUsed,i)==0 and v>bv
+            best:=i,bv:=v
+    array.set(macroOrder,rank,best),array.set(macroUsed,best,1)
+
+f_pick(int i)=>lineTf=="MN"?array.get(MN,i):lineTf=="W1"?array.get(W1,i):lineTf=="D1"?array.get(D1,i):lineTf=="H4"?array.get(H4,i):array.get(H1,i)
+float usd=f_pick(0),eur=f_pick(1),gbp=f_pick(2),jpy=f_pick(3),aud=f_pick(4),nzd=f_pick(5),cad=f_pick(6),chf=f_pick(7)
+string cb=str.upper(syminfo.basecurrency),cq=str.upper(syminfo.currency)
+f_vis(int i,string c,bool manual)=>displayMode=="ALL"?true:displayMode=="CHART PAIR"?(c==cb or c==cq):displayMode=="MANUAL"?manual:displayMode=="EXTREMES"?(i==array.get(macroOrder,0) or i==array.get(macroOrder,1) or i==array.get(macroOrder,6) or i==array.get(macroOrder,7)):false
+plot(f_vis(0,"USD",showUSD)?usd:na,"USD",C_USD,lineWidth),plot(f_vis(1,"EUR",showEUR)?eur:na,"EUR",C_EUR,lineWidth)
+plot(f_vis(2,"GBP",showGBP)?gbp:na,"GBP",C_GBP,lineWidth),plot(f_vis(3,"JPY",showJPY)?jpy:na,"JPY",C_JPY,lineWidth)
+plot(f_vis(4,"AUD",showAUD)?aud:na,"AUD",C_AUD,lineWidth),plot(f_vis(5,"NZD",showNZD)?nzd:na,"NZD",C_NZD,lineWidth)
+plot(f_vis(6,"CAD",showCAD)?cad:na,"CAD",C_CAD,lineWidth),plot(f_vis(7,"CHF",showCHF)?chf:na,"CHF",C_CHF,lineWidth)
+
+hline(1.0,"+1",color.new(C_MUTED,80)),hline(extremeLevel,"+Extreme",color.new(C_UP,70),hline.style_dashed),hline(strongLevel,"+0.50",color.new(C_UP,45),hline.style_dotted)
+bt=hline(boxLevel,"+Box",color.new(C_UP,10)),hline(0,"Zero",color.new(C_TEXT,45),hline.style_dotted),bb=hline(-boxLevel,"-Box",color.new(C_DOWN,10))
+hline(-strongLevel,"-0.50",color.new(C_DOWN,45),hline.style_dotted),hline(-extremeLevel,"-Extreme",color.new(C_DOWN,70),hline.style_dashed),hline(-1.0,"-1",color.new(C_MUTED,80))
+fill(bt,bb,color.new(C_MUTED,91))
+
+f_score_color(float s)=>s>=1.5?C_UP:s>0.25?C_UP2:s<=-1.5?C_DOWN:s<-0.25?C_DOWN2:C_FLAT
+var table macro=table.new(f_pos(macroPosition),6,24,bgcolor=C_BG,frame_color=C_HEAD,border_color=C_HEAD)
+var table oper=table.new(f_pos(operPosition),4,24,bgcolor=C_BG,frame_color=C_HEAD,border_color=C_HEAD)
+if barstate.islast
+    table.clear(macro,0,0,5,23),table.clear(oper,0,0,3,23)
+    if showMacro
+        int r=macroOffset
+        table.cell(macro,0,r,"#",bgcolor=C_HEAD,text_color=C_TEXT,text_size=size.tiny)
+        table.cell(macro,1,r,"CCY",bgcolor=C_HEAD,text_color=C_TEXT,text_size=size.tiny)
+        table.cell(macro,2,r,"MN",bgcolor=C_HEAD,text_color=C_TEXT,text_size=size.tiny)
+        table.cell(macro,3,r,"W1",bgcolor=C_HEAD,text_color=C_TEXT,text_size=size.tiny)
+        table.cell(macro,4,r,"D1",bgcolor=C_HEAD,text_color=C_TEXT,text_size=size.tiny)
+        table.cell(macro,5,r,"NOTA",bgcolor=C_HEAD,text_color=C_TEXT,text_size=size.tiny)
+        for rank=0 to 7
+            int i=array.get(macroOrder,rank),row=r+rank+1
+            [sm,sw,sd,ms]=f_macro(i)
+            table.cell(macro,0,row,str.tostring(rank+1),bgcolor=C_BG,text_color=C_MUTED,text_size=size.tiny)
+            table.cell(macro,1,row,array.get(CCYS,i),bgcolor=C_BG,text_color=f_ccy_color(i),text_size=size.tiny)
+            table.cell(macro,2,row,str.tostring(sm),bgcolor=C_BG,text_color=f_score_color(sm),text_size=size.tiny)
+            table.cell(macro,3,row,str.tostring(sw),bgcolor=C_BG,text_color=f_score_color(sw),text_size=size.tiny)
+            table.cell(macro,4,row,str.tostring(sd),bgcolor=C_BG,text_color=f_score_color(sd),text_size=size.tiny)
+            table.cell(macro,5,row,str.tostring(ms,"0.00"),bgcolor=C_BG,text_color=f_score_color(ms),text_size=size.tiny)
+    if showOperational
+        int r=operOffset
+        table.cell(oper,0,r,"#",bgcolor=C_HEAD,text_color=C_TEXT,text_size=size.tiny)
+        table.cell(oper,1,r,"CCY",bgcolor=C_HEAD,text_color=C_TEXT,text_size=size.tiny)
+        table.cell(oper,2,r,"H4",bgcolor=C_HEAD,text_color=C_TEXT,text_size=size.tiny)
+        table.cell(oper,3,r,"H1",bgcolor=C_HEAD,text_color=C_TEXT,text_size=size.tiny)
+        for rank=0 to 7
+            int i=array.get(macroOrder,rank),row=r+rank+1
+            float h4=array.get(H4,i),h1=array.get(H1,i)
+            table.cell(oper,0,row,str.tostring(rank+1),bgcolor=C_BG,text_color=C_MUTED,text_size=size.tiny)
+            table.cell(oper,1,row,array.get(CCYS,i),bgcolor=C_BG,text_color=f_ccy_color(i),text_size=size.tiny)
+            table.cell(oper,2,row,str.tostring(h4,"0.00"),bgcolor=C_BG,text_color=h4>boxLevel?C_UP:h4<-boxLevel?C_DOWN:C_FLAT,text_size=size.tiny)
+            table.cell(oper,3,row,str.tostring(h1,"0.00"),bgcolor=C_BG,text_color=h1>boxLevel?C_UP:h1<-boxLevel?C_DOWN:C_FLAT,text_size=size.tiny)

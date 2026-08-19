@@ -1,0 +1,42 @@
+## 4. Estudo de Caso Real: Análise de VENDA do NZD (12/08/2026)
+### Contexto dos Dados
+* **Macro (MN & W1)**: O NZD vinha de um ciclo comprador prévio nos prazos ultralongos (notas +1 / +1), atingindo a região alta da matriz.
+* **Inflexão do Diário (D1 = -1)**: O gráfico diário confirmou o topo cíclico e virou a inclinação para baixo (`dir < 0`), atribuindo pontuação **-1**.
+* **Alinhamento Operacional (H4: -0.10 | H1: -0.04)**: Ambas as linhas no H4 e H1 cruzaram para território negativo (abaixo de zero), demonstrando exaustão compradora e domínio dos vendedores.
+### Montagem do Par (Divergência de Força Relativa)
+* **Moeda Fraca (NZD)**: Virada de topo, D1 = -1, H4 = -0.10, H1 = -0.04.
+* **Moeda Forte (USD)**: Expansão de alta, Nota Macro = +0.67, D1 = +2, H1 = +0.16.
+* **Par Resultante**: **Venda de NZDUSD** (Vender a moeda em distribuição cíclica contra a moeda em expansão compradora).
+---
+## 5. Checklist de Validação para Operações Cíclicas
+Antes de abrir qualquer posição baseada no CSS:
+1. [ ] **Identificar a Fase do Ciclo**: A moeda está caindo do topo (Venda) ou subindo do fundo (Compra)?
+2. [ ] **Verificar a Inversão do D1**: O Diário confirmou a virada da inclinação com nota de direção apropriada?
+3. [ ] **Checar Território Operacional (H4 / H1)**: Para venda, H4 e H1 estão abaixo de zero? Para compra, estão acima de zero?
+4. [ ] **Selecionar o Par por Contraste Extremo**: A moeda escolhida está pareada contra o extremo oposto da tabela CSS?
+{
+  "title": "CSS - Regras de Leitura Cíclica e Alinhamento Macro-Operacional (Slope Strength)",
+  "summary": "Documentação da metodologia de análise cíclica para o indicador CSS (Currency Slope Strength). Regras para identificação de topos e fundos cíclicos (falling from positive region = venda / rising from negative region = compra), interpretação das pontuações Macro (MN, W1, D1), validação pelos timeframes operacionais (H4, H1), e montagem de pares com divergência de força relativa.",
+  "created": "2026-08-13T09:56:00Z",
+  "updated": "2026-08-13T09:56:00Z",
+  "tags": [
+    "css",
+    "pine-script",
+    "currency-strength",
+    "cyclic-trading",
+    "macro-analysis",
+    "forex-matrix"
+  ],
+  "references": [
+    {
+      "type": "file",
+      "path": "c:/Users/ryzen/Downloads/Antigravity/MFC/CSS.pine",
+      "note": "Código-fonte do indicador CSS Cyclic Macro Dashboard v9"
+    },
+    {
+      "type": "file",
+      "path": "c:/Users/ryzen/Downloads/Antigravity/MFC/20260812",
+      "note": "Capturas de tela das análises operacionais dos gráficos MN, W1, D1, H4 e H1 de 12/08/2026"
+    }
+  ]
+}
