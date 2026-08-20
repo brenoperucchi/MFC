@@ -1017,23 +1017,233 @@ function renderPairsTable() {
             <td class="score-cell">${(item.macro_diff >= 0 ? "+" : "") + item.macro_diff.toFixed(2)}</td>
             <td class="score-cell">${(item.op_diff >= 0 ? "+" : "") + item.op_diff.toFixed(2)}</td>
             <td style="font-size: 11.5px; color: var(--text-secondary);">${item.thesis}</td>
+            <td>
+                <button class="btn-deep-dive" style="padding: 3px 8px; font-size: 10.5px; border-radius: 4px; display: inline-flex; align-items: center; gap: 4px;" onclick="openDeepDive('${item.pair}')">
+                    <span>🔍</span> <span>Raio-X 5-TF</span>
+                </button>
+            </td>
         `;
 
         tbody.appendChild(tr);
     });
 }
 
-// RAIO-X 5-TIMEFRAMES DA MOEDA
-window.openDeepDive = function(ccy) {
-    if (!state.data || !state.data.currencies) return;
-    const ccyData = state.data.currencies.find(c => c.symbol === ccy);
+// RENDERIZADOR DE MINI-GRÁFICOS DOS 5 TIMEFRAMES DO RAIO-X INSTITUCIONAL
+function drawTriadMiniChart(canvasId, target, tf) {
+    const canvas = document.getElementById(canvasId);
+    if (!canvas || !state.data || !state.data.charts) return;
+
+    const chartData = state.data.charts[tf];
+    if (!chartData || !chartData.series) return;
+
+    const ctx = canvas.getContext("2d");
+    const rect = canvas.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    ctx.scale(dpr, dpr);
+
+    const w = rect.width;
+    const h = rect.height;
+    ctx.clearRect(0, 0, w, h);
+
+    // Identificar moedas envolvidas (1 moeda ou Par com 2 moedas)
+    let ccyList = [];
+    if (state.currencies.includes(target)) {
+        ccyList = [target];
+    } else if (target.length === 6) {
+        ccyList = [target.substring(0, 3), target.substring(3, 6)];
+    }
+
+    if (ccyList.length === 0) return;
+
+    // Calcular min e max verticais
+    let minVal = -0.25;
+    let maxVal = 0.25;
+    ccyList.forEach(ccy => {
+        if (chartData.series[ccy]) {
+            minVal = Math.min(minVal, ...chartData.series[ccy]);
+            maxVal = Math.max(maxVal, ...chartData.series[ccy]);
+        }
+    });
+    minVal -= 0.06;
+    maxVal += 0.06;
+
+    const padT = 16, padB = 16, padL = 8, padR = 42;
+    const plotW = w - padL - padR;
+    const plotH = h - padT - padB;
+
+    const getY = (val) => padT + plotH * (1 - (val - minVal) / (maxVal - minVal));
+    const getX = (idx, total) => padL + (idx / (total - 1)) * plotW;
+
+    // 1. Linhas de Parada e Nível 0.00
+    ctx.save();
+    
+    // Nível +0.20 (Verde)
+    if (+0.20 >= minVal && +0.20 <= maxVal) {
+        const y20 = getY(0.20);
+        ctx.beginPath();
+        ctx.strokeStyle = "rgba(0, 230, 118, 0.4)";
+        ctx.lineWidth = 1;
+        ctx.setLineDash([3, 3]);
+        ctx.moveTo(padL, y20);
+        ctx.lineTo(w - padR, y20);
+        ctx.stroke();
+        ctx.fillStyle = "rgba(0, 230, 118, 0.7)";
+        ctx.font = "8.5px monospace";
+        ctx.fillText("+0.20", w - padR + 4, y20 + 3);
+    }
+
+    // Nível 0.00 (Equilíbrio Cyan)
+    if (0.00 >= minVal && 0.00 <= maxVal) {
+        const y0 = getY(0.00);
+        ctx.beginPath();
+        ctx.strokeStyle = "rgba(0, 229, 255, 0.35)";
+        ctx.lineWidth = 1;
+        ctx.setLineDash([2, 2]);
+        ctx.moveTo(padL, y0);
+        ctx.lineTo(w - padR, y0);
+        ctx.stroke();
+        ctx.fillStyle = "rgba(0, 229, 255, 0.6)";
+        ctx.font = "8.5px monospace";
+        ctx.fillText("0.00", w - padR + 4, y0 + 3);
+    }
+
+    // Nível -0.20 (Vermelho)
+    if (-0.20 >= minVal && -0.20 <= maxVal) {
+        const yN20 = getY(-0.20);
+        ctx.beginPath();
+        ctx.strokeStyle = "rgba(255, 51, 75, 0.4)";
+        ctx.lineWidth = 1;
+        ctx.setLineDash([3, 3]);
+        ctx.moveTo(padL, yN20);
+        ctx.lineTo(w - padR, yN20);
+        ctx.stroke();
+        ctx.fillStyle = "rgba(255, 51, 75, 0.7)";
+        ctx.font = "8.5px monospace";
+        ctx.fillText("-0.20", w - padR + 4, yN20 + 3);
+    }
+    ctx.restore();
+
+    // 2. Desenhar Curvas do Score
+    ccyList.forEach(ccy => {
+        const series = chartData.series[ccy];
+        if (!series || series.length < 2) return;
+
+        const color = CCY_COLORS[ccy] || "#FFF";
+        ctx.save();
+        ctx.beginPath();
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2.0;
+        ctx.lineJoin = "round";
+        ctx.lineCap = "round";
+        ctx.shadowColor = color;
+        ctx.shadowBlur = 4;
+
+        for (let i = 0; i < series.length; i++) {
+            const x = getX(i, series.length);
+            const y = getY(series[i]);
+            if (i === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+
+        // Ponto Final + Badge de Pontuação Atual
+        const lastIdx = series.length - 1;
+        const lastX = getX(lastIdx, series.length);
+        const lastY = getY(series[lastIdx]);
+        const lastScore = series[lastIdx];
+
+        ctx.beginPath();
+        ctx.arc(lastX, lastY, 3.5, 0, Math.PI * 2);
+        ctx.fillStyle = color;
+        ctx.fill();
+
+        ctx.font = "bold 9px monospace";
+        ctx.fillStyle = color;
+        ctx.fillText(`${(lastScore >= 0 ? "+" : "") + lastScore.toFixed(2)} ${ccy}`, lastX - 35, lastY - 6);
+        ctx.restore();
+    });
+}
+
+// RAIO-X 5-TIMEFRAMES DA MOEDA OU DO PAR FOREX
+window.openDeepDive = function(target) {
+    if (!state.data) return;
+
+    const isPair = target.length === 6 && !state.currencies.includes(target);
+    const triadsGrid = document.getElementById("deepDiveTriadsGrid");
+    const verdictCard = document.getElementById("deepDiveVerdictCard");
+
+    if (isPair) {
+        const base = target.substring(0, 3);
+        const quote = target.substring(3, 6);
+        const baseFlag = CCY_FLAGS[base] || "";
+        const quoteFlag = CCY_FLAGS[quote] || "";
+        const pairItem = state.data.pairs?.find(p => p.pair === target);
+
+        document.getElementById("deepDiveFlag").textContent = `${baseFlag}${quoteFlag}`;
+        document.getElementById("deepDiveTitle").textContent = `Par ${target}`;
+        document.getElementById("deepDiveSubtitle").textContent = pairItem ? pairItem.thesis : `Raio-X de Confluência Multi-Timeframe nos 5 TFs entre ${base} e ${quote}`;
+
+        verdictCard.innerHTML = `
+            <div>
+                <div style="font-size: 11px; color: var(--text-muted); text-transform: uppercase;">Confluência Institucional do Par:</div>
+                <div style="font-size: 14px; font-weight: 800; color: #FFFFFF;">${pairItem ? pairItem.recommendation : target} — Convicção: ${pairItem ? pairItem.conviction : 'ALTA'}</div>
+            </div>
+            <div>
+                <span class="signal-pill ${pairItem && pairItem.badge_type ? pairItem.badge_type.toLowerCase() : 'buy'}">
+                    ${pairItem ? pairItem.recommendation : 'ANALISANDO'}
+                </span>
+            </div>
+        `;
+
+        triadsGrid.innerHTML = "";
+        const tfs = ["MN1", "W1", "D1", "H4", "H1"];
+
+        tfs.forEach(tf => {
+            const card = document.createElement("div");
+            card.className = "triad-card";
+            card.innerHTML = `
+                <div class="triad-card-header">
+                    <span class="triad-tf-title">${tf}</span>
+                    <span class="triad-score positive" style="font-size: 11px;">${baseFlag} ${base} × ${quote} ${quoteFlag}</span>
+                </div>
+                
+                <div class="triad-canvas-container">
+                    <canvas id="deepDiveCanvas_${tf}"></canvas>
+                </div>
+
+                <div class="triad-step">
+                    <div class="triad-step-label">💡 Leitura Gráfica de Confluência ${tf}</div>
+                    <div style="color: #FFF; font-size: 11px;">
+                        Curvas de força relativas de <strong>${base}</strong> (Base) e <strong>${quote}</strong> (Cotada) no timeframe ${tf}.
+                    </div>
+                </div>
+            `;
+            triadsGrid.appendChild(card);
+        });
+
+        document.getElementById("deepDiveModal").classList.remove("hidden");
+
+        setTimeout(() => {
+            tfs.forEach(tf => {
+                drawTriadMiniChart(`deepDiveCanvas_${tf}`, target, tf);
+            });
+        }, 80);
+
+        return;
+    }
+
+    // Caso seja Moeda Única (ex: AUD, USD, EUR, etc.)
+    const ccy = target;
+    const ccyData = state.data.currencies?.find(c => c.symbol === ccy);
     if (!ccyData) return;
 
     document.getElementById("deepDiveFlag").textContent = ccyData.flag;
     document.getElementById("deepDiveTitle").textContent = `${ccyData.symbol} (${ccyData.trade_bias})`;
     document.getElementById("deepDiveSubtitle").textContent = ccyData.final_verdict;
 
-    const verdictCard = document.getElementById("deepDiveVerdictCard");
     verdictCard.innerHTML = `
         <div>
             <div style="font-size: 11px; color: var(--text-muted); text-transform: uppercase;">Estado de Confluência:</div>
@@ -1045,10 +1255,9 @@ window.openDeepDive = function(ccy) {
         </div>
     `;
 
-    const triadsGrid = document.getElementById("deepDiveTriadsGrid");
     triadsGrid.innerHTML = "";
-
     const tfs = ["MN1", "W1", "D1", "H4", "H1"];
+
     tfs.forEach(tf => {
         const triad = ccyData.triads[tf];
         if (!triad) return;
@@ -1060,6 +1269,11 @@ window.openDeepDive = function(ccy) {
                 <span class="triad-tf-title">${tf}</span>
                 <span class="triad-score ${triad.score > 0 ? 'positive' : 'negative'}">${triad.score_str} ${triad.dir}</span>
             </div>
+
+            <div class="triad-canvas-container">
+                <canvas id="deepDiveCanvas_${tf}"></canvas>
+            </div>
+
             <div class="triad-step">
                 <div class="triad-step-label">1. Região no Box</div>
                 <div style="color: #FFF;">${triad.region}</div>
@@ -1081,6 +1295,12 @@ window.openDeepDive = function(ccy) {
     });
 
     document.getElementById("deepDiveModal").classList.remove("hidden");
+
+    setTimeout(() => {
+        tfs.forEach(tf => {
+            drawTriadMiniChart(`deepDiveCanvas_${tf}`, ccy, tf);
+        });
+    }, 80);
 };
 
 // HISTÓRICO DE RELATÓRIOS

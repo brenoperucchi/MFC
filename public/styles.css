@@ -2254,4 +2254,86 @@ body.dark-theme {
     }
 }
 
+/* ==========================================================================
+   RAIO-X 5-TIMEFRAMES MINI CHARTS GRID STYLING
+   ========================================================================== */
+
+.triad-cards-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 14px;
+    margin-top: 14px;
+}
+
+.triad-card {
+    background: #0E131E;
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    transition: all 0.2s ease;
+}
+
+.triad-card:hover {
+    border-color: rgba(0, 229, 255, 0.4);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+}
+
+.triad-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-bottom: 6px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.triad-tf-title {
+    font-size: 14px;
+    font-weight: 800;
+    color: #FFFFFF;
+    font-family: var(--font-mono);
+}
+
+.triad-score {
+    font-size: 12px;
+    font-weight: 700;
+    font-family: var(--font-mono);
+}
+
+.triad-score.positive { color: var(--color-cyan); }
+.triad-score.negative { color: var(--color-red); }
+
+.triad-canvas-container {
+    width: 100%;
+    height: 125px;
+    background: #080B11;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 8px;
+    position: relative;
+    overflow: hidden;
+}
+
+.triad-canvas-container canvas {
+    width: 100%;
+    height: 100%;
+    display: block;
+}
+
+.triad-step {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    font-size: 11px;
+}
+
+.triad-step-label {
+    font-size: 9.5px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    font-weight: 700;
+}
+
+
 
