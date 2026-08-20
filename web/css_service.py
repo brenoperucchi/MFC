@@ -442,6 +442,9 @@ class CSSDataEngine:
         # Screener 28 Pares
         pair_rankings = evaluate_28_pairs_confluence(ALL_28_PAIRS, ccy_confluence_results, tf_data_raw)
         
+        crossovers_data = detect_currency_crossovers(tf_charts)
+        h1_cross_map = {c["pair"]: c for c in crossovers_data.get("timeframes", {}).get("H1", {}).get("crossovers", [])}
+
         # Formatar 28 pares
         formatted_pairs = []
         for item in pair_rankings:
@@ -462,6 +465,11 @@ class CSSDataEngine:
             else:
                 badge_type = "NEUTRAL"
 
+            cross_info = h1_cross_map.get(pair)
+            default_t = tf_charts.get("H1", {}).get("times", [""])[-1] if tf_charts.get("H1") else ""
+            signal_time = cross_info["timestamp"] if cross_info else default_t
+            bars_ago = cross_info["bars_ago"] if cross_info else 0
+
             formatted_pairs.append({
                 "pair": pair,
                 "base": base,
@@ -474,10 +482,10 @@ class CSSDataEngine:
                 "recommendation": rec,
                 "badge_type": badge_type,
                 "conviction": item["conviction"],
-                "thesis": item["thesis"]
+                "thesis": item["thesis"],
+                "signal_time": signal_time,
+                "bars_ago": bars_ago
             })
-
-        crossovers_data = detect_currency_crossovers(tf_charts)
 
         self.cache = {
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),

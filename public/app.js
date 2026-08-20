@@ -15,7 +15,7 @@ const state = {
         chart3: "D1"
     },
     data: null,
-    pairsFilter: "ALL",
+    pairsFilter: "RECENT_4H",
     pairsSearch: "",
     selectedDeepDive: "AUD",
     matrixActiveCcy: "USD",
@@ -935,7 +935,13 @@ function renderPairsTable() {
     let list = state.data.pairs;
 
     // Aplicar filtros
-    if (state.pairsFilter === "BUY") {
+    if (state.pairsFilter === "RECENT_4H") {
+        list = list.filter(p => {
+            const cross = state.data?.crossovers?.timeframes?.H1?.crossovers?.find(c => c.pair === p.pair);
+            const bars = cross ? cross.bars_ago : (p.bars_ago !== undefined ? p.bars_ago : 0);
+            return bars <= 4;
+        });
+    } else if (state.pairsFilter === "BUY") {
         list = list.filter(p => p.recommendation.includes("BUY"));
     } else if (state.pairsFilter === "SELL") {
         list = list.filter(p => p.recommendation.includes("SELL"));
@@ -952,7 +958,7 @@ function renderPairsTable() {
     tbody.innerHTML = "";
 
     if (list.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="8" class="loading-cell">Nenhum par encontrado para o filtro selecionado.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="9" class="loading-cell" style="padding: 30px; text-align: center; color: var(--text-muted);">⏱️ Nenhuma operação ou cruzamento confirmado nas últimas 4 horas.</td></tr>`;
         return;
     }
 
@@ -965,12 +971,42 @@ function renderPairsTable() {
         else if (item.badge_type === "STRONG_SELL") recClass = "strong-sell";
         else if (item.badge_type === "SELL") recClass = "sell";
 
+        let signalTime = item.signal_time;
+        let bars = item.bars_ago;
+
+        if (state.data?.crossovers?.timeframes?.H1?.crossovers) {
+            const cross = state.data.crossovers.timeframes.H1.crossovers.find(c => c.pair === item.pair);
+            if (cross) {
+                signalTime = cross.timestamp;
+                bars = cross.bars_ago;
+            }
+        }
+        if (!signalTime && state.data?.charts?.H1?.times) {
+            const times = state.data.charts.H1.times;
+            const barIdx = Math.max(0, times.length - 1 - (bars || 0));
+            signalTime = times[barIdx];
+        }
+
+        const timeDisplay = signalTime ? signalTime.replace(/.*(\d{2}:\d{2}).*/, '$1') : '18:00';
+        const fullTime = signalTime || '';
+        const recencyStr = (bars === 0 || bars === undefined) ? '🔥 Barra Atual' : `${bars}h atrás (${bars}b)`;
+
         tr.innerHTML = `
+            <td style="white-space: nowrap;">
+                <div style="display: flex; flex-direction: column; gap: 2px;">
+                    <span style="font-family: var(--font-mono); font-size: 11.5px; font-weight: 800; color: #FFD700;">
+                        🕒 ${timeDisplay}
+                    </span>
+                    <span style="font-size: 9px; font-weight: 700; color: ${(bars === 0 || bars <= 2) ? 'var(--color-green)' : 'var(--text-muted)'};">
+                        ${recencyStr}
+                    </span>
+                </div>
+            </td>
             <td style="color: var(--text-muted); font-family: var(--font-mono);">${index + 1}</td>
             <td>
                 <div class="pair-badge-cell">
                     <span>${item.base_flag}${item.quote_flag}</span>
-                    <span style="color: #FFFFFF;">${item.pair}</span>
+                    <span style="color: #FFFFFF; font-weight: 700;">${item.pair}</span>
                 </div>
             </td>
             <td><span class="rec-badge ${recClass}">${item.recommendation}</span></td>
