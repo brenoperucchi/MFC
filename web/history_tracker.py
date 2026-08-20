@@ -214,11 +214,10 @@ class TrackRecordEngine:
             br_date = (entry_time - timedelta(hours=6)).strftime("%Y-%m-%d")
             exit_time = entry_time + timedelta(hours=11)
             
-            # Verificar se a janela de 11 horas existe completa no histórico
+            # Verificar se a sessão é histórica completa ou em andamento
             exit_matches = ref_df[ref_df['time'] == exit_time]
-            if exit_matches.empty:
-                continue
-
+            is_in_progress = exit_matches.empty
+            
             # Avaliar moedas qualificadas no momento da entrada
             qualified_currencies = self._evaluate_css_at_time(entry_time)
 
@@ -240,14 +239,21 @@ class TrackRecordEngine:
                 })
                 continue
 
-            # Construir séries horárias das 11 horas de operação
+            # Construir séries horárias das horas disponíveis
             hourly_times = [entry_time + timedelta(hours=h) for h in range(12)]
             hourly_rates = {h_idx: {} for h_idx in range(12)}
+            last_known_rates = {}
+
             for h_idx, t_step in enumerate(hourly_times):
                 for sym, df in pair_h1.items():
                     m = df[df['time'] == t_step]
                     if not m.empty:
-                        hourly_rates[h_idx][sym] = float(m['open'].values[0])
+                        r_val = float(m['open'].values[0])
+                        hourly_rates[h_idx][sym] = r_val
+                        last_known_rates[sym] = r_val
+                    elif sym in last_known_rates:
+                        # Para horas futuras ainda não concluídas na sessão de hoje, manter a cotação mais recente
+                        hourly_rates[h_idx][sym] = last_known_rates[sym]
 
             session_pnl_usd = 0.0
             session_pips = 0.0
@@ -346,12 +352,16 @@ class TrackRecordEngine:
             sess_mae = round(float(np.min(session_hourly_pnl)), 2)
             equity = round(equity + session_pnl_usd, 2)
 
+            status = "EM ANDAMENTO" if is_in_progress else ("WIN" if session_pnl_usd >= 0 else "LOSS")
+            status_label = "🟡 EM ANDAMENTO" if is_in_progress else ("✅ GANHO" if session_pnl_usd >= 0 else "❌ PERDA")
+
             sessions.append({
                 "date": br_date,
                 "entry_time_br": f"{br_date} 21:00",
                 "exit_time_br": (entry_time - timedelta(hours=6) + timedelta(days=1)).strftime("%Y-%m-%d") + " 08:00",
-                "status": "WIN" if session_pnl_usd >= 0 else "LOSS",
-                "status_label": "✅ GANHO" if session_pnl_usd >= 0 else "❌ PERDA",
+                "status": status,
+                "status_label": status_label,
+                "is_in_progress": is_in_progress,
                 "portfolios_count": len(session_portfolios),
                 "total_pnl_usd": session_pnl_usd,
                 "total_pips": session_pips,
@@ -370,8 +380,8 @@ class TrackRecordEngine:
             })
 
         active_sessions = [s for s in sessions if s["portfolios_count"] > 0]
-        win_sessions = [s for s in active_sessions if s["total_pnl_usd"] > 0]
-        loss_sessions = [s for s in active_sessions if s["total_pnl_usd"] < 0]
+        win_sessions = [s for s in active_sessions if s.get("status") == "WIN"]
+        loss_sessions = [s for s in active_sessions if s.get("status") == "LOSS"]
         
         gross_profit = sum(s["total_pnl_usd"] for s in win_sessions)
         gross_loss = abs(sum(s["total_pnl_usd"] for s in loss_sessions))
@@ -486,49 +496,60 @@ class TrackRecordEngine:
                     sl = (ma0 - prev) / atr_val if atr_val > 0 else 0.0
                     pair_slopes[sym] = sl
             
-            ccy_slopes = {c: 0.0 for c in CURRENCIES}
-            ccy_cnt = {c: 0 for c in CURRENCIES}
+            ccy_slopes = {c: [] for c in CURRENCIES}
             for sym, sl in pair_slopes.items():
                 b, q = sym[:3], sym[3:6]
-                if b in ccy_slopes: ccy_slopes[b] += sl; ccy_cnt[b] += 1
-                if q in ccy_slopes: ccy_slopes[q] -= sl; ccy_cnt[q] += 1
-            for c in CURRENCIES:
-                if ccy_cnt[c] > 0: ccy_slopes[c] /= ccy_cnt[c]
-                
-            tf_slopes[tf_name] = ccy_slopes
+                if b in ccy_slopes: ccy_slopes[b].append(sl)
+                if q in ccy_slopes: ccy_slopes[q].append(-sl)
+            tf_slopes[tf_name] = {c: float(np.mean(ccy_slopes[c])) if ccy_slopes[c] else 0.0 for c in CURRENCIES}
 
         for c in CURRENCIES:
-            up_count = 0
-            dn_count = 0
+            green_cnt = 0
+            red_cnt = 0
             leds = {}
             
             for tf_name in ["MN1", "W1", "D1", "H4", "H1"]:
                 val = tf_slopes.get(tf_name, {}).get(c, 0.0)
-                if val > 0.02:
-                    up_count += 1
+                if val > 0.05:
+                    green_cnt += 1
                     leds[tf_name] = "green"
-                elif val < -0.02:
-                    dn_count += 1
+                elif val < -0.05:
+                    red_cnt += 1
                     leds[tf_name] = "red"
                 else:
                     leds[tf_name] = "yellow"
 
-            if up_count >= 4:
-                qualified.append({
-                    "symbol": c,
-                    "bias": "BUY",
-                    "confluence_tfs": up_count,
-                    "leds": leds,
-                    "reason": f"Confluência de Alta em {up_count}/5 Timeframes (Devendo Força +0.20)"
-                })
-            elif dn_count >= 4:
+            h1_s = tf_slopes.get("H1", {}).get(c, 0.0)
+            h4_s = tf_slopes.get("H4", {}).get(c, 0.0)
+            d1_s = tf_slopes.get("D1", {}).get(c, 0.0)
+
+            # Qualificação Cíclica Multi-TF
+            if red_cnt >= 4 or (h1_s <= -0.50 and (d1_s < 0 or h4_s < 0)):
                 qualified.append({
                     "symbol": c,
                     "bias": "SELL",
-                    "confluence_tfs": dn_count,
+                    "confluence_tfs": max(red_cnt, 4),
                     "leds": leds,
-                    "reason": f"Confluência de Baixa em {dn_count}/5 Timeframes (Devendo Fraqueza -0.20)"
+                    "reason": f"Confluência de Fraqueza em {red_cnt}/5 Timeframes (Viés de Venda)"
                 })
+            elif green_cnt >= 4 or (h1_s >= 0.50 and (d1_s > 0 or h4_s > 0)):
+                # Se estiver no Extremo Superior e H4 caindo -> Venda por Exaustão Cíclica
+                if h1_s >= 0.80 and h4_s < 0:
+                    qualified.append({
+                        "symbol": c,
+                        "bias": "SELL",
+                        "confluence_tfs": max(green_cnt, 4),
+                        "leds": leds,
+                        "reason": f"Exaustão Cíclica no Topo (+{h1_s:.2f}) com H4 em Queda (Viés de Venda)"
+                    })
+                else:
+                    qualified.append({
+                        "symbol": c,
+                        "bias": "BUY",
+                        "confluence_tfs": max(green_cnt, 4),
+                        "leds": leds,
+                        "reason": f"Confluência de Força em {green_cnt}/5 Timeframes (Viés de Compra)"
+                    })
 
         return qualified
 

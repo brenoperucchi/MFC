@@ -1489,10 +1489,11 @@ function renderTrackSessionsTable(sessions) {
     tbody.innerHTML = "";
 
     sessions.forEach((sess, sIdx) => {
-        const isWin = sess.total_pnl_usd > 0;
-        const isNeut = sess.portfolios_count === 0;
-        const statusClass = isNeut ? "neutral" : (isWin ? "buy" : "sell");
-        const pnlClass = isNeut ? "neutral" : (isWin ? "positive" : "negative");
+        const isInProgress = sess.status === "EM ANDAMENTO" || sess.is_in_progress === true;
+        const isNeut = sess.portfolios_count === 0 && !isInProgress;
+        const isWin = sess.total_pnl_usd >= 0;
+        const statusClass = isInProgress ? "warning" : (isNeut ? "neutral" : (isWin ? "buy" : "sell"));
+        const pnlClass = isNeut ? "neutral" : (sess.total_pnl_usd >= 0 ? "positive" : "negative");
 
         const tr = document.createElement("tr");
         tr.className = "track-session-row" + (state.trackSelectedSession && state.trackSelectedSession.date === sess.date ? " selected-row" : "");
@@ -1512,14 +1513,21 @@ function renderTrackSessionsTable(sessions) {
         const mfeStr = isNeut ? "--" : `+$${(sess.mfe_usd || 0).toFixed(2)}`;
         const maeStr = isNeut ? "--" : `-$${Math.abs(sess.mae_usd || 0).toFixed(2)}`;
 
+        let statusText = isNeut ? 'NEUTRO' : (isWin ? '✅ GANHO' : '❌ PERDA');
+        if (isInProgress) {
+            statusText = '🟡 EM ANDAMENTO';
+        }
+
         tr.innerHTML = `
             <td style="font-family: var(--font-mono); font-weight: 700; color: #FFF;">
                 📅 ${sess.date} <br>
-                <small style="color: var(--text-muted); font-size: 9.5px;">21h00 ➔ 08h00 BRT</small>
+                <small style="color: ${isInProgress ? 'var(--color-yellow)' : 'var(--text-muted)'}; font-size: 9.5px;">
+                    ${isInProgress ? '🔴 AO VIVO (21h00 ➔ 08h00)' : '21h00 ➔ 08h00 BRT'}
+                </small>
             </td>
             <td>
-                <span class="signal-pill ${statusClass}" style="font-size: 9.5px; padding: 2px 8px;">
-                    ${isNeut ? 'NEUTRO' : (isWin ? '✅ GANHO' : '❌ PERDA')}
+                <span class="signal-pill ${statusClass}" style="font-size: 9.5px; padding: 2px 8px; ${isInProgress ? 'background: rgba(255,214,0,0.15); color: #FFD600; border: 1px solid #FFD600;' : ''}">
+                    ${statusText}
                 </span>
             </td>
             <td>${portPillsHtml}</td>
