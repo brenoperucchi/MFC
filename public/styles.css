@@ -1761,3 +1761,363 @@ body.dark-theme {
 
 .text-right { text-align: right; }
 
+/* ==========================================================================
+   RESPONSIVE DESIGN SYSTEM — MOBILE, TABLET & COMPACT SCREENS
+   ========================================================================== */
+
+/* TABLETS & SCREENS UNDER 1024px */
+@media (max-width: 1024px) {
+    .app-header {
+        padding: 10px 14px;
+        gap: 12px;
+    }
+    
+    .header-left {
+        gap: 14px;
+    }
+
+    .currency-toggles {
+        overflow-x: auto;
+        padding-bottom: 2px;
+        max-width: 100%;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .charts-container.split-3 {
+        grid-template-columns: 1fr;
+    }
+
+    .audit-master-detail-container {
+        grid-template-columns: 280px 1fr;
+    }
+}
+
+/* SMARTPHONES & TABLETS UNDER 768px */
+@media (max-width: 768px) {
+    /* Header Reorganization */
+    .app-header {
+        flex-direction: column;
+        align-items: stretch;
+        padding: 8px 12px;
+        gap: 10px;
+    }
+
+    .header-left {
+        justify-content: space-between;
+        width: 100%;
+        gap: 10px;
+    }
+
+    .header-right {
+        width: 100%;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        align-items: center;
+        justify-content: space-between;
+    }
+
+    .view-mode-selector {
+        display: none !important;
+    }
+
+    .brand-title {
+        font-size: 14px;
+    }
+
+    .brand-subtitle {
+        font-size: 8px;
+    }
+
+    .currency-toggles {
+        width: 100%;
+        overflow-x: auto;
+        white-space: nowrap;
+        padding: 4px 0;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .ccy-btn {
+        padding: 4px 8px;
+        font-size: 11px;
+        flex-shrink: 0;
+    }
+
+    .toggles-label {
+        font-size: 10px;
+        margin-right: 2px;
+    }
+
+    .top-timeframe-bar {
+        padding: 6px 10px;
+        flex-direction: column;
+        gap: 8px;
+        align-items: stretch;
+    }
+
+    .top-tf-group {
+        justify-content: center;
+        width: 100%;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .top-tf-btn {
+        flex: 1;
+        padding: 6px 8px;
+        font-size: 11px;
+        text-align: center;
+        white-space: nowrap;
+    }
+
+    .action-btn {
+        font-size: 10.5px;
+        padding: 6px 8px;
+        flex: 1 1 calc(50% - 6px);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 32px;
+        white-space: nowrap;
+    }
+
+    .action-btn.icon-btn {
+        flex: 0 0 32px;
+        width: 32px;
+        padding: 0;
+    }
+
+    .modal-close {
+        width: 36px;
+        height: 36px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 26px;
+        cursor: pointer;
+        border-radius: 6px;
+        background: rgba(255, 255, 255, 0.05);
+    }
+
+    /* Charts Container */
+    .charts-container.split-2,
+    .charts-container.split-3 {
+        grid-template-columns: 1fr;
+    }
+
+    .chart-card {
+        height: 330px !important;
+    }
+
+    .chart-header {
+        padding: 8px 10px;
+        flex-wrap: wrap;
+        gap: 6px;
+    }
+
+    .chart-title {
+        font-size: 11.5px;
+    }
+
+    .tf-tabs {
+        gap: 2px;
+    }
+
+    .tf-tab {
+        padding: 3px 6px;
+        font-size: 10px;
+    }
+
+    /* Badges Overlay */
+    .floating-ccy-badge {
+        right: 4px;
+        padding: 2px 6px;
+        font-size: 9.5px;
+        gap: 3px;
+        border-radius: 4px;
+    }
+
+    .floating-ccy-badge .badge-val {
+        font-size: 9px;
+    }
+
+    /* Table Institutional */
+    .table-section {
+        padding: 10px 12px;
+    }
+
+    .table-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+    }
+
+    .table-responsive {
+        width: 100%;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .currency-table th, 
+    .currency-table td {
+        padding: 6px 8px;
+        font-size: 11px;
+    }
+
+    .region-badge {
+        font-size: 8.5px;
+        padding: 1px 4px;
+    }
+
+    .led-dot {
+        width: 6px;
+        height: 6px;
+    }
+
+    /* Modals System */
+    .modal-backdrop {
+        padding: 6px;
+    }
+
+    .modal-dialog {
+        width: 98vw !important;
+        max-width: 98vw !important;
+        height: 94vh !important;
+        max-height: 94vh !important;
+        border-radius: 10px;
+    }
+
+    .modal-header {
+        padding: 10px 14px !important;
+    }
+
+    .modal-title {
+        font-size: 13px !important;
+    }
+
+    .modal-subtitle {
+        font-size: 10px !important;
+    }
+
+    .modal-body {
+        padding: 10px 12px !important;
+    }
+
+    /* Track Record 3-Tab Nav */
+    .track-modal-nav {
+        padding: 6px 10px;
+        overflow-x: auto;
+        white-space: nowrap;
+        -webkit-overflow-scrolling: touch;
+        gap: 6px;
+    }
+
+    .track-nav-tab {
+        padding: 6px 10px;
+        font-size: 10.5px;
+        flex-shrink: 0;
+    }
+
+    .live-hero-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 6px;
+    }
+
+    .live-kpi-grid {
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+    }
+
+    .live-kpi-card {
+        padding: 8px 10px;
+    }
+
+    .kpi-title {
+        font-size: 10px;
+    }
+
+    .kpi-value {
+        font-size: 15px;
+    }
+
+    .live-baskets-grid {
+        grid-template-columns: 1fr;
+    }
+
+    /* Master-Detail Auditor on Mobile */
+    .audit-master-detail-container {
+        display: flex;
+        flex-direction: column;
+        height: auto;
+        gap: 12px;
+    }
+
+    .audit-sidebar {
+        max-height: 180px;
+        flex-shrink: 0;
+    }
+
+    .audit-detail-panel {
+        padding: 12px;
+    }
+
+    .track-dual-charts-grid {
+        grid-template-columns: 1fr !important;
+    }
+
+    .track-metrics-grid {
+        grid-template-columns: 1fr 1fr !important;
+    }
+
+    /* History Reports Modal on Mobile */
+    .history-body-layout {
+        flex-direction: column !important;
+        height: auto !important;
+        max-height: 78vh;
+    }
+
+    .history-sidebar {
+        width: 100% !important;
+        max-height: 140px !important;
+        border-right: none !important;
+        border-bottom: 1px solid var(--border-color);
+        flex-shrink: 0;
+    }
+
+    .history-content-viewer {
+        width: 100% !important;
+        height: auto !important;
+        min-height: 300px;
+    }
+}
+
+/* ULTRA-COMPACT SMARTPHONES UNDER 480px */
+@media (max-width: 480px) {
+    .live-kpi-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .track-metrics-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .action-btn {
+        padding: 5px 6px;
+        font-size: 10px;
+    }
+
+    .chart-card {
+        height: 290px !important;
+    }
+
+    .btn-raio-x {
+        padding: 2px 4px;
+        font-size: 8.5px;
+    }
+}
+
+

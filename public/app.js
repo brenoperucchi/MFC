@@ -287,7 +287,14 @@ function renderChart(chartKey) {
     minVal -= 0.08;
     maxVal += 0.08;
 
-    const padding = { top: 25, bottom: 25, left: 15, right: 175 };
+    const isMobile = window.innerWidth <= 768;
+    const isSmall = window.innerWidth <= 480;
+    const padding = { 
+        top: 25, 
+        bottom: 25, 
+        left: isSmall ? 8 : 15, 
+        right: isSmall ? 80 : (isMobile ? 100 : 175) 
+    };
     const chartW = width - padding.left - padding.right;
     const chartH = height - padding.top - padding.bottom;
 
@@ -470,9 +477,13 @@ function renderRightSideBadges(ctx, overlay, points, containerHeight, width, pad
     overlay.innerHTML = "";
     if (!points || points.length === 0) return;
 
-    resolveBadgePositions(points, containerHeight, 25);
+    const isMobile = window.innerWidth <= 768;
+    const isSmall = window.innerWidth <= 480;
+    const minSpacing = isSmall ? 18 : (isMobile ? 20 : 25);
 
-    const badgeStartX = width - 155;
+    resolveBadgePositions(points, containerHeight, minSpacing);
+
+    const badgeStartX = width - padding.right + (isSmall ? 4 : 10);
 
     points.forEach(p => {
         // 1. Desenhar ponto luminoso no fim da linha
