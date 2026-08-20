@@ -1257,21 +1257,47 @@ function renderLiveTab(session) {
     const badgeTab = document.getElementById("livePortfoliosBadge");
     const timerBadge = document.getElementById("liveElapsedTimer");
 
-    const totalPnL = session.total_pnl_usd || 0;
-    const totalPips = session.total_pips || 0;
-    const portfolios = session.portfolios || [];
-    const totalPairsCount = portfolios.reduce((acc, p) => acc + (p.pairs || []).length, 0);
+    const isLive = !!session.is_in_progress;
+
+    // Status text, pill e timer
+    const statusTextEl = document.querySelector(".status-live-text");
+    const timeInfoEl = document.getElementById("liveSessionTimeInfo");
+    const pulseRing = document.querySelector(".pulse-ring-live");
+    const kpiTitleEl = document.querySelector(".live-kpi-card.highlight .kpi-title");
+
+    if (statusTextEl) {
+        statusTextEl.textContent = isLive ? "🔴 PREGÃO DA MADRUGADA AO VIVO" : "🟢 SESSÃO ENCERRADA ÀS 08H00 BRT";
+    }
+    if (timeInfoEl) {
+        timeInfoEl.textContent = session.session_info_str || (isLive ? "📅 Sessão Ao Vivo | Início: 21h00 ➔ Encerramento: 08h00 BRT" : "✅ Sessão da Madrugada Concluída às 08h00 BRT | Próxima Abertura às 21h00 BRT");
+    }
+    if (timerBadge) {
+        timerBadge.textContent = isLive ? `⏱️ Em andamento (${session.time_remaining_str || '21h➔08h'})` : `⏳ Fechado às 08h00 | Próxima às 21h00 (${session.next_session_in || ''})`;
+        timerBadge.style.background = isLive ? "rgba(255, 51, 75, 0.2)" : "rgba(0, 230, 118, 0.15)";
+        timerBadge.style.color = isLive ? "#FF334B" : "#00E676";
+        timerBadge.style.borderColor = isLive ? "rgba(255, 51, 75, 0.4)" : "rgba(0, 230, 118, 0.4)";
+    }
+    if (badgeTab) {
+        badgeTab.textContent = isLive ? `${portfolios.length} Cestas Ativas` : `Fechada às 08h (${portfolios.length} Cestas)`;
+        badgeTab.style.background = isLive ? "rgba(255, 51, 75, 0.2)" : "rgba(0, 230, 118, 0.15)";
+        badgeTab.style.color = isLive ? "#FF334B" : "#00E676";
+    }
+    if (pulseRing) {
+        pulseRing.style.borderColor = isLive ? "var(--color-red)" : "var(--color-green)";
+    }
+    if (kpiTitleEl) {
+        kpiTitleEl.textContent = isLive ? "PnL Flutuante em Tempo Real" : "Resultado Consolidado da Noite (08h00)";
+    }
 
     if (pnlEl) {
         pnlEl.textContent = (totalPnL >= 0 ? "+$" : "-$") + Math.abs(totalPnL).toFixed(2);
         pnlEl.className = "kpi-value " + (totalPnL >= 0 ? "positive" : "negative");
     }
-    if (pipsEl) pipsEl.textContent = `${(totalPips >= 0 ? "+" : "") + totalPips.toFixed(1)} pips flutuantes`;
+    if (pipsEl) pipsEl.textContent = `${(totalPips >= 0 ? "+" : "") + totalPips.toFixed(1)} pips ${isLive ? 'flutuantes' : 'realizados'}`;
     if (mfeEl) mfeEl.textContent = `+$${(session.mfe_usd || 0).toFixed(2)}`;
     if (maeEl) maeEl.textContent = `-$${Math.abs(session.mae_usd || 0).toFixed(2)}`;
     if (countEl) countEl.textContent = `${portfolios.length} Cestas`;
-    if (pairsCountEl) pairsCountEl.textContent = `${totalPairsCount} pares operados`;
-    if (badgeTab) badgeTab.textContent = `${portfolios.length} Cestas Ativas`;
+    if (pairsCountEl) pairsCountEl.textContent = `${totalPairsCount} pares ${isLive ? 'operados' : 'encerrados'}`;
 
     // 1. Renderizar Cards de Cestas Ativas
     const basketsContainer = document.getElementById("liveBasketsCardsContainer");

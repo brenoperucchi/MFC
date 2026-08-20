@@ -1,15 +1,15 @@
 {
-  "timestamp": "2026-08-20 09:10:35",
+  "timestamp": "2026-08-20 10:01:10",
   "mt5_connected": true,
   "currencies": [
     {
       "symbol": "USD",
       "flag": "🇺🇸",
       "color": "#FF3B30",
-      "h1_score": -0.33,
-      "h4_score": -0.71,
-      "d1_score": -0.69,
-      "total_score": -0.44,
+      "h1_score": -0.4,
+      "h4_score": -0.82,
+      "d1_score": -0.7,
+      "total_score": -0.48,
       "signal_badge": "SELL",
       "trade_bias": "VENDA",
       "confluence_state": "OPERACIONAL EM QUEDA (CICLO DE FRAQUEZA H4/H1)",
@@ -19,9 +19,9 @@
       "triads": {
         "MN1": {
           "tf": "MN1",
-          "score": -0.2718621859495228,
+          "score": -0.2744850062666916,
           "score_str": "-0.27",
-          "diff": -0.02287157363443576,
+          "diff": -0.02549439395160452,
           "dir": "▼ DN",
           "region": "Zona de Parada Vermelha (-0.27 <= -0.20)",
           "region_type": "ZONA_PARADA_VERMELHA",
@@ -34,14 +34,14 @@
         },
         "W1": {
           "tf": "W1",
-          "score": 0.05333106021013852,
+          "score": 0.04747593790875017,
           "score_str": "+0.05",
-          "diff": -0.07025441599919244,
+          "diff": -0.07610953830058079,
           "dir": "▼ DN",
-          "region": "Dentro do Box Superior (+0.05 entre 0.00 e +0.20)",
-          "region_type": "BOX_SUPERIOR",
-          "current_cycle": "Ciclo de Baixa em Andamento (Cruzando o Box)",
-          "owing_cycle": "Devendo Rompimento da Linha Vermelha (-0.20)",
+          "region": "Linha de Equilíbrio 0.00 (+0.05)",
+          "region_type": "EQUILIBRIO_0",
+          "current_cycle": "Aberto sobre o 0 (Permissão Válida para Cair)",
+          "owing_cycle": "Devendo Ciclo de Fraqueza rumo à Linha Vermelha (-0.20)",
           "angle": "▼ Inclinado para Fraqueza (DN)",
           "angle_type": "FRAQUEZA_MODERADA",
           "is_retomada_forca": false,
@@ -49,11 +49,11 @@
         },
         "D1": {
           "tf": "D1",
-          "score": -0.685680896930169,
-          "score_str": "-0.69",
-          "diff": -0.027708573450035967,
+          "score": -0.7000793531868956,
+          "score_str": "-0.70",
+          "diff": -0.04210702970676261,
           "dir": "▼ DN",
-          "region": "Extremo Inferior (-0.69 <= -0.50)",
+          "region": "Extremo Inferior (-0.70 <= -0.50)",
           "region_type": "EXTREMO_INFERIOR",
           "current_cycle": "Retomada de Fraqueza no Box (Ciclo Inválido de Alta)",
           "owing_cycle": "Devendo Expansão de Baixa rumo ao Fundo",
@@ -64,33 +64,33 @@
         },
         "H4": {
           "tf": "H4",
-          "score": -0.7103383932818294,
-          "score_str": "-0.71",
-          "diff": -0.0006533990871144812,
+          "score": -0.8180417838253315,
+          "score_str": "-0.82",
+          "diff": -0.07559288805777309,
           "dir": "▼ DN",
-          "region": "Extremo Inferior (-0.71 <= -0.50)",
+          "region": "Extremo Inferior (-0.82 <= -0.50)",
           "region_type": "EXTREMO_INFERIOR",
           "current_cycle": "Ciclo de Baixa Concluído (Alerta de Fundo / Linha Vermelha)",
           "owing_cycle": "Devendo Exaustão e Início de Ciclo de Força",
-          "angle": "▼ Sutilmente Inclinado para Fraqueza",
-          "angle_type": "FRAQUEZA_SUTIL",
+          "angle": "▼ Inclinado para Fraqueza (DN)",
+          "angle_type": "FRAQUEZA_MODERADA",
           "is_retomada_forca": false,
           "is_retomada_fraqueza": false
         },
         "H1": {
           "tf": "H1",
-          "score": -0.33089004964762286,
-          "score_str": "-0.33",
-          "diff": 0.05721438777514132,
-          "dir": "▲ UP",
-          "region": "Zona de Parada Vermelha (-0.33 <= -0.20)",
+          "score": -0.40326319252545406,
+          "score_str": "-0.40",
+          "diff": -9.902921931059794e-05,
+          "dir": "▼ DN",
+          "region": "Zona de Parada Vermelha (-0.40 <= -0.20)",
           "region_type": "ZONA_PARADA_VERMELHA",
-          "current_cycle": "Início de Ciclo de Alta (Acúmulo sobre Zona Vermelha)",
-          "owing_cycle": "Devendo Ciclo de Força rumo à Linha Verde (+0.20)",
-          "angle": "🚀 Foguete (Forte Aceleração de Alta ▲▲)",
-          "angle_type": "FOGUETE",
+          "current_cycle": "Retomada de Fraqueza no Box (Ciclo Inválido de Alta)",
+          "owing_cycle": "Devendo Expansão de Baixa rumo ao Fundo",
+          "angle": "▼ Sutilmente Inclinado para Fraqueza",
+          "angle_type": "FRAQUEZA_SUTIL",
           "is_retomada_forca": false,
-          "is_retomada_fraqueza": false
+          "is_retomada_fraqueza": true
         }
       },
       "leds": {
@@ -98,35 +98,35 @@
         "W1": "red",
         "D1": "red",
         "H4": "red",
-        "H1": "green"
+        "H1": "red"
       },
       "active_h1_triad": {
         "tf": "H1",
-        "score": -0.33089004964762286,
-        "score_str": "-0.33",
-        "diff": 0.05721438777514132,
-        "dir": "▲ UP",
-        "region": "Zona de Parada Vermelha (-0.33 <= -0.20)",
+        "score": -0.40326319252545406,
+        "score_str": "-0.40",
+        "diff": -9.902921931059794e-05,
+        "dir": "▼ DN",
+        "region": "Zona de Parada Vermelha (-0.40 <= -0.20)",
         "region_type": "ZONA_PARADA_VERMELHA",
-        "current_cycle": "Início de Ciclo de Alta (Acúmulo sobre Zona Vermelha)",
-        "owing_cycle": "Devendo Ciclo de Força rumo à Linha Verde (+0.20)",
-        "angle": "🚀 Foguete (Forte Aceleração de Alta ▲▲)",
-        "angle_type": "FOGUETE",
+        "current_cycle": "Retomada de Fraqueza no Box (Ciclo Inválido de Alta)",
+        "owing_cycle": "Devendo Expansão de Baixa rumo ao Fundo",
+        "angle": "▼ Sutilmente Inclinado para Fraqueza",
+        "angle_type": "FRAQUEZA_SUTIL",
         "is_retomada_forca": false,
-        "is_retomada_fraqueza": false
+        "is_retomada_fraqueza": true
       },
       "active_h4_triad": {
         "tf": "H4",
-        "score": -0.7103383932818294,
-        "score_str": "-0.71",
-        "diff": -0.0006533990871144812,
+        "score": -0.8180417838253315,
+        "score_str": "-0.82",
+        "diff": -0.07559288805777309,
         "dir": "▼ DN",
-        "region": "Extremo Inferior (-0.71 <= -0.50)",
+        "region": "Extremo Inferior (-0.82 <= -0.50)",
         "region_type": "EXTREMO_INFERIOR",
         "current_cycle": "Ciclo de Baixa Concluído (Alerta de Fundo / Linha Vermelha)",
         "owing_cycle": "Devendo Exaustão e Início de Ciclo de Força",
-        "angle": "▼ Sutilmente Inclinado para Fraqueza",
-        "angle_type": "FRAQUEZA_SUTIL",
+        "angle": "▼ Inclinado para Fraqueza (DN)",
+        "angle_type": "FRAQUEZA_MODERADA",
         "is_retomada_forca": false,
         "is_retomada_fraqueza": false
       }
@@ -135,10 +135,10 @@
       "symbol": "EUR",
       "flag": "🇪🇺",
       "color": "#00BFFF",
-      "h1_score": 0.24,
-      "h4_score": 0.44,
+      "h1_score": 0.17,
+      "h4_score": 0.41,
       "d1_score": 0.16,
-      "total_score": 0.21,
+      "total_score": 0.19,
       "signal_badge": "SELL",
       "trade_bias": "VENDA",
       "confluence_state": "OPERACIONAL EM QUEDA (CICLO DE FRAQUEZA H4/H1)",
@@ -148,9 +148,9 @@
       "triads": {
         "MN1": {
           "tf": "MN1",
-          "score": 0.3376648757926301,
+          "score": 0.3366252058315589,
           "score_str": "+0.34",
-          "diff": -0.011177338241449675,
+          "diff": -0.012217008202520863,
           "dir": "▼ DN",
           "region": "Zona de Parada Verde (+0.34 >= +0.20)",
           "region_type": "ZONA_PARADA_VERDE",
@@ -163,9 +163,9 @@
         },
         "W1": {
           "tf": "W1",
-          "score": -0.0709665128707987,
+          "score": -0.07346296077818629,
           "score_str": "-0.07",
-          "diff": 0.008989743402036177,
+          "diff": 0.006493295494648596,
           "dir": "▲ UP",
           "region": "Dentro do Box Inferior (-0.07 entre -0.20 e 0.00)",
           "region_type": "BOX_INFERIOR",
@@ -178,9 +178,9 @@
         },
         "D1": {
           "tf": "D1",
-          "score": 0.16320353849108887,
+          "score": 0.15695479032888274,
           "score_str": "+0.16",
-          "diff": 0.009759610180613693,
+          "diff": 0.0035108620184075567,
           "dir": "▲ UP",
           "region": "Dentro do Box Superior (+0.16 entre 0.00 e +0.20)",
           "region_type": "BOX_SUPERIOR",
@@ -193,11 +193,11 @@
         },
         "H4": {
           "tf": "H4",
-          "score": 0.4357743235085068,
-          "score_str": "+0.44",
-          "diff": -0.011112011450734649,
+          "score": 0.4064595091452424,
+          "score_str": "+0.41",
+          "diff": -0.014161773727840055,
           "dir": "▼ DN",
-          "region": "Zona de Parada Verde (+0.44 >= +0.20)",
+          "region": "Zona de Parada Verde (+0.41 >= +0.20)",
           "region_type": "ZONA_PARADA_VERDE",
           "current_cycle": "Início de Ciclo de Baixa (Acúmulo sobre Zona Verde)",
           "owing_cycle": "Devendo Ciclo de Fraqueza rumo à Linha Vermelha (-0.20)",
@@ -208,16 +208,16 @@
         },
         "H1": {
           "tf": "H1",
-          "score": 0.24073843977589884,
-          "score_str": "+0.24",
-          "diff": -0.005073086983470809,
+          "score": 0.1732111302116373,
+          "score_str": "+0.17",
+          "diff": -0.0335022738425198,
           "dir": "▼ DN",
-          "region": "Zona de Parada Verde (+0.24 >= +0.20)",
-          "region_type": "ZONA_PARADA_VERDE",
-          "current_cycle": "Início de Ciclo de Baixa (Acúmulo sobre Zona Verde)",
-          "owing_cycle": "Devendo Ciclo de Fraqueza rumo à Linha Vermelha (-0.20)",
-          "angle": "▼ Sutilmente Inclinado para Fraqueza",
-          "angle_type": "FRAQUEZA_SUTIL",
+          "region": "Dentro do Box Superior (+0.17 entre 0.00 e +0.20)",
+          "region_type": "BOX_SUPERIOR",
+          "current_cycle": "Ciclo de Baixa em Andamento (Cruzando o Box)",
+          "owing_cycle": "Devendo Rompimento da Linha Vermelha (-0.20)",
+          "angle": "▼ Inclinado para Fraqueza (DN)",
+          "angle_type": "FRAQUEZA_MODERADA",
           "is_retomada_forca": false,
           "is_retomada_fraqueza": false
         }
@@ -231,26 +231,26 @@
       },
       "active_h1_triad": {
         "tf": "H1",
-        "score": 0.24073843977589884,
-        "score_str": "+0.24",
-        "diff": -0.005073086983470809,
+        "score": 0.1732111302116373,
+        "score_str": "+0.17",
+        "diff": -0.0335022738425198,
         "dir": "▼ DN",
-        "region": "Zona de Parada Verde (+0.24 >= +0.20)",
-        "region_type": "ZONA_PARADA_VERDE",
-        "current_cycle": "Início de Ciclo de Baixa (Acúmulo sobre Zona Verde)",
-        "owing_cycle": "Devendo Ciclo de Fraqueza rumo à Linha Vermelha (-0.20)",
-        "angle": "▼ Sutilmente Inclinado para Fraqueza",
-        "angle_type": "FRAQUEZA_SUTIL",
+        "region": "Dentro do Box Superior (+0.17 entre 0.00 e +0.20)",
+        "region_type": "BOX_SUPERIOR",
+        "current_cycle": "Ciclo de Baixa em Andamento (Cruzando o Box)",
+        "owing_cycle": "Devendo Rompimento da Linha Vermelha (-0.20)",
+        "angle": "▼ Inclinado para Fraqueza (DN)",
+        "angle_type": "FRAQUEZA_MODERADA",
         "is_retomada_forca": false,
         "is_retomada_fraqueza": false
       },
       "active_h4_triad": {
         "tf": "H4",
-        "score": 0.4357743235085068,
-        "score_str": "+0.44",
-        "diff": -0.011112011450734649,
+        "score": 0.4064595091452424,
+        "score_str": "+0.41",
+        "diff": -0.014161773727840055,
         "dir": "▼ DN",
-        "region": "Zona de Parada Verde (+0.44 >= +0.20)",
+        "region": "Zona de Parada Verde (+0.41 >= +0.20)",
         "region_type": "ZONA_PARADA_VERDE",
         "current_cycle": "Início de Ciclo de Baixa (Acúmulo sobre Zona Verde)",
         "owing_cycle": "Devendo Ciclo de Fraqueza rumo à Linha Vermelha (-0.20)",
@@ -264,10 +264,10 @@
       "symbol": "GBP",
       "flag": "🇬🇧",
       "color": "#3872FF",
-      "h1_score": 0.36,
-      "h4_score": -0.09,
-      "d1_score": 0.08,
-      "total_score": 0.13,
+      "h1_score": 0.54,
+      "h4_score": -0.03,
+      "d1_score": 0.09,
+      "total_score": 0.18,
       "signal_badge": "SELL",
       "trade_bias": "VENDA",
       "confluence_state": "OPERACIONAL EM QUEDA (CICLO DE FRAQUEZA H4/H1)",
@@ -277,9 +277,9 @@
       "triads": {
         "MN1": {
           "tf": "MN1",
-          "score": 0.07652095027046615,
+          "score": 0.0780743774809469,
           "score_str": "+0.08",
-          "diff": 0.0012837056874622776,
+          "diff": 0.0028371328979430177,
           "dir": "▲ UP",
           "region": "Dentro do Box Superior (+0.08 entre 0.00 e +0.20)",
           "region_type": "BOX_SUPERIOR",
@@ -292,11 +292,11 @@
         },
         "W1": {
           "tf": "W1",
-          "score": 0.23373918096670535,
-          "score_str": "+0.23",
-          "diff": -0.008197043118482766,
+          "score": 0.237690681370276,
+          "score_str": "+0.24",
+          "diff": -0.0042455427149121205,
           "dir": "▼ DN",
-          "region": "Zona de Parada Verde (+0.23 >= +0.20)",
+          "region": "Zona de Parada Verde (+0.24 >= +0.20)",
           "region_type": "ZONA_PARADA_VERDE",
           "current_cycle": "Início de Ciclo de Baixa (Acúmulo sobre Zona Verde)",
           "owing_cycle": "Devendo Ciclo de Fraqueza rumo à Linha Vermelha (-0.20)",
@@ -307,11 +307,11 @@
         },
         "D1": {
           "tf": "D1",
-          "score": 0.07514298111000348,
-          "score_str": "+0.08",
-          "diff": 0.054879944115353636,
+          "score": 0.08536632383559742,
+          "score_str": "+0.09",
+          "diff": 0.06510328684094757,
           "dir": "▲ UP",
-          "region": "Dentro do Box Superior (+0.08 entre 0.00 e +0.20)",
+          "region": "Dentro do Box Superior (+0.09 entre 0.00 e +0.20)",
           "region_type": "BOX_SUPERIOR",
           "current_cycle": "Ciclo de Alta em Andamento (Cruzando o Box)",
           "owing_cycle": "Devendo Rompimento da Linha Verde (+0.20)",
@@ -322,14 +322,14 @@
         },
         "H4": {
           "tf": "H4",
-          "score": -0.09326825113438515,
-          "score_str": "-0.09",
-          "diff": 0.03332390502574657,
+          "score": -0.03481304241398343,
+          "score_str": "-0.03",
+          "diff": 0.035175630858993,
           "dir": "▲ UP",
-          "region": "Dentro do Box Inferior (-0.09 entre -0.20 e 0.00)",
-          "region_type": "BOX_INFERIOR",
-          "current_cycle": "Ciclo de Alta em Andamento (Cruzando o Box)",
-          "owing_cycle": "Devendo Rompimento da Linha Verde (+0.20)",
+          "region": "Linha de Equilíbrio 0.00 (-0.03)",
+          "region_type": "EQUILIBRIO_0",
+          "current_cycle": "Aberto sobre o 0 (Permissão Válida para Subir)",
+          "owing_cycle": "Devendo Ciclo de Força rumo à Linha Verde (+0.20)",
           "angle": "▲ Inclinado para Força (UP)",
           "angle_type": "FORCA_MODERADA",
           "is_retomada_forca": false,
@@ -337,12 +337,12 @@
         },
         "H1": {
           "tf": "H1",
-          "score": 0.35690349536610816,
-          "score_str": "+0.36",
-          "diff": 0.10496534513746303,
+          "score": 0.5362635667666614,
+          "score_str": "+0.54",
+          "diff": 0.12538272731733419,
           "dir": "▲ UP",
-          "region": "Zona de Parada Verde (+0.36 >= +0.20)",
-          "region_type": "ZONA_PARADA_VERDE",
+          "region": "Extremo Superior (+0.54 > +0.50)",
+          "region_type": "EXTREMO_SUPERIOR",
           "current_cycle": "Ciclo de Alta Concluído (Alerta de Topo / Linha Verde)",
           "owing_cycle": "Devendo Exaustão e Início de Ciclo de Fraqueza",
           "angle": "🚀 Foguete (Forte Aceleração de Alta ▲▲)",
@@ -360,12 +360,12 @@
       },
       "active_h1_triad": {
         "tf": "H1",
-        "score": 0.35690349536610816,
-        "score_str": "+0.36",
-        "diff": 0.10496534513746303,
+        "score": 0.5362635667666614,
+        "score_str": "+0.54",
+        "diff": 0.12538272731733419,
         "dir": "▲ UP",
-        "region": "Zona de Parada Verde (+0.36 >= +0.20)",
-        "region_type": "ZONA_PARADA_VERDE",
+        "region": "Extremo Superior (+0.54 > +0.50)",
+        "region_type": "EXTREMO_SUPERIOR",
         "current_cycle": "Ciclo de Alta Concluído (Alerta de Topo / Linha Verde)",
         "owing_cycle": "Devendo Exaustão e Início de Ciclo de Fraqueza",
         "angle": "🚀 Foguete (Forte Aceleração de Alta ▲▲)",
@@ -375,14 +375,14 @@
       },
       "active_h4_triad": {
         "tf": "H4",
-        "score": -0.09326825113438515,
-        "score_str": "-0.09",
-        "diff": 0.03332390502574657,
+        "score": -0.03481304241398343,
+        "score_str": "-0.03",
+        "diff": 0.035175630858993,
         "dir": "▲ UP",
-        "region": "Dentro do Box Inferior (-0.09 entre -0.20 e 0.00)",
-        "region_type": "BOX_INFERIOR",
-        "current_cycle": "Ciclo de Alta em Andamento (Cruzando o Box)",
-        "owing_cycle": "Devendo Rompimento da Linha Verde (+0.20)",
+        "region": "Linha de Equilíbrio 0.00 (-0.03)",
+        "region_type": "EQUILIBRIO_0",
+        "current_cycle": "Aberto sobre o 0 (Permissão Válida para Subir)",
+        "owing_cycle": "Devendo Ciclo de Força rumo à Linha Verde (+0.20)",
         "angle": "▲ Inclinado para Força (UP)",
         "angle_type": "FORCA_MODERADA",
         "is_retomada_forca": false,
@@ -393,10 +393,10 @@
       "symbol": "CHF",
       "flag": "🇨🇭",
       "color": "#00E5FF",
-      "h1_score": -0.09,
-      "h4_score": 0.97,
+      "h1_score": -0.06,
+      "h4_score": 1.01,
       "d1_score": -0.1,
-      "total_score": 0.14,
+      "total_score": 0.16,
       "signal_badge": "BUY",
       "trade_bias": "COMPRA FORTE",
       "confluence_state": "CONFLUÊNCIA DE ALTA (DEVENDO CICLO DE FORÇA)",
@@ -406,9 +406,9 @@
       "triads": {
         "MN1": {
           "tf": "MN1",
-          "score": 0.43254387131687416,
+          "score": 0.4342415502819385,
           "score_str": "+0.43",
-          "diff": -0.025705936263254736,
+          "diff": -0.024008257298190394,
           "dir": "▼ DN",
           "region": "Zona de Parada Verde (+0.43 >= +0.20)",
           "region_type": "ZONA_PARADA_VERDE",
@@ -421,9 +421,9 @@
         },
         "W1": {
           "tf": "W1",
-          "score": -0.31249725736408607,
+          "score": -0.3089197134802831,
           "score_str": "-0.31",
-          "diff": 0.06169402374626698,
+          "diff": 0.06527156763006997,
           "dir": "▲ UP",
           "region": "Zona de Parada Vermelha (-0.31 <= -0.20)",
           "region_type": "ZONA_PARADA_VERMELHA",
@@ -436,9 +436,9 @@
         },
         "D1": {
           "tf": "D1",
-          "score": -0.10432132725026047,
+          "score": -0.09525210050775193,
           "score_str": "-0.10",
-          "diff": 0.03954093745504306,
+          "diff": 0.0486101641975516,
           "dir": "▲ UP",
           "region": "Dentro do Box Inferior (-0.10 entre -0.20 e 0.00)",
           "region_type": "BOX_INFERIOR",
@@ -451,31 +451,31 @@
         },
         "H4": {
           "tf": "H4",
-          "score": 0.9664451540117768,
-          "score_str": "+0.97",
-          "diff": 0.024852478660235766,
+          "score": 1.0133348293858988,
+          "score_str": "+1.01",
+          "diff": 0.0185449571286197,
           "dir": "▲ UP",
-          "region": "Extremo Superior (+0.97 > +0.50)",
+          "region": "Extremo Superior (+1.01 > +0.50)",
           "region_type": "EXTREMO_SUPERIOR",
           "current_cycle": "Ciclo de Alta Concluído (Alerta de Topo / Linha Verde)",
           "owing_cycle": "Devendo Exaustão e Início de Ciclo de Fraqueza",
-          "angle": "▲ Inclinado para Força (UP)",
-          "angle_type": "FORCA_MODERADA",
+          "angle": "▲ Sutilmente Inclinado para Força",
+          "angle_type": "FORCA_SUTIL",
           "is_retomada_forca": false,
           "is_retomada_fraqueza": false
         },
         "H1": {
           "tf": "H1",
-          "score": -0.08634850575821447,
-          "score_str": "-0.09",
-          "diff": -0.1268228697350525,
+          "score": -0.05981208589222882,
+          "score_str": "-0.06",
+          "diff": -0.036573149960336795,
           "dir": "▼ DN",
-          "region": "Dentro do Box Inferior (-0.09 entre -0.20 e 0.00)",
+          "region": "Dentro do Box Inferior (-0.06 entre -0.20 e 0.00)",
           "region_type": "BOX_INFERIOR",
           "current_cycle": "Ciclo de Baixa em Andamento (Cruzando o Box)",
           "owing_cycle": "Devendo Rompimento da Linha Vermelha (-0.20)",
-          "angle": "🎢 Montanha-Russa (Forte Aceleração de Baixa ▼▼)",
-          "angle_type": "MONTANHA_RUSSA",
+          "angle": "▼ Inclinado para Fraqueza (DN)",
+          "angle_type": "FRAQUEZA_MODERADA",
           "is_retomada_forca": false,
           "is_retomada_fraqueza": false
         }
@@ -489,31 +489,31 @@
       },
       "active_h1_triad": {
         "tf": "H1",
-        "score": -0.08634850575821447,
-        "score_str": "-0.09",
-        "diff": -0.1268228697350525,
+        "score": -0.05981208589222882,
+        "score_str": "-0.06",
+        "diff": -0.036573149960336795,
         "dir": "▼ DN",
-        "region": "Dentro do Box Inferior (-0.09 entre -0.20 e 0.00)",
+        "region": "Dentro do Box Inferior (-0.06 entre -0.20 e 0.00)",
         "region_type": "BOX_INFERIOR",
         "current_cycle": "Ciclo de Baixa em Andamento (Cruzando o Box)",
         "owing_cycle": "Devendo Rompimento da Linha Vermelha (-0.20)",
-        "angle": "🎢 Montanha-Russa (Forte Aceleração de Baixa ▼▼)",
-        "angle_type": "MONTANHA_RUSSA",
+        "angle": "▼ Inclinado para Fraqueza (DN)",
+        "angle_type": "FRAQUEZA_MODERADA",
         "is_retomada_forca": false,
         "is_retomada_fraqueza": false
       },
       "active_h4_triad": {
         "tf": "H4",
-        "score": 0.9664451540117768,
-        "score_str": "+0.97",
-        "diff": 0.024852478660235766,
+        "score": 1.0133348293858988,
+        "score_str": "+1.01",
+        "diff": 0.0185449571286197,
         "dir": "▲ UP",
-        "region": "Extremo Superior (+0.97 > +0.50)",
+        "region": "Extremo Superior (+1.01 > +0.50)",
         "region_type": "EXTREMO_SUPERIOR",
         "current_cycle": "Ciclo de Alta Concluído (Alerta de Topo / Linha Verde)",
         "owing_cycle": "Devendo Exaustão e Início de Ciclo de Fraqueza",
-        "angle": "▲ Inclinado para Força (UP)",
-        "angle_type": "FORCA_MODERADA",
+        "angle": "▲ Sutilmente Inclinado para Força",
+        "angle_type": "FORCA_SUTIL",
         "is_retomada_forca": false,
         "is_retomada_fraqueza": false
       }
@@ -522,22 +522,22 @@
       "symbol": "JPY",
       "flag": "🇯🇵",
       "color": "#FFD700",
-      "h1_score": -0.83,
-      "h4_score": -0.1,
+      "h1_score": -0.89,
+      "h4_score": -0.11,
       "d1_score": 0.26,
-      "total_score": -0.2,
-      "signal_badge": "SELL",
-      "trade_bias": "VENDA FORTE",
-      "confluence_state": "CONFLUÊNCIA DE QUEDA (DEVENDO CICLO DE FRAQUEZA)",
-      "final_verdict": "VENDA FORTE (RUMO À LINHA VERMELHA -0.20)",
+      "total_score": -0.21,
+      "signal_badge": "BUY",
+      "trade_bias": "COMPRA",
+      "confluence_state": "OPERACIONAL EM ALTA (CICLO DE FORÇA H4/H1)",
+      "final_verdict": "COMPRA OPERACIONAL (BUSCANDO LINHA VERDE)",
       "has_divergence": true,
       "divergence_alert": "⚠️ DIVERGÊNCIA ESTRUTURAL: MN1 no Fundo (-0.79) devendo ciclo de alta, enquanto W1/D1/H4/H1 estão no Topo devendo ciclo de baixa",
       "triads": {
         "MN1": {
           "tf": "MN1",
-          "score": -0.7910890706815293,
+          "score": -0.7914920711587182,
           "score_str": "-0.79",
-          "diff": -0.07771453401334405,
+          "diff": -0.07811753449053294,
           "dir": "▼ DN",
           "region": "Extremo Inferior (-0.79 <= -0.50)",
           "region_type": "EXTREMO_INFERIOR",
@@ -550,9 +550,9 @@
         },
         "W1": {
           "tf": "W1",
-          "score": 0.0012102721612197007,
+          "score": 0.0004767575454386251,
           "score_str": "+0.00",
-          "diff": -0.023656817419311266,
+          "diff": -0.02439033203509234,
           "dir": "▼ DN",
           "region": "Linha de Equilíbrio 0.00 (+0.00)",
           "region_type": "EQUILIBRIO_0",
@@ -565,9 +565,9 @@
         },
         "D1": {
           "tf": "D1",
-          "score": 0.26327040448097844,
+          "score": 0.2626466006506366,
           "score_str": "+0.26",
-          "diff": -0.15467451119560827,
+          "diff": -0.1552983150259501,
           "dir": "▼ DN",
           "region": "Zona de Parada Verde (+0.26 >= +0.20)",
           "region_type": "ZONA_PARADA_VERDE",
@@ -580,33 +580,33 @@
         },
         "H4": {
           "tf": "H4",
-          "score": -0.10258155549564033,
-          "score_str": "-0.10",
-          "diff": -0.028994080720046944,
+          "score": -0.10762769329149882,
+          "score_str": "-0.11",
+          "diff": -0.004314310921561523,
           "dir": "▼ DN",
-          "region": "Dentro do Box Inferior (-0.10 entre -0.20 e 0.00)",
+          "region": "Dentro do Box Inferior (-0.11 entre -0.20 e 0.00)",
           "region_type": "BOX_INFERIOR",
           "current_cycle": "Ciclo de Baixa em Andamento (Cruzando o Box)",
           "owing_cycle": "Devendo Rompimento da Linha Vermelha (-0.20)",
-          "angle": "▼ Inclinado para Fraqueza (DN)",
-          "angle_type": "FRAQUEZA_MODERADA",
+          "angle": "▼ Sutilmente Inclinado para Fraqueza",
+          "angle_type": "FRAQUEZA_SUTIL",
           "is_retomada_forca": false,
           "is_retomada_fraqueza": false
         },
         "H1": {
           "tf": "H1",
-          "score": -0.8333284031183281,
-          "score_str": "-0.83",
-          "diff": -0.05161772517899088,
+          "score": -0.8866500255042179,
+          "score_str": "-0.89",
+          "diff": -0.0551635511217925,
           "dir": "▼ DN",
-          "region": "Extremo Inferior (-0.83 <= -0.50)",
+          "region": "Extremo Inferior (-0.89 <= -0.50)",
           "region_type": "EXTREMO_INFERIOR",
-          "current_cycle": "Retomada de Fraqueza no Box (Ciclo Inválido de Alta)",
-          "owing_cycle": "Devendo Expansão de Baixa rumo ao Fundo",
+          "current_cycle": "Ciclo de Baixa Concluído (Alerta de Fundo / Linha Vermelha)",
+          "owing_cycle": "Devendo Exaustão e Início de Ciclo de Força",
           "angle": "▼ Inclinado para Fraqueza (DN)",
           "angle_type": "FRAQUEZA_MODERADA",
           "is_retomada_forca": false,
-          "is_retomada_fraqueza": true
+          "is_retomada_fraqueza": false
         }
       },
       "leds": {
@@ -618,31 +618,31 @@
       },
       "active_h1_triad": {
         "tf": "H1",
-        "score": -0.8333284031183281,
-        "score_str": "-0.83",
-        "diff": -0.05161772517899088,
+        "score": -0.8866500255042179,
+        "score_str": "-0.89",
+        "diff": -0.0551635511217925,
         "dir": "▼ DN",
-        "region": "Extremo Inferior (-0.83 <= -0.50)",
+        "region": "Extremo Inferior (-0.89 <= -0.50)",
         "region_type": "EXTREMO_INFERIOR",
-        "current_cycle": "Retomada de Fraqueza no Box (Ciclo Inválido de Alta)",
-        "owing_cycle": "Devendo Expansão de Baixa rumo ao Fundo",
+        "current_cycle": "Ciclo de Baixa Concluído (Alerta de Fundo / Linha Vermelha)",
+        "owing_cycle": "Devendo Exaustão e Início de Ciclo de Força",
         "angle": "▼ Inclinado para Fraqueza (DN)",
         "angle_type": "FRAQUEZA_MODERADA",
         "is_retomada_forca": false,
-        "is_retomada_fraqueza": true
+        "is_retomada_fraqueza": false
       },
       "active_h4_triad": {
         "tf": "H4",
-        "score": -0.10258155549564033,
-        "score_str": "-0.10",
-        "diff": -0.028994080720046944,
+        "score": -0.10762769329149882,
+        "score_str": "-0.11",
+        "diff": -0.004314310921561523,
         "dir": "▼ DN",
-        "region": "Dentro do Box Inferior (-0.10 entre -0.20 e 0.00)",
+        "region": "Dentro do Box Inferior (-0.11 entre -0.20 e 0.00)",
         "region_type": "BOX_INFERIOR",
         "current_cycle": "Ciclo de Baixa em Andamento (Cruzando o Box)",
         "owing_cycle": "Devendo Rompimento da Linha Vermelha (-0.20)",
-        "angle": "▼ Inclinado para Fraqueza (DN)",
-        "angle_type": "FRAQUEZA_MODERADA",
+        "angle": "▼ Sutilmente Inclinado para Fraqueza",
+        "angle_type": "FRAQUEZA_SUTIL",
         "is_retomada_forca": false,
         "is_retomada_fraqueza": false
       }
@@ -651,22 +651,22 @@
       "symbol": "AUD",
       "flag": "🇦🇺",
       "color": "#FF8C00",
-      "h1_score": -0.57,
-      "h4_score": -0.6,
-      "d1_score": 0.0,
-      "total_score": -0.17,
-      "signal_badge": "BUY",
-      "trade_bias": "COMPRA",
-      "confluence_state": "OPERACIONAL EM ALTA (CICLO DE FORÇA H4/H1)",
-      "final_verdict": "COMPRA OPERACIONAL (BUSCANDO LINHA VERDE)",
+      "h1_score": -0.46,
+      "h4_score": -0.63,
+      "d1_score": 0.01,
+      "total_score": -0.14,
+      "signal_badge": "SELL",
+      "trade_bias": "VENDA FORTE",
+      "confluence_state": "CONFLUÊNCIA DE QUEDA (DEVENDO CICLO DE FRAQUEZA)",
+      "final_verdict": "VENDA FORTE (RUMO À LINHA VERMELHA -0.20)",
       "has_divergence": true,
       "divergence_alert": "⚠️ DIVERGÊNCIA ESTRUTURAL: MN1 no Topo (+0.57) devendo ciclo de baixa, enquanto W1/D1/H4/H1 estão no Fundo devendo ciclo de alta",
       "triads": {
         "MN1": {
           "tf": "MN1",
-          "score": 0.5695705248566699,
+          "score": 0.5720063566641491,
           "score_str": "+0.57",
-          "diff": 0.05956957481192704,
+          "diff": 0.062005406619406234,
           "dir": "▲ UP",
           "region": "Extremo Superior (+0.57 > +0.50)",
           "region_type": "EXTREMO_SUPERIOR",
@@ -679,9 +679,9 @@
         },
         "W1": {
           "tf": "W1",
-          "score": 0.00762425619436456,
+          "score": 0.012860688925593675,
           "score_str": "+0.01",
-          "diff": -0.0489753976034987,
+          "diff": -0.04373896487226959,
           "dir": "▼ DN",
           "region": "Linha de Equilíbrio 0.00 (+0.01)",
           "region_type": "EQUILIBRIO_0",
@@ -694,11 +694,11 @@
         },
         "D1": {
           "tf": "D1",
-          "score": 0.00023742993218704513,
-          "score_str": "+0.00",
-          "diff": -0.03630047685652357,
+          "score": 0.012956537102495393,
+          "score_str": "+0.01",
+          "diff": -0.02358136968621523,
           "dir": "▼ DN",
-          "region": "Linha de Equilíbrio 0.00 (+0.00)",
+          "region": "Linha de Equilíbrio 0.00 (+0.01)",
           "region_type": "EQUILIBRIO_0",
           "current_cycle": "Aberto sobre o 0 (Permissão Válida para Cair)",
           "owing_cycle": "Devendo Ciclo de Fraqueza rumo à Linha Vermelha (-0.20)",
@@ -709,31 +709,31 @@
         },
         "H4": {
           "tf": "H4",
-          "score": -0.6021923181103673,
-          "score_str": "-0.60",
-          "diff": -0.13700984039386693,
+          "score": -0.6303160705199252,
+          "score_str": "-0.63",
+          "diff": -0.06486181123526025,
           "dir": "▼ DN",
-          "region": "Extremo Inferior (-0.60 <= -0.50)",
-          "region_type": "EXTREMO_INFERIOR",
-          "current_cycle": "Ciclo de Baixa Concluído (Alerta de Fundo / Linha Vermelha)",
-          "owing_cycle": "Devendo Exaustão e Início de Ciclo de Força",
-          "angle": "🎢 Montanha-Russa (Forte Aceleração de Baixa ▼▼)",
-          "angle_type": "MONTANHA_RUSSA",
-          "is_retomada_forca": false,
-          "is_retomada_fraqueza": false
-        },
-        "H1": {
-          "tf": "H1",
-          "score": -0.5719169258236635,
-          "score_str": "-0.57",
-          "diff": -0.021517072339757637,
-          "dir": "▼ DN",
-          "region": "Extremo Inferior (-0.57 <= -0.50)",
+          "region": "Extremo Inferior (-0.63 <= -0.50)",
           "region_type": "EXTREMO_INFERIOR",
           "current_cycle": "Ciclo de Baixa Concluído (Alerta de Fundo / Linha Vermelha)",
           "owing_cycle": "Devendo Exaustão e Início de Ciclo de Força",
           "angle": "▼ Inclinado para Fraqueza (DN)",
           "angle_type": "FRAQUEZA_MODERADA",
+          "is_retomada_forca": false,
+          "is_retomada_fraqueza": false
+        },
+        "H1": {
+          "tf": "H1",
+          "score": -0.45734264468635377,
+          "score_str": "-0.46",
+          "diff": 0.033141761304894046,
+          "dir": "▲ UP",
+          "region": "Zona de Parada Vermelha (-0.46 <= -0.20)",
+          "region_type": "ZONA_PARADA_VERMELHA",
+          "current_cycle": "Início de Ciclo de Alta (Acúmulo sobre Zona Vermelha)",
+          "owing_cycle": "Devendo Ciclo de Força rumo à Linha Verde (+0.20)",
+          "angle": "▲ Inclinado para Força (UP)",
+          "angle_type": "FORCA_MODERADA",
           "is_retomada_forca": false,
           "is_retomada_fraqueza": false
         }
@@ -743,35 +743,35 @@
         "W1": "red",
         "D1": "red",
         "H4": "red",
-        "H1": "red"
+        "H1": "green"
       },
       "active_h1_triad": {
         "tf": "H1",
-        "score": -0.5719169258236635,
-        "score_str": "-0.57",
-        "diff": -0.021517072339757637,
-        "dir": "▼ DN",
-        "region": "Extremo Inferior (-0.57 <= -0.50)",
-        "region_type": "EXTREMO_INFERIOR",
-        "current_cycle": "Ciclo de Baixa Concluído (Alerta de Fundo / Linha Vermelha)",
-        "owing_cycle": "Devendo Exaustão e Início de Ciclo de Força",
-        "angle": "▼ Inclinado para Fraqueza (DN)",
-        "angle_type": "FRAQUEZA_MODERADA",
+        "score": -0.45734264468635377,
+        "score_str": "-0.46",
+        "diff": 0.033141761304894046,
+        "dir": "▲ UP",
+        "region": "Zona de Parada Vermelha (-0.46 <= -0.20)",
+        "region_type": "ZONA_PARADA_VERMELHA",
+        "current_cycle": "Início de Ciclo de Alta (Acúmulo sobre Zona Vermelha)",
+        "owing_cycle": "Devendo Ciclo de Força rumo à Linha Verde (+0.20)",
+        "angle": "▲ Inclinado para Força (UP)",
+        "angle_type": "FORCA_MODERADA",
         "is_retomada_forca": false,
         "is_retomada_fraqueza": false
       },
       "active_h4_triad": {
         "tf": "H4",
-        "score": -0.6021923181103673,
-        "score_str": "-0.60",
-        "diff": -0.13700984039386693,
+        "score": -0.6303160705199252,
+        "score_str": "-0.63",
+        "diff": -0.06486181123526025,
         "dir": "▼ DN",
-        "region": "Extremo Inferior (-0.60 <= -0.50)",
+        "region": "Extremo Inferior (-0.63 <= -0.50)",
         "region_type": "EXTREMO_INFERIOR",
         "current_cycle": "Ciclo de Baixa Concluído (Alerta de Fundo / Linha Vermelha)",
         "owing_cycle": "Devendo Exaustão e Início de Ciclo de Força",
-        "angle": "🎢 Montanha-Russa (Forte Aceleração de Baixa ▼▼)",
-        "angle_type": "MONTANHA_RUSSA",
+        "angle": "▼ Inclinado para Fraqueza (DN)",
+        "angle_type": "FRAQUEZA_MODERADA",
         "is_retomada_forca": false,
         "is_retomada_fraqueza": false
       }
@@ -780,24 +780,24 @@
       "symbol": "CAD",
       "flag": "🇨🇦",
       "color": "#E0245E",
-      "h1_score": 0.7,
-      "h4_score": 0.06,
-      "d1_score": 0.19,
-      "total_score": 0.17,
-      "signal_badge": "SELL",
-      "trade_bias": "VENDA",
-      "confluence_state": "OPERACIONAL EM QUEDA (CICLO DE FRAQUEZA H4/H1)",
-      "final_verdict": "VENDA OPERACIONAL (BUSCANDO LINHA VERMELHA)",
+      "h1_score": 0.48,
+      "h4_score": -0.01,
+      "d1_score": 0.16,
+      "total_score": 0.1,
+      "signal_badge": "BUY",
+      "trade_bias": "COMPRA FORTE",
+      "confluence_state": "CONFLUÊNCIA DE ALTA (DEVENDO CICLO DE FORÇA)",
+      "final_verdict": "COMPRA FORTE (RUMO À LINHA VERDE +0.20)",
       "has_divergence": false,
       "divergence_alert": "NENHUMA (TIMEFRAMES ALINHADOS)",
       "triads": {
         "MN1": {
           "tf": "MN1",
-          "score": -0.15194889630957276,
-          "score_str": "-0.15",
-          "diff": 0.0348349154274899,
+          "score": -0.15746935731210585,
+          "score_str": "-0.16",
+          "diff": 0.02931445442495681,
           "dir": "▲ UP",
-          "region": "Dentro do Box Inferior (-0.15 entre -0.20 e 0.00)",
+          "region": "Dentro do Box Inferior (-0.16 entre -0.20 e 0.00)",
           "region_type": "BOX_INFERIOR",
           "current_cycle": "Retomada de Força no Box (Ciclo Inválido de Baixa)",
           "owing_cycle": "Devendo Expansão de Alta rumo ao Topo",
@@ -808,11 +808,11 @@
         },
         "W1": {
           "tf": "W1",
-          "score": -0.12113881477468623,
-          "score_str": "-0.12",
-          "diff": 0.04466303165315931,
+          "score": -0.1334349006383979,
+          "score_str": "-0.13",
+          "diff": 0.032366945789447626,
           "dir": "▲ UP",
-          "region": "Dentro do Box Inferior (-0.12 entre -0.20 e 0.00)",
+          "region": "Dentro do Box Inferior (-0.13 entre -0.20 e 0.00)",
           "region_type": "BOX_INFERIOR",
           "current_cycle": "Ciclo de Alta em Andamento (Cruzando o Box)",
           "owing_cycle": "Devendo Rompimento da Linha Verde (+0.20)",
@@ -823,11 +823,11 @@
         },
         "D1": {
           "tf": "D1",
-          "score": 0.18868343591082623,
-          "score_str": "+0.19",
-          "diff": 0.06435460545989448,
+          "score": 0.15854398882329557,
+          "score_str": "+0.16",
+          "diff": 0.034215158372363816,
           "dir": "▲ UP",
-          "region": "Dentro do Box Superior (+0.19 entre 0.00 e +0.20)",
+          "region": "Dentro do Box Superior (+0.16 entre 0.00 e +0.20)",
           "region_type": "BOX_SUPERIOR",
           "current_cycle": "Ciclo de Alta em Andamento (Cruzando o Box)",
           "owing_cycle": "Devendo Rompimento da Linha Verde (+0.20)",
@@ -838,140 +838,11 @@
         },
         "H4": {
           "tf": "H4",
-          "score": 0.0623551726964837,
-          "score_str": "+0.06",
-          "diff": 0.10934346199415454,
+          "score": -0.00916823544386213,
+          "score_str": "-0.01",
+          "diff": 0.012592598300175553,
           "dir": "▲ UP",
-          "region": "Dentro do Box Superior (+0.06 entre 0.00 e +0.20)",
-          "region_type": "BOX_SUPERIOR",
-          "current_cycle": "Ciclo de Alta em Andamento (Cruzando o Box)",
-          "owing_cycle": "Devendo Rompimento da Linha Verde (+0.20)",
-          "angle": "🚀 Foguete (Forte Aceleração de Alta ▲▲)",
-          "angle_type": "FOGUETE",
-          "is_retomada_forca": false,
-          "is_retomada_fraqueza": false
-        },
-        "H1": {
-          "tf": "H1",
-          "score": 0.6956708486843518,
-          "score_str": "+0.70",
-          "diff": 0.09426500385897207,
-          "dir": "▲ UP",
-          "region": "Extremo Superior (+0.70 > +0.50)",
-          "region_type": "EXTREMO_SUPERIOR",
-          "current_cycle": "Ciclo de Alta Concluído (Alerta de Topo / Linha Verde)",
-          "owing_cycle": "Devendo Exaustão e Início de Ciclo de Fraqueza",
-          "angle": "🚀 Foguete (Forte Aceleração de Alta ▲▲)",
-          "angle_type": "FOGUETE",
-          "is_retomada_forca": false,
-          "is_retomada_fraqueza": false
-        }
-      },
-      "leds": {
-        "MN1": "green",
-        "W1": "green",
-        "D1": "green",
-        "H4": "green",
-        "H1": "green"
-      },
-      "active_h1_triad": {
-        "tf": "H1",
-        "score": 0.6956708486843518,
-        "score_str": "+0.70",
-        "diff": 0.09426500385897207,
-        "dir": "▲ UP",
-        "region": "Extremo Superior (+0.70 > +0.50)",
-        "region_type": "EXTREMO_SUPERIOR",
-        "current_cycle": "Ciclo de Alta Concluído (Alerta de Topo / Linha Verde)",
-        "owing_cycle": "Devendo Exaustão e Início de Ciclo de Fraqueza",
-        "angle": "🚀 Foguete (Forte Aceleração de Alta ▲▲)",
-        "angle_type": "FOGUETE",
-        "is_retomada_forca": false,
-        "is_retomada_fraqueza": false
-      },
-      "active_h4_triad": {
-        "tf": "H4",
-        "score": 0.0623551726964837,
-        "score_str": "+0.06",
-        "diff": 0.10934346199415454,
-        "dir": "▲ UP",
-        "region": "Dentro do Box Superior (+0.06 entre 0.00 e +0.20)",
-        "region_type": "BOX_SUPERIOR",
-        "current_cycle": "Ciclo de Alta em Andamento (Cruzando o Box)",
-        "owing_cycle": "Devendo Rompimento da Linha Verde (+0.20)",
-        "angle": "🚀 Foguete (Forte Aceleração de Alta ▲▲)",
-        "angle_type": "FOGUETE",
-        "is_retomada_forca": false,
-        "is_retomada_fraqueza": false
-      }
-    },
-    {
-      "symbol": "NZD",
-      "flag": "🇳🇿",
-      "color": "#D2B48C",
-      "h1_score": 0.53,
-      "h4_score": 0.04,
-      "d1_score": 0.1,
-      "total_score": 0.16,
-      "signal_badge": "BUY",
-      "trade_bias": "COMPRA FORTE",
-      "confluence_state": "CONFLUÊNCIA DE ALTA (DEVENDO CICLO DE FORÇA)",
-      "final_verdict": "COMPRA FORTE (RUMO À LINHA VERDE +0.20)",
-      "has_divergence": true,
-      "divergence_alert": "⚠️ DIVERGÊNCIA ESTRUTURAL: MN1 no Fundo (-0.20) devendo ciclo de alta, enquanto W1/D1/H4/H1 estão no Topo devendo ciclo de baixa",
-      "triads": {
-        "MN1": {
-          "tf": "MN1",
-          "score": -0.2014000692960153,
-          "score_str": "-0.20",
-          "diff": 0.04178118622560517,
-          "dir": "▲ UP",
-          "region": "Zona de Parada Vermelha (-0.20 <= -0.20)",
-          "region_type": "ZONA_PARADA_VERMELHA",
-          "current_cycle": "Início de Ciclo de Alta (Acúmulo sobre Zona Vermelha)",
-          "owing_cycle": "Devendo Ciclo de Força rumo à Linha Verde (+0.20)",
-          "angle": "▲ Inclinado para Força (UP)",
-          "angle_type": "FORCA_MODERADA",
-          "is_retomada_forca": false,
-          "is_retomada_fraqueza": false
-        },
-        "W1": {
-          "tf": "W1",
-          "score": 0.20869781547714286,
-          "score_str": "+0.21",
-          "diff": 0.035736875339022645,
-          "dir": "▲ UP",
-          "region": "Zona de Parada Verde (+0.21 >= +0.20)",
-          "region_type": "ZONA_PARADA_VERDE",
-          "current_cycle": "Ciclo de Alta Concluído (Alerta de Topo / Linha Verde)",
-          "owing_cycle": "Devendo Exaustão e Início de Ciclo de Fraqueza",
-          "angle": "▲ Inclinado para Força (UP)",
-          "angle_type": "FORCA_MODERADA",
-          "is_retomada_forca": false,
-          "is_retomada_fraqueza": false
-        },
-        "D1": {
-          "tf": "D1",
-          "score": 0.09946443425534546,
-          "score_str": "+0.10",
-          "diff": 0.050148464291262886,
-          "dir": "▲ UP",
-          "region": "Dentro do Box Superior (+0.10 entre 0.00 e +0.20)",
-          "region_type": "BOX_SUPERIOR",
-          "current_cycle": "Retomada de Força no Box (Ciclo Inválido de Baixa)",
-          "owing_cycle": "Devendo Expansão de Alta rumo ao Topo",
-          "angle": "▲ Inclinado para Força (UP)",
-          "angle_type": "FORCA_MODERADA",
-          "is_retomada_forca": true,
-          "is_retomada_fraqueza": false
-        },
-        "H4": {
-          "tf": "H4",
-          "score": 0.043805867805454986,
-          "score_str": "+0.04",
-          "diff": 0.010249485971626233,
-          "dir": "▲ UP",
-          "region": "Linha de Equilíbrio 0.00 (+0.04)",
+          "region": "Linha de Equilíbrio 0.00 (-0.01)",
           "region_type": "EQUILIBRIO_0",
           "current_cycle": "Aberto sobre o 0 (Permissão Válida para Subir)",
           "owing_cycle": "Devendo Ciclo de Força rumo à Linha Verde (+0.20)",
@@ -982,16 +853,16 @@
         },
         "H1": {
           "tf": "H1",
-          "score": 0.52917110052147,
-          "score_str": "+0.53",
-          "diff": -0.051413982534304736,
+          "score": 0.47722275106974127,
+          "score_str": "+0.48",
+          "diff": -0.029661870475192365,
           "dir": "▼ DN",
-          "region": "Extremo Superior (+0.53 > +0.50)",
-          "region_type": "EXTREMO_SUPERIOR",
+          "region": "Zona de Parada Verde (+0.48 >= +0.20)",
+          "region_type": "ZONA_PARADA_VERDE",
           "current_cycle": "Início de Ciclo de Baixa (Acúmulo sobre Zona Verde)",
           "owing_cycle": "Devendo Ciclo de Fraqueza rumo à Linha Vermelha (-0.20)",
-          "angle": "🎢 Montanha-Russa (Forte Aceleração de Baixa ▼▼)",
-          "angle_type": "MONTANHA_RUSSA",
+          "angle": "▼ Inclinado para Fraqueza (DN)",
+          "angle_type": "FRAQUEZA_MODERADA",
           "is_retomada_forca": false,
           "is_retomada_fraqueza": false
         }
@@ -1005,31 +876,160 @@
       },
       "active_h1_triad": {
         "tf": "H1",
-        "score": 0.52917110052147,
-        "score_str": "+0.53",
-        "diff": -0.051413982534304736,
+        "score": 0.47722275106974127,
+        "score_str": "+0.48",
+        "diff": -0.029661870475192365,
         "dir": "▼ DN",
-        "region": "Extremo Superior (+0.53 > +0.50)",
-        "region_type": "EXTREMO_SUPERIOR",
+        "region": "Zona de Parada Verde (+0.48 >= +0.20)",
+        "region_type": "ZONA_PARADA_VERDE",
         "current_cycle": "Início de Ciclo de Baixa (Acúmulo sobre Zona Verde)",
         "owing_cycle": "Devendo Ciclo de Fraqueza rumo à Linha Vermelha (-0.20)",
-        "angle": "🎢 Montanha-Russa (Forte Aceleração de Baixa ▼▼)",
-        "angle_type": "MONTANHA_RUSSA",
+        "angle": "▼ Inclinado para Fraqueza (DN)",
+        "angle_type": "FRAQUEZA_MODERADA",
         "is_retomada_forca": false,
         "is_retomada_fraqueza": false
       },
       "active_h4_triad": {
         "tf": "H4",
-        "score": 0.043805867805454986,
-        "score_str": "+0.04",
-        "diff": 0.010249485971626233,
+        "score": -0.00916823544386213,
+        "score_str": "-0.01",
+        "diff": 0.012592598300175553,
         "dir": "▲ UP",
-        "region": "Linha de Equilíbrio 0.00 (+0.04)",
+        "region": "Linha de Equilíbrio 0.00 (-0.01)",
         "region_type": "EQUILIBRIO_0",
         "current_cycle": "Aberto sobre o 0 (Permissão Válida para Subir)",
         "owing_cycle": "Devendo Ciclo de Força rumo à Linha Verde (+0.20)",
         "angle": "▲ Sutilmente Inclinado para Força",
         "angle_type": "FORCA_SUTIL",
+        "is_retomada_forca": false,
+        "is_retomada_fraqueza": false
+      }
+    },
+    {
+      "symbol": "NZD",
+      "flag": "🇳🇿",
+      "color": "#D2B48C",
+      "h1_score": 0.62,
+      "h4_score": 0.18,
+      "d1_score": 0.12,
+      "total_score": 0.21,
+      "signal_badge": "BUY",
+      "trade_bias": "COMPRA FORTE",
+      "confluence_state": "CONFLUÊNCIA DE ALTA (DEVENDO CICLO DE FORÇA)",
+      "final_verdict": "COMPRA FORTE (RUMO À LINHA VERDE +0.20)",
+      "has_divergence": false,
+      "divergence_alert": "NENHUMA (TIMEFRAMES ALINHADOS)",
+      "triads": {
+        "MN1": {
+          "tf": "MN1",
+          "score": -0.19750105552107775,
+          "score_str": "-0.20",
+          "diff": 0.04568020000054274,
+          "dir": "▲ UP",
+          "region": "Dentro do Box Inferior (-0.20 entre -0.20 e 0.00)",
+          "region_type": "BOX_INFERIOR",
+          "current_cycle": "Ciclo de Alta em Andamento (Cruzando o Box)",
+          "owing_cycle": "Devendo Rompimento da Linha Verde (+0.20)",
+          "angle": "▲ Inclinado para Força (UP)",
+          "angle_type": "FORCA_MODERADA",
+          "is_retomada_forca": false,
+          "is_retomada_fraqueza": false
+        },
+        "W1": {
+          "tf": "W1",
+          "score": 0.21731350914680883,
+          "score_str": "+0.22",
+          "diff": 0.044352569008688614,
+          "dir": "▲ UP",
+          "region": "Zona de Parada Verde (+0.22 >= +0.20)",
+          "region_type": "ZONA_PARADA_VERDE",
+          "current_cycle": "Ciclo de Alta Concluído (Alerta de Topo / Linha Verde)",
+          "owing_cycle": "Devendo Exaustão e Início de Ciclo de Fraqueza",
+          "angle": "▲ Inclinado para Força (UP)",
+          "angle_type": "FORCA_MODERADA",
+          "is_retomada_forca": false,
+          "is_retomada_fraqueza": false
+        },
+        "D1": {
+          "tf": "D1",
+          "score": 0.11886321295373989,
+          "score_str": "+0.12",
+          "diff": 0.06954724298965731,
+          "dir": "▲ UP",
+          "region": "Dentro do Box Superior (+0.12 entre 0.00 e +0.20)",
+          "region_type": "BOX_SUPERIOR",
+          "current_cycle": "Retomada de Força no Box (Ciclo Inválido de Baixa)",
+          "owing_cycle": "Devendo Expansão de Alta rumo ao Topo",
+          "angle": "▲ Inclinado para Força (UP)",
+          "angle_type": "FORCA_MODERADA",
+          "is_retomada_forca": true,
+          "is_retomada_fraqueza": false
+        },
+        "H4": {
+          "tf": "H4",
+          "score": 0.18017248696345986,
+          "score_str": "+0.18",
+          "diff": 0.0926175976546467,
+          "dir": "▲ UP",
+          "region": "Dentro do Box Superior (+0.18 entre 0.00 e +0.20)",
+          "region_type": "BOX_SUPERIOR",
+          "current_cycle": "Ciclo de Alta em Andamento (Cruzando o Box)",
+          "owing_cycle": "Devendo Rompimento da Linha Verde (+0.20)",
+          "angle": "🚀 Foguete (Forte Aceleração de Alta ▲▲)",
+          "angle_type": "FOGUETE",
+          "is_retomada_forca": false,
+          "is_retomada_fraqueza": false
+        },
+        "H1": {
+          "tf": "H1",
+          "score": 0.6203705005602144,
+          "score_str": "+0.62",
+          "diff": -0.003524614003076243,
+          "dir": "▼ DN",
+          "region": "Extremo Superior (+0.62 > +0.50)",
+          "region_type": "EXTREMO_SUPERIOR",
+          "current_cycle": "Início de Ciclo de Baixa (Acúmulo sobre Zona Verde)",
+          "owing_cycle": "Devendo Ciclo de Fraqueza rumo à Linha Vermelha (-0.20)",
+          "angle": "▼ Sutilmente Inclinado para Fraqueza",
+          "angle_type": "FRAQUEZA_SUTIL",
+          "is_retomada_forca": false,
+          "is_retomada_fraqueza": false
+        }
+      },
+      "leds": {
+        "MN1": "green",
+        "W1": "green",
+        "D1": "green",
+        "H4": "green",
+        "H1": "red"
+      },
+      "active_h1_triad": {
+        "tf": "H1",
+        "score": 0.6203705005602144,
+        "score_str": "+0.62",
+        "diff": -0.003524614003076243,
+        "dir": "▼ DN",
+        "region": "Extremo Superior (+0.62 > +0.50)",
+        "region_type": "EXTREMO_SUPERIOR",
+        "current_cycle": "Início de Ciclo de Baixa (Acúmulo sobre Zona Verde)",
+        "owing_cycle": "Devendo Ciclo de Fraqueza rumo à Linha Vermelha (-0.20)",
+        "angle": "▼ Sutilmente Inclinado para Fraqueza",
+        "angle_type": "FRAQUEZA_SUTIL",
+        "is_retomada_forca": false,
+        "is_retomada_fraqueza": false
+      },
+      "active_h4_triad": {
+        "tf": "H4",
+        "score": 0.18017248696345986,
+        "score_str": "+0.18",
+        "diff": 0.0926175976546467,
+        "dir": "▲ UP",
+        "region": "Dentro do Box Superior (+0.18 entre 0.00 e +0.20)",
+        "region_type": "BOX_SUPERIOR",
+        "current_cycle": "Ciclo de Alta em Andamento (Cruzando o Box)",
+        "owing_cycle": "Devendo Rompimento da Linha Verde (+0.20)",
+        "angle": "🚀 Foguete (Forte Aceleração de Alta ▲▲)",
+        "angle_type": "FOGUETE",
         "is_retomada_forca": false,
         "is_retomada_fraqueza": false
       }
@@ -1180,7 +1180,7 @@
           -0.23,
           -0.174,
           -0.249,
-          -0.272
+          -0.274
         ],
         "EUR": [
           0.108,
@@ -1252,7 +1252,7 @@
           0.42,
           0.412,
           0.349,
-          0.338
+          0.337
         ],
         "GBP": [
           -0.05,
@@ -1324,7 +1324,7 @@
           0.059,
           0.078,
           0.075,
-          0.077
+          0.078
         ],
         "CHF": [
           0.359,
@@ -1396,7 +1396,7 @@
           0.589,
           0.545,
           0.458,
-          0.433
+          0.434
         ],
         "JPY": [
           0.048,
@@ -1540,7 +1540,7 @@
           0.4,
           0.443,
           0.51,
-          0.57
+          0.572
         ],
         "CAD": [
           -0.185,
@@ -1612,7 +1612,7 @@
           -0.165,
           -0.17,
           -0.187,
-          -0.152
+          -0.157
         ],
         "NZD": [
           -0.066,
@@ -1684,7 +1684,7 @@
           -0.323,
           -0.361,
           -0.243,
-          -0.201
+          -0.198
         ]
       }
     },
@@ -1892,7 +1892,7 @@
           0.163,
           0.12,
           0.124,
-          0.053
+          0.047
         ],
         "EUR": [
           -0.102,
@@ -1994,7 +1994,7 @@
           -0.04,
           -0.056,
           -0.08,
-          -0.071
+          -0.073
         ],
         "GBP": [
           0.177,
@@ -2096,7 +2096,7 @@
           0.244,
           0.227,
           0.242,
-          0.234
+          0.238
         ],
         "CHF": [
           0.478,
@@ -2198,7 +2198,7 @@
           -0.298,
           -0.312,
           -0.374,
-          -0.312
+          -0.309
         ],
         "JPY": [
           0.733,
@@ -2300,7 +2300,7 @@
           0.043,
           0.056,
           0.025,
-          0.001
+          0.0
         ],
         "AUD": [
           -0.16,
@@ -2402,7 +2402,7 @@
           0.067,
           0.052,
           0.057,
-          0.008
+          0.013
         ],
         "CAD": [
           -0.446,
@@ -2504,7 +2504,7 @@
           -0.313,
           -0.255,
           -0.166,
-          -0.121
+          -0.133
         ],
         "NZD": [
           -0.146,
@@ -2606,7 +2606,7 @@
           0.134,
           0.167,
           0.173,
-          0.209
+          0.217
         ]
       }
     },
@@ -2854,7 +2854,7 @@
           -0.496,
           -0.494,
           -0.658,
-          -0.686
+          -0.7
         ],
         "EUR": [
           -0.429,
@@ -2976,7 +2976,7 @@
           0.133,
           0.149,
           0.153,
-          0.163
+          0.157
         ],
         "GBP": [
           -0.281,
@@ -3098,7 +3098,7 @@
           -0.012,
           0.045,
           0.02,
-          0.075
+          0.085
         ],
         "CHF": [
           0.11,
@@ -3220,7 +3220,7 @@
           -0.395,
           -0.377,
           -0.144,
-          -0.104
+          -0.095
         ],
         "JPY": [
           -0.245,
@@ -3464,7 +3464,7 @@
           0.102,
           0.077,
           0.037,
-          0.0
+          0.013
         ],
         "CAD": [
           0.446,
@@ -3586,7 +3586,7 @@
           0.104,
           0.137,
           0.124,
-          0.189
+          0.159
         ],
         "NZD": [
           -0.341,
@@ -3708,13 +3708,12 @@
           0.043,
           0.005,
           0.049,
-          0.099
+          0.119
         ]
       }
     },
     "H4": {
       "times": [
-        "2026-07-23 16:00",
         "2026-07-23 20:00",
         "2026-07-24 00:00",
         "2026-07-24 04:00",
@@ -3833,11 +3832,11 @@
         "2026-08-20 00:00",
         "2026-08-20 04:00",
         "2026-08-20 08:00",
-        "2026-08-20 12:00"
+        "2026-08-20 12:00",
+        "2026-08-20 16:00"
       ],
       "series": {
         "USD": [
-          0.593,
           0.614,
           0.551,
           0.568,
@@ -3956,10 +3955,10 @@
           -0.502,
           -0.565,
           -0.71,
-          -0.71
+          -0.742,
+          -0.818
         ],
         "EUR": [
-          0.382,
           0.408,
           0.393,
           0.384,
@@ -4078,10 +4077,10 @@
           0.399,
           0.386,
           0.447,
-          0.436
+          0.421,
+          0.406
         ],
         "GBP": [
-          -0.343,
           -0.343,
           -0.315,
           -0.308,
@@ -4200,10 +4199,10 @@
           -0.15,
           -0.146,
           -0.127,
-          -0.093
+          -0.07,
+          -0.035
         ],
         "CHF": [
-          -0.386,
           -0.357,
           -0.317,
           -0.331,
@@ -4322,10 +4321,10 @@
           0.822,
           0.836,
           0.942,
-          0.966
+          0.995,
+          1.013
         ],
         "JPY": [
-          -0.241,
           -0.257,
           -0.306,
           -0.275,
@@ -4444,10 +4443,10 @@
           -0.021,
           -0.024,
           -0.074,
-          -0.103
+          -0.103,
+          -0.108
         ],
         "AUD": [
-          0.321,
           0.195,
           0.141,
           0.11,
@@ -4566,10 +4565,10 @@
           -0.285,
           -0.394,
           -0.465,
-          -0.602
+          -0.565,
+          -0.63
         ],
         "CAD": [
-          0.336,
           0.456,
           0.55,
           0.596,
@@ -4688,10 +4687,10 @@
           -0.142,
           -0.123,
           -0.047,
-          0.062
+          -0.022,
+          -0.009
         ],
         "NZD": [
-          -0.662,
           -0.716,
           -0.696,
           -0.743,
@@ -4810,13 +4809,13 @@
           -0.12,
           0.03,
           0.034,
-          0.044
+          0.088,
+          0.18
         ]
       }
     },
     "H1": {
       "times": [
-        "2026-08-10 08:00",
         "2026-08-10 09:00",
         "2026-08-10 10:00",
         "2026-08-10 11:00",
@@ -5015,11 +5014,11 @@
         "2026-08-20 12:00",
         "2026-08-20 13:00",
         "2026-08-20 14:00",
-        "2026-08-20 15:00"
+        "2026-08-20 15:00",
+        "2026-08-20 16:00"
       ],
       "series": {
         "USD": [
-          -0.332,
           -0.19,
           -0.124,
           0.038,
@@ -5218,10 +5217,10 @@
           -0.696,
           -0.533,
           -0.388,
-          -0.331
+          -0.403,
+          -0.403
         ],
         "EUR": [
-          -0.062,
           -0.043,
           -0.007,
           0.058,
@@ -5420,10 +5419,10 @@
           0.318,
           0.282,
           0.246,
-          0.241
+          0.207,
+          0.173
         ],
         "GBP": [
-          0.308,
           0.335,
           0.243,
           0.314,
@@ -5622,10 +5621,10 @@
           -0.159,
           0.077,
           0.252,
-          0.357
+          0.411,
+          0.536
         ],
         "CHF": [
-          -0.114,
           -0.088,
           0.05,
           -0.014,
@@ -5824,10 +5823,10 @@
           0.529,
           0.267,
           0.04,
-          -0.086
+          -0.023,
+          -0.06
         ],
         "JPY": [
-          -0.552,
           -0.671,
           -0.879,
           -1.063,
@@ -6026,10 +6025,10 @@
           -0.744,
           -0.739,
           -0.782,
-          -0.833
+          -0.831,
+          -0.887
         ],
         "AUD": [
-          0.33,
           0.313,
           0.322,
           0.315,
@@ -6228,10 +6227,10 @@
           -0.432,
           -0.453,
           -0.55,
-          -0.572
+          -0.49,
+          -0.457
         ],
         "CAD": [
-          0.339,
           0.261,
           0.217,
           0.157,
@@ -6430,10 +6429,10 @@
           0.411,
           0.432,
           0.601,
-          0.696
+          0.507,
+          0.477
         ],
         "NZD": [
-          0.084,
           0.082,
           0.178,
           0.194,
@@ -6632,7 +6631,8 @@
           0.774,
           0.667,
           0.581,
-          0.529
+          0.624,
+          0.62
         ]
       }
     }
@@ -6709,7 +6709,7 @@
         0.585,
         0.518,
         0.543,
-        0.558
+        0.56
       ],
       "GBPUSD": [
         0.129,
@@ -6781,7 +6781,7 @@
         0.251,
         0.219,
         0.284,
-        0.307
+        0.311
       ],
       "AUDUSD": [
         0.133,
@@ -6853,7 +6853,7 @@
         0.411,
         0.396,
         0.499,
-        0.564
+        0.568
       ],
       "NZDUSD": [
         0.089,
@@ -6925,7 +6925,7 @@
         -0.025,
         -0.077,
         0.05,
-        0.099
+        0.103
       ],
       "USDCAD": [
         -0.025,
@@ -6997,7 +6997,7 @@
         -0.12,
         -0.058,
         -0.132,
-        -0.2
+        -0.197
       ],
       "USDCHF": [
         -0.529,
@@ -7069,7 +7069,7 @@
         -0.68,
         -0.599,
         -0.596,
-        -0.589
+        -0.593
       ],
       "USDJPY": [
         -0.255,
@@ -7141,7 +7141,7 @@
         0.414,
         0.491,
         0.361,
-        0.414
+        0.411
       ],
       "EURGBP": [
         0.187,
@@ -7213,7 +7213,7 @@
         0.333,
         0.303,
         0.245,
-        0.23
+        0.228
       ],
       "EURAUD": [
         0.128,
@@ -7285,7 +7285,7 @@
         -0.004,
         -0.051,
         -0.175,
-        -0.245
+        -0.248
       ],
       "EURCAD": [
         0.323,
@@ -7357,7 +7357,7 @@
         0.567,
         0.561,
         0.516,
-        0.466
+        0.471
       ],
       "EURCHF": [
         -0.408,
@@ -7429,7 +7429,7 @@
         -0.248,
         -0.203,
         -0.158,
-        -0.13
+        -0.133
       ],
       "EURJPY": [
         0.042,
@@ -7573,7 +7573,7 @@
         0.623,
         0.653,
         0.472,
-        0.413
+        0.408
       ],
       "GBPAUD": [
         -0.029,
@@ -7645,7 +7645,7 @@
         -0.269,
         -0.292,
         -0.366,
-        -0.422
+        -0.423
       ],
       "GBPCAD": [
         0.12,
@@ -7717,7 +7717,7 @@
         0.199,
         0.219,
         0.235,
-        0.205
+        0.211
       ],
       "GBPCHF": [
         -0.326,
@@ -7861,7 +7861,7 @@
         0.641,
         0.679,
         0.644,
-        0.717
+        0.718
       ],
       "GBPNZD": [
         0.019,
@@ -7933,7 +7933,7 @@
         0.325,
         0.378,
         0.256,
-        0.213
+        0.21
       ],
       "AUDCAD": [
         0.171,
@@ -8005,7 +8005,7 @@
         0.535,
         0.577,
         0.678,
-        0.711
+        0.72
       ],
       "AUDCHF": [
         -0.248,
@@ -8077,7 +8077,7 @@
         -0.128,
         -0.074,
         0.039,
-        0.103
+        0.104
       ],
       "AUDJPY": [
         -0.048,
@@ -8149,7 +8149,7 @@
         0.787,
         0.829,
         0.853,
-        0.96
+        0.962
       ],
       "AUDNZD": [
         0.067,
@@ -8221,7 +8221,7 @@
         0.92,
         1.028,
         0.96,
-        0.981
+        0.978
       ],
       "CADCHF": [
         -0.439,
@@ -8293,7 +8293,7 @@
         -0.542,
         -0.508,
         -0.451,
-        -0.4
+        -0.405
       ],
       "CADJPY": [
         -0.168,
@@ -8365,7 +8365,7 @@
         0.444,
         0.462,
         0.413,
-        0.508
+        0.504
       ],
       "CHFJPY": [
         0.256,
@@ -8437,7 +8437,7 @@
         1.588,
         1.554,
         1.375,
-        1.425
+        1.427
       ],
       "NZDCAD": [
         0.097,
@@ -8509,7 +8509,7 @@
         -0.127,
         -0.156,
         -0.028,
-        -0.011
+        -0.003
       ],
       "NZDCHF": [
         -0.307,
@@ -8581,7 +8581,7 @@
         -0.534,
         -0.523,
         -0.385,
-        -0.334
+        -0.332
       ],
       "NZDJPY": [
         -0.086,
@@ -8653,7 +8653,7 @@
         0.294,
         0.284,
         0.348,
-        0.443
+        0.446
       ]
     },
     "W1": {
@@ -8757,7 +8757,7 @@
         -0.179,
         -0.151,
         -0.179,
-        -0.104
+        -0.099
       ],
       "GBPUSD": [
         0.611,
@@ -8859,7 +8859,7 @@
         0.048,
         0.074,
         0.077,
-        0.138
+        0.147
       ],
       "AUDUSD": [
         0.267,
@@ -8961,7 +8961,7 @@
         -0.065,
         -0.035,
         -0.035,
-        -0.014
+        -0.005
       ],
       "NZDUSD": [
         0.276,
@@ -9063,7 +9063,7 @@
         -0.007,
         0.045,
         0.046,
-        0.115
+        0.126
       ],
       "USDCAD": [
         -0.163,
@@ -9165,7 +9165,7 @@
         0.518,
         0.405,
         0.318,
-        0.187
+        0.192
       ],
       "USDCHF": [
         -0.883,
@@ -9267,7 +9267,7 @@
         0.35,
         0.331,
         0.385,
-        0.283
+        0.275
       ],
       "USDJPY": [
         -1.052,
@@ -9369,7 +9369,7 @@
         0.068,
         0.035,
         0.07,
-        0.039
+        0.034
       ],
       "EURGBP": [
         -0.296,
@@ -9471,7 +9471,7 @@
         -0.351,
         -0.35,
         -0.4,
-        -0.376
+        -0.383
       ],
       "EURAUD": [
         0.084,
@@ -9573,7 +9573,7 @@
         -0.096,
         -0.097,
         -0.122,
-        -0.074
+        -0.081
       ],
       "EURCAD": [
         0.401,
@@ -9675,7 +9675,7 @@
         0.254,
         0.185,
         0.074,
-        0.044
+        0.054
       ],
       "EURCHF": [
         -0.688,
@@ -9777,7 +9777,7 @@
         0.325,
         0.327,
         0.382,
-        0.317
+        0.31
       ],
       "EURJPY": [
         -0.77,
@@ -9879,7 +9879,7 @@
         -0.064,
         -0.089,
         -0.076,
-        -0.045
+        -0.047
       ],
       "EURNZD": [
         0.067,
@@ -9981,7 +9981,7 @@
         -0.168,
         -0.214,
         -0.239,
-        -0.258
+        -0.269
       ],
       "GBPAUD": [
         0.306,
@@ -10083,7 +10083,7 @@
         0.111,
         0.111,
         0.114,
-        0.149
+        0.147
       ],
       "GBPCAD": [
         0.611,
@@ -10185,7 +10185,7 @@
         0.514,
         0.445,
         0.373,
-        0.326
+        0.342
       ],
       "GBPCHF": [
         -0.317,
@@ -10389,7 +10389,7 @@
         0.134,
         0.11,
         0.152,
-        0.168
+        0.171
       ],
       "GBPNZD": [
         0.288,
@@ -10491,7 +10491,7 @@
         0.061,
         0.011,
         0.015,
-        -0.019
+        -0.025
       ],
       "AUDCAD": [
         0.257,
@@ -10593,7 +10593,7 @@
         0.35,
         0.288,
         0.215,
-        0.13
+        0.147
       ],
       "AUDCHF": [
         -0.5,
@@ -10695,7 +10695,7 @@
         0.264,
         0.269,
         0.323,
-        0.246
+        0.248
       ],
       "AUDJPY": [
         -0.732,
@@ -10797,7 +10797,7 @@
         0.023,
         0.006,
         0.036,
-        0.023
+        0.027
       ],
       "AUDNZD": [
         -0.019,
@@ -10899,7 +10899,7 @@
         -0.087,
         -0.152,
         -0.151,
-        -0.257
+        -0.261
       ],
       "CADCHF": [
         -0.822,
@@ -11001,7 +11001,7 @@
         0.031,
         0.084,
         0.208,
-        0.187
+        0.175
       ],
       "CADJPY": [
         -0.953,
@@ -11103,7 +11103,7 @@
         -0.219,
         -0.196,
         -0.11,
-        -0.065
+        -0.073
       ],
       "CHFJPY": [
         -0.338,
@@ -11205,7 +11205,7 @@
         -0.311,
         -0.338,
         -0.356,
-        -0.277
+        -0.272
       ],
       "NZDCAD": [
         0.24,
@@ -11307,7 +11307,7 @@
         0.367,
         0.347,
         0.277,
-        0.283
+        0.301
       ],
       "NZDCHF": [
         -0.475,
@@ -11409,7 +11409,7 @@
         0.316,
         0.345,
         0.401,
-        0.379
+        0.383
       ],
       "NZDJPY": [
         -0.728,
@@ -11511,7 +11511,7 @@
         0.069,
         0.081,
         0.111,
-        0.149
+        0.156
       ]
     },
     "D1": {
@@ -11635,7 +11635,7 @@
         0.569,
         0.583,
         0.761,
-        0.808
+        0.821
       ],
       "GBPUSD": [
         -0.603,
@@ -11757,7 +11757,7 @@
         0.4,
         0.439,
         0.57,
-        0.641
+        0.664
       ],
       "AUDUSD": [
         -0.002,
@@ -11879,7 +11879,7 @@
         0.396,
         0.375,
         0.464,
-        0.462
+        0.484
       ],
       "NZDUSD": [
         -0.552,
@@ -12001,7 +12001,7 @@
         0.319,
         0.291,
         0.422,
-        0.475
+        0.499
       ],
       "USDCAD": [
         -0.026,
@@ -12123,7 +12123,7 @@
         -0.757,
         -0.79,
         -0.982,
-        -1.08
+        -1.065
       ],
       "USDCHF": [
         0.242,
@@ -12245,7 +12245,7 @@
         -0.069,
         -0.082,
         -0.396,
-        -0.446
+        -0.466
       ],
       "USDJPY": [
         0.511,
@@ -12367,7 +12367,7 @@
         -0.963,
         -0.897,
         -1.012,
-        -0.887
+        -0.902
       ],
       "EURGBP": [
         -0.102,
@@ -12489,7 +12489,7 @@
         0.164,
         0.111,
         0.146,
-        0.089
+        0.068
       ],
       "EURAUD": [
         -0.575,
@@ -12611,7 +12611,7 @@
         -0.018,
         0.023,
         0.067,
-        0.111
+        0.092
       ],
       "EURCAD": [
         -0.914,
@@ -12733,7 +12733,7 @@
         0.045,
         0.022,
         0.054,
-        -0.002
+        0.025
       ],
       "EURCHF": [
         -0.566,
@@ -12855,7 +12855,7 @@
         0.575,
         0.569,
         0.302,
-        0.266
+        0.249
       ],
       "EURJPY": [
         -0.042,
@@ -12977,7 +12977,7 @@
         -0.431,
         -0.351,
         -0.3,
-        -0.131
+        -0.134
       ],
       "EURNZD": [
         -0.011,
@@ -13099,7 +13099,7 @@
         0.03,
         0.085,
         0.043,
-        0.002
+        -0.023
       ],
       "GBPAUD": [
         -0.534,
@@ -13221,7 +13221,7 @@
         -0.114,
         -0.04,
         -0.018,
-        0.062
+        0.055
       ],
       "GBPCAD": [
         -0.692,
@@ -13343,7 +13343,7 @@
         -0.072,
         -0.052,
         -0.047,
-        -0.058
+        -0.019
       ],
       "GBPCHF": [
         -0.328,
@@ -13587,7 +13587,7 @@
         -0.486,
         -0.382,
         -0.353,
-        -0.167
+        -0.158
       ],
       "GBPNZD": [
         0.063,
@@ -13709,7 +13709,7 @@
         -0.059,
         0.022,
         -0.036,
-        -0.042
+        -0.055
       ],
       "AUDCAD": [
         -0.019,
@@ -13831,7 +13831,7 @@
         0.043,
         -0.002,
         -0.018,
-        -0.091
+        -0.056
       ],
       "AUDCHF": [
         0.191,
@@ -13953,7 +13953,7 @@
         0.375,
         0.339,
         0.138,
-        0.083
+        0.087
       ],
       "AUDJPY": [
         0.417,
@@ -14075,7 +14075,7 @@
         -0.291,
         -0.264,
         -0.261,
-        -0.171
+        -0.16
       ],
       "AUDNZD": [
         0.803,
@@ -14197,7 +14197,7 @@
         0.056,
         0.076,
         -0.019,
-        -0.108
+        -0.117
       ],
       "CADCHF": [
         0.275,
@@ -14319,7 +14319,7 @@
         0.408,
         0.418,
         0.189,
-        0.205
+        0.173
       ],
       "CADJPY": [
         0.522,
@@ -14441,7 +14441,7 @@
         -0.425,
         -0.339,
         -0.315,
-        -0.118
+        -0.142
       ],
       "CHFJPY": [
         0.304,
@@ -14563,7 +14563,7 @@
         -0.754,
         -0.681,
         -0.459,
-        -0.287
+        -0.278
       ],
       "NZDCAD": [
         -0.676,
@@ -14685,7 +14685,7 @@
         -0.003,
         -0.057,
         -0.004,
-        -0.003
+        0.035
       ],
       "NZDCHF": [
         -0.279,
@@ -14807,7 +14807,7 @@
         0.316,
         0.272,
         0.142,
-        0.158
+        0.167
       ],
       "NZDJPY": [
         -0.023,
@@ -14929,12 +14929,11 @@
         -0.302,
         -0.286,
         -0.227,
-        -0.082
+        -0.065
       ]
     },
     "H4": {
       "EURUSD": [
-        -0.346,
         -0.351,
         -0.303,
         -0.332,
@@ -15053,10 +15052,10 @@
         0.914,
         0.974,
         1.197,
-        1.187
+        1.217,
+        1.299
       ],
       "GBPUSD": [
-        -0.81,
         -0.836,
         -0.76,
         -0.774,
@@ -15175,10 +15174,10 @@
         0.423,
         0.494,
         0.666,
-        0.688
+        0.745,
+        0.856
       ],
       "AUDUSD": [
-        -0.236,
         -0.355,
         -0.353,
         -0.393,
@@ -15297,10 +15296,10 @@
         0.164,
         0.13,
         0.178,
-        0.061
+        0.121,
+        0.129
       ],
       "NZDUSD": [
-        -0.831,
         -0.892,
         -0.842,
         -0.89,
@@ -15419,10 +15418,10 @@
         0.237,
         0.391,
         0.481,
-        0.483
+        0.544,
+        0.66
       ],
       "USDCAD": [
-        0.318,
         0.224,
         0.058,
         0.031,
@@ -15541,10 +15540,10 @@
         -0.47,
         -0.57,
         -0.826,
-        -0.945
+        -0.89,
+        -0.997
       ],
       "USDCHF": [
-        0.763,
         0.757,
         0.681,
         0.707,
@@ -15663,10 +15662,10 @@
         -1.018,
         -1.074,
         -1.261,
-        -1.281
+        -1.328,
+        -1.396
       ],
       "USDJPY": [
-        0.843,
         0.885,
         0.862,
         0.85,
@@ -15785,10 +15784,10 @@
         -0.284,
         -0.319,
         -0.358,
-        -0.329
+        -0.351,
+        -0.391
       ],
       "EURGBP": [
-        0.777,
         0.803,
         0.761,
         0.743,
@@ -15907,10 +15906,10 @@
         0.722,
         0.702,
         0.754,
-        0.685
+        0.638,
+        0.571
       ],
       "EURAUD": [
-        -0.017,
         0.133,
         0.184,
         0.212,
@@ -16029,10 +16028,10 @@
         0.672,
         0.778,
         0.912,
-        1.061
+        1.005,
+        1.062
       ],
       "EURCAD": [
-        -0.07,
         -0.174,
         -0.285,
         -0.345,
@@ -16151,10 +16150,10 @@
         0.561,
         0.529,
         0.507,
-        0.38
+        0.462,
+        0.44
       ],
       "EURCHF": [
-        0.846,
         0.833,
         0.767,
         0.778,
@@ -16273,10 +16272,10 @@
         -0.699,
         -0.729,
         -0.814,
-        -0.848
+        -0.895,
+        -0.928
       ],
       "EURJPY": [
-        0.55,
         0.596,
         0.636,
         0.594,
@@ -16395,10 +16394,10 @@
         0.212,
         0.207,
         0.286,
-        0.312
+        0.305,
+        0.301
       ],
       "EURNZD": [
-        0.932,
         1.012,
         0.988,
         1.036,
@@ -16517,10 +16516,10 @@
         0.412,
         0.243,
         0.285,
-        0.273
+        0.212,
+        0.101
       ],
       "GBPAUD": [
-        -0.522,
         -0.407,
         -0.338,
         -0.3,
@@ -16639,10 +16638,10 @@
         0.186,
         0.291,
         0.381,
-        0.541
+        0.517,
+        0.603
       ],
       "GBPCAD": [
-        -0.637,
         -0.751,
         -0.805,
         -0.842,
@@ -16761,10 +16760,10 @@
         0.056,
         0.044,
         -0.009,
-        -0.092
+        0.027,
+        0.051
       ],
       "GBPCHF": [
-        0.081,
         0.055,
         0.037,
         0.055,
@@ -16883,10 +16882,10 @@
         -0.97,
         -0.985,
         -1.086,
-        -1.084
+        -1.099,
+        -1.094
       ],
       "GBPJPY": [
-        -0.1,
         -0.08,
         -0.012,
         -0.037,
@@ -17005,10 +17004,10 @@
         -0.059,
         -0.056,
         0.004,
-        0.053
+        0.063,
+        0.083
       ],
       "GBPNZD": [
-        0.365,
         0.422,
         0.434,
         0.487,
@@ -17127,10 +17126,10 @@
         0.035,
         -0.106,
         -0.088,
-        -0.073
+        -0.105,
+        -0.172
       ],
       "AUDCAD": [
-        -0.038,
         -0.254,
         -0.375,
         -0.443,
@@ -17249,10 +17248,10 @@
         -0.133,
         -0.238,
         -0.359,
-        -0.569
+        -0.465,
+        -0.535
       ],
       "AUDCHF": [
-        0.464,
         0.358,
         0.29,
         0.278,
@@ -17371,10 +17370,10 @@
         -0.859,
         -0.938,
         -1.064,
-        -1.177
+        -1.173,
+        -1.226
       ],
       "AUDJPY": [
-        0.417,
         0.317,
         0.313,
         0.26,
@@ -17493,10 +17492,10 @@
         -0.163,
         -0.224,
         -0.225,
-        -0.28
+        -0.259,
+        -0.292
       ],
       "AUDNZD": [
-        1.099,
         1.027,
         0.959,
         0.981,
@@ -17615,10 +17614,10 @@
         -0.149,
         -0.42,
         -0.493,
-        -0.648
+        -0.661,
+        -0.823
       ],
       "CADCHF": [
-        0.624,
         0.688,
         0.729,
         0.778,
@@ -17737,10 +17736,10 @@
         -0.876,
         -0.88,
         -0.923,
-        -0.874
+        -0.956,
+        -0.976
       ],
       "CADJPY": [
-        0.527,
         0.647,
         0.769,
         0.78,
@@ -17859,10 +17858,10 @@
         -0.081,
         -0.072,
         0.009,
-        0.094
+        0.046,
+        0.053
       ],
       "CHFJPY": [
-        -0.166,
         -0.136,
         -0.046,
         -0.085,
@@ -17981,10 +17980,10 @@
         0.597,
         0.612,
         0.736,
-        0.778
+        0.799,
+        0.819
       ],
       "NZDCAD": [
-        -0.776,
         -0.906,
         -0.941,
         -1.011,
@@ -18103,10 +18102,10 @@
         0.024,
         0.144,
         0.102,
-        0.009
+        0.109,
+        0.182
       ],
       "NZDCHF": [
-        -0.247,
         -0.325,
         -0.335,
         -0.362,
@@ -18225,10 +18224,10 @@
         -0.734,
         -0.632,
         -0.708,
-        -0.725
+        -0.714,
+        -0.655
       ],
       "NZDJPY": [
-        -0.382,
         -0.431,
         -0.376,
         -0.437,
@@ -18347,12 +18346,12 @@
         -0.072,
         0.024,
         0.063,
-        0.09
+        0.119,
+        0.179
       ]
     },
     "H1": {
       "EURUSD": [
-        0.332,
         0.198,
         0.151,
         0.031,
@@ -18551,10 +18550,10 @@
         1.02,
         0.809,
         0.607,
-        0.534
+        0.601,
+        0.58
       ],
       "GBPUSD": [
-        0.595,
         0.473,
         0.332,
         0.227,
@@ -18753,10 +18752,10 @@
         0.592,
         0.614,
         0.604,
-        0.622
+        0.746,
+        0.844
       ],
       "AUDUSD": [
-        0.514,
         0.39,
         0.351,
         0.224,
@@ -18955,10 +18954,10 @@
         0.213,
         0.063,
         -0.14,
-        -0.204
+        -0.076,
+        -0.048
       ],
       "NZDUSD": [
-        0.261,
         0.174,
         0.213,
         0.128,
@@ -19157,10 +19156,10 @@
         0.982,
         0.799,
         0.636,
-        0.56
+        0.688,
+        0.686
       ],
       "USDCAD": [
-        -0.765,
         -0.509,
         -0.387,
         -0.133,
@@ -19359,10 +19358,10 @@
         -1.233,
         -1.074,
         -1.087,
-        -1.12
+        -1.004,
+        -0.976
       ],
       "USDCHF": [
-        -0.132,
         -0.053,
         -0.114,
         0.052,
@@ -19561,10 +19560,10 @@
         -0.862,
         -0.544,
         -0.272,
-        -0.132
+        -0.232,
+        -0.204
       ],
       "USDJPY": [
-        0.278,
         0.465,
         0.684,
         0.958,
@@ -19763,10 +19762,10 @@
         0.029,
         0.174,
         0.349,
-        0.446
+        0.372,
+        0.418
       ],
       "EURGBP": [
-        -0.507,
         -0.521,
         -0.347,
         -0.353,
@@ -19965,10 +19964,10 @@
         0.584,
         0.225,
         -0.064,
-        -0.216
+        -0.327,
+        -0.541
       ],
       "EURAUD": [
-        -0.43,
         -0.383,
         -0.362,
         -0.291,
@@ -20167,10 +20166,10 @@
         0.673,
         0.69,
         0.783,
-        0.81
+        0.689,
+        0.634
       ],
       "EURCAD": [
-        -0.386,
         -0.287,
         -0.212,
         -0.099,
@@ -20369,10 +20368,10 @@
         -0.147,
         -0.211,
         -0.432,
-        -0.545
+        -0.365,
+        -0.362
       ],
       "EURCHF": [
-        0.121,
         0.103,
         -0.032,
         0.098,
@@ -20571,10 +20570,10 @@
         -0.39,
         -0.096,
         0.155,
-        0.311
+        0.212,
+        0.241
       ],
       "EURJPY": [
-        0.553,
         0.687,
         0.918,
         1.15,
@@ -20773,10 +20772,10 @@
         1.069,
         1.038,
         1.069,
-        1.128
+        1.098,
+        1.135
       ],
       "EURNZD": [
-        -0.12,
         -0.094,
         -0.168,
         -0.131,
@@ -20975,10 +20974,10 @@
         -0.585,
         -0.483,
         -0.398,
-        -0.336
+        -0.462,
+        -0.474
       ],
       "GBPAUD": [
-        -0.09,
         -0.048,
         -0.121,
         -0.06,
@@ -21177,10 +21176,10 @@
         0.256,
         0.44,
         0.649,
-        0.752
+        0.705,
+        0.764
       ],
       "GBPCAD": [
-        -0.069,
         0.038,
         -0.002,
         0.13,
@@ -21379,10 +21378,10 @@
         -0.527,
         -0.341,
         -0.375,
-        -0.38
+        -0.123,
+        0.024
       ],
       "GBPCHF": [
-        0.387,
         0.378,
         0.15,
         0.286,
@@ -21581,10 +21580,10 @@
         -0.65,
         -0.214,
         0.141,
-        0.343
+        0.311,
+        0.43
       ],
       "GBPJPY": [
-        0.724,
         0.857,
         1.006,
         1.234,
@@ -21783,10 +21782,10 @@
         0.64,
         0.826,
         1.022,
-        1.156
+        1.192,
+        1.344
       ],
       "GBPNZD": [
-        0.104,
         0.13,
         -0.01,
         0.03,
@@ -21985,10 +21984,10 @@
         -0.838,
         -0.563,
         -0.341,
-        -0.21
+        -0.281,
+        -0.193
       ],
       "AUDCAD": [
-        0.021,
         0.061,
         0.111,
         0.146,
@@ -22187,10 +22186,10 @@
         -0.636,
         -0.689,
         -0.915,
-        -1.019
+        -0.792,
+        -0.746
       ],
       "AUDCHF": [
-        0.333,
         0.304,
         0.215,
         0.256,
@@ -22389,10 +22388,10 @@
         -0.632,
         -0.461,
         -0.37,
-        -0.294
+        -0.285,
+        -0.238
       ],
       "AUDJPY": [
-        0.703,
         0.791,
         0.974,
         1.126,
@@ -22591,10 +22590,10 @@
         0.252,
         0.223,
         0.161,
-        0.185
+        0.253,
+        0.323
       ],
       "AUDNZD": [
-        0.216,
         0.214,
         0.121,
         0.101,
@@ -22793,10 +22792,10 @@
         -1.294,
         -1.18,
         -1.156,
-        -1.11
+        -1.139,
+        -1.094
       ],
       "CADCHF": [
-        0.339,
         0.275,
         0.129,
         0.153,
@@ -22995,10 +22994,10 @@
         -0.223,
         0.029,
         0.357,
-        0.542
+        0.364,
+        0.381
       ],
       "CADJPY": [
-        0.694,
         0.757,
         0.913,
         1.051,
@@ -23197,10 +23196,10 @@
         0.968,
         0.997,
         1.189,
-        1.314
+        1.153,
+        1.178
       ],
       "CHFJPY": [
-        0.399,
         0.531,
         0.819,
         0.933,
@@ -23399,10 +23398,10 @@
         1.107,
         0.857,
         0.68,
-        0.605
+        0.667,
+        0.683
       ],
       "NZDCAD": [
-        -0.138,
         -0.095,
         0.014,
         0.061,
@@ -23601,10 +23600,10 @@
         0.414,
         0.316,
         0.145,
-        0.05
+        0.252,
+        0.278
       ],
       "NZDCHF": [
-        0.151,
         0.138,
         0.119,
         0.184,
@@ -23803,10 +23802,10 @@
         0.16,
         0.272,
         0.385,
-        0.439
+        0.461,
+        0.492
       ],
       "NZDJPY": [
-        0.514,
         0.609,
         0.842,
         0.988,
@@ -24005,66 +24004,67 @@
         1.145,
         1.058,
         1.003,
-        0.999
+        1.085,
+        1.125
       ]
     }
   },
   "pairs": [
+    {
+      "pair": "AUDCHF",
+      "base": "AUD",
+      "quote": "CHF",
+      "base_flag": "🇦🇺",
+      "quote_flag": "🇨🇭",
+      "total_score": -1.1,
+      "macro_diff": 0.18,
+      "op_diff": -1.02,
+      "recommendation": "VENDA FORTE (STRONG SELL)",
+      "badge_type": "STRONG_SELL",
+      "conviction": "MÁXIMA (CONFLUÊNCIA DUPLA)",
+      "thesis": "Base (AUD) ABERTO SOBRE O 0 (PERMISSÃO VÁLIDA PARA CAIR) vs Cotada (CHF) ABERTO SOBRE O 0 (PERMISSÃO VÁLIDA PARA SUBIR)."
+    },
+    {
+      "pair": "AUDCAD",
+      "base": "AUD",
+      "quote": "CAD",
+      "base_flag": "🇦🇺",
+      "quote_flag": "🇨🇦",
+      "total_score": -0.95,
+      "macro_diff": 0.12,
+      "op_diff": -0.78,
+      "recommendation": "VENDA FORTE (STRONG SELL)",
+      "badge_type": "STRONG_SELL",
+      "conviction": "MÁXIMA (CONFLUÊNCIA DUPLA)",
+      "thesis": "Base (AUD) ABERTO SOBRE O 0 (PERMISSÃO VÁLIDA PARA CAIR) vs Cotada (CAD) CICLO DE FORÇA EM ANDAMENTO (BUSCANDO +0.20)."
+    },
+    {
+      "pair": "AUDNZD",
+      "base": "AUD",
+      "quote": "NZD",
+      "base_flag": "🇦🇺",
+      "quote_flag": "🇳🇿",
+      "total_score": -0.95,
+      "macro_diff": 0.04,
+      "op_diff": -0.94,
+      "recommendation": "VENDA FORTE (STRONG SELL)",
+      "badge_type": "STRONG_SELL",
+      "conviction": "MÁXIMA (CONFLUÊNCIA DUPLA)",
+      "thesis": "Base (AUD) ABERTO SOBRE O 0 (PERMISSÃO VÁLIDA PARA CAIR) vs Cotada (NZD) CICLO DE FORÇA EM ANDAMENTO (BUSCANDO +0.20)."
+    },
     {
       "pair": "CHFJPY",
       "base": "CHF",
       "quote": "JPY",
       "base_flag": "🇨🇭",
       "quote_flag": "🇯🇵",
-      "total_score": 1.65,
+      "total_score": 0.85,
       "macro_diff": -0.03,
-      "op_diff": 0.91,
-      "recommendation": "COMPRA FORTE (STRONG BUY)",
-      "badge_type": "STRONG_BUY",
-      "conviction": "MÁXIMA (CONFLUÊNCIA DUPLA)",
-      "thesis": "Base (CHF) ABERTO SOBRE O 0 (PERMISSÃO VÁLIDA PARA SUBIR) vs Cotada (JPY) ZONA DE PARADA VERDE (DEVENDO CICLO DE FRAQUEZA)."
-    },
-    {
-      "pair": "NZDJPY",
-      "base": "NZD",
-      "quote": "JPY",
-      "base_flag": "🇳🇿",
-      "quote_flag": "🇯🇵",
-      "total_score": 1.5,
-      "macro_diff": 0.1,
-      "op_diff": 0.75,
-      "recommendation": "COMPRA FORTE (STRONG BUY)",
-      "badge_type": "STRONG_BUY",
-      "conviction": "MÁXIMA (CONFLUÊNCIA DUPLA)",
-      "thesis": "Base (NZD) CICLO DE FORÇA EM ANDAMENTO (BUSCANDO +0.20) vs Cotada (JPY) ZONA DE PARADA VERDE (DEVENDO CICLO DE FRAQUEZA)."
-    },
-    {
-      "pair": "USDJPY",
-      "base": "USD",
-      "quote": "JPY",
-      "base_flag": "🇺🇸",
-      "quote_flag": "🇯🇵",
-      "total_score": 1.45,
-      "macro_diff": -0.35,
-      "op_diff": -0.05,
+      "op_diff": 0.97,
       "recommendation": "COMPRA (BUY)",
       "badge_type": "BUY",
       "conviction": "ALTA",
-      "thesis": "Potencial cíclico de fluxo comprador para USD frente a JPY."
-    },
-    {
-      "pair": "GBPJPY",
-      "base": "GBP",
-      "quote": "JPY",
-      "base_flag": "🇬🇧",
-      "quote_flag": "🇯🇵",
-      "total_score": 1.1,
-      "macro_diff": 0.15,
-      "op_diff": 0.6,
-      "recommendation": "COMPRA (BUY)",
-      "badge_type": "BUY",
-      "conviction": "ALTA",
-      "thesis": "Potencial cíclico de fluxo comprador para GBP frente a JPY."
+      "thesis": "Potencial cíclico de fluxo comprador para CHF frente a JPY."
     },
     {
       "pair": "CADJPY",
@@ -24072,55 +24072,27 @@
       "quote": "JPY",
       "base_flag": "🇨🇦",
       "quote_flag": "🇯🇵",
-      "total_score": 1.1,
-      "macro_diff": 0.05,
-      "op_diff": 0.85,
+      "total_score": 0.7,
+      "macro_diff": 0.03,
+      "op_diff": 0.73,
       "recommendation": "COMPRA (BUY)",
       "badge_type": "BUY",
       "conviction": "ALTA",
       "thesis": "Potencial cíclico de fluxo comprador para CAD frente a JPY."
     },
     {
-      "pair": "EURJPY",
-      "base": "EUR",
+      "pair": "NZDJPY",
+      "base": "NZD",
       "quote": "JPY",
-      "base_flag": "🇪🇺",
+      "base_flag": "🇳🇿",
       "quote_flag": "🇯🇵",
-      "total_score": 1.0,
-      "macro_diff": 0.15,
-      "op_diff": 0.81,
+      "total_score": 0.7,
+      "macro_diff": 0.11,
+      "op_diff": 0.9,
       "recommendation": "COMPRA (BUY)",
       "badge_type": "BUY",
       "conviction": "ALTA",
-      "thesis": "Potencial cíclico de fluxo comprador para EUR frente a JPY."
-    },
-    {
-      "pair": "AUDJPY",
-      "base": "AUD",
-      "quote": "JPY",
-      "base_flag": "🇦🇺",
-      "quote_flag": "🇯🇵",
-      "total_score": 0.95,
-      "macro_diff": 0.14,
-      "op_diff": -0.12,
-      "recommendation": "COMPRA FORTE (STRONG BUY)",
-      "badge_type": "STRONG_BUY",
-      "conviction": "MÁXIMA (CONFLUÊNCIA DUPLA)",
-      "thesis": "Base (AUD) ABERTO SOBRE O 0 (PERMISSÃO VÁLIDA PARA CAIR) vs Cotada (JPY) ZONA DE PARADA VERDE (DEVENDO CICLO DE FRAQUEZA)."
-    },
-    {
-      "pair": "AUDCHF",
-      "base": "AUD",
-      "quote": "CHF",
-      "base_flag": "🇦🇺",
-      "quote_flag": "🇨🇭",
-      "total_score": -0.7,
-      "macro_diff": 0.18,
-      "op_diff": -1.03,
-      "recommendation": "VENDA (SELL)",
-      "badge_type": "SELL",
-      "conviction": "ALTA",
-      "thesis": "Pressão cíclica vendedora em AUD frente ao CHF (Exaustão de Topo/Fundo)."
+      "thesis": "Potencial cíclico de fluxo comprador para NZD frente a JPY."
     },
     {
       "pair": "EURCHF",
@@ -24129,12 +24101,26 @@
       "base_flag": "🇪🇺",
       "quote_flag": "🇨🇭",
       "total_score": -0.65,
-      "macro_diff": 0.19,
-      "op_diff": -0.1,
+      "macro_diff": 0.18,
+      "op_diff": -0.19,
       "recommendation": "VENDA FORTE (STRONG SELL)",
       "badge_type": "STRONG_SELL",
       "conviction": "MÁXIMA (CONFLUÊNCIA DUPLA)",
       "thesis": "Base (EUR) CICLO DE FORÇA EM ANDAMENTO (BUSCANDO +0.20) vs Cotada (CHF) ABERTO SOBRE O 0 (PERMISSÃO VÁLIDA PARA SUBIR)."
+    },
+    {
+      "pair": "USDCHF",
+      "base": "USD",
+      "quote": "CHF",
+      "base_flag": "🇺🇸",
+      "quote_flag": "🇨🇭",
+      "total_score": -0.6,
+      "macro_diff": -0.34,
+      "op_diff": -1.09,
+      "recommendation": "VENDA FORTE (STRONG SELL)",
+      "badge_type": "STRONG_SELL",
+      "conviction": "MÁXIMA (CONFLUÊNCIA DUPLA)",
+      "thesis": "Base (USD) CUMPRIU CICLO DE BAIXA (ALERTA DE FUNDO / LINHA VERMELHA) vs Cotada (CHF) ABERTO SOBRE O 0 (PERMISSÃO VÁLIDA PARA SUBIR)."
     },
     {
       "pair": "GBPCHF",
@@ -24144,39 +24130,39 @@
       "quote_flag": "🇨🇭",
       "total_score": -0.55,
       "macro_diff": 0.18,
-      "op_diff": -0.31,
+      "op_diff": -0.23,
       "recommendation": "VENDA FORTE (STRONG SELL)",
       "badge_type": "STRONG_SELL",
       "conviction": "MÁXIMA (CONFLUÊNCIA DUPLA)",
       "thesis": "Base (GBP) CICLO DE FORÇA EM ANDAMENTO (BUSCANDO +0.20) vs Cotada (CHF) ABERTO SOBRE O 0 (PERMISSÃO VÁLIDA PARA SUBIR)."
     },
     {
-      "pair": "CADCHF",
-      "base": "CAD",
-      "quote": "CHF",
-      "base_flag": "🇨🇦",
-      "quote_flag": "🇨🇭",
-      "total_score": -0.55,
-      "macro_diff": 0.09,
-      "op_diff": -0.06,
+      "pair": "GBPAUD",
+      "base": "GBP",
+      "quote": "AUD",
+      "base_flag": "🇬🇧",
+      "quote_flag": "🇦🇺",
+      "total_score": 0.55,
+      "macro_diff": 0.0,
+      "op_diff": 0.79,
+      "recommendation": "COMPRA (BUY)",
+      "badge_type": "BUY",
+      "conviction": "ALTA",
+      "thesis": "Potencial cíclico de fluxo comprador para GBP frente a AUD."
+    },
+    {
+      "pair": "EURCAD",
+      "base": "EUR",
+      "quote": "CAD",
+      "base_flag": "🇪🇺",
+      "quote_flag": "🇨🇦",
+      "total_score": -0.5,
+      "macro_diff": 0.12,
+      "op_diff": 0.06,
       "recommendation": "VENDA FORTE (STRONG SELL)",
       "badge_type": "STRONG_SELL",
       "conviction": "MÁXIMA (CONFLUÊNCIA DUPLA)",
-      "thesis": "Base (CAD) CICLO DE FORÇA EM ANDAMENTO (BUSCANDO +0.20) vs Cotada (CHF) ABERTO SOBRE O 0 (PERMISSÃO VÁLIDA PARA SUBIR)."
-    },
-    {
-      "pair": "AUDNZD",
-      "base": "AUD",
-      "quote": "NZD",
-      "base_flag": "🇦🇺",
-      "quote_flag": "🇳🇿",
-      "total_score": -0.55,
-      "macro_diff": 0.04,
-      "op_diff": -0.87,
-      "recommendation": "VENDA (SELL)",
-      "badge_type": "SELL",
-      "conviction": "ALTA",
-      "thesis": "Pressão cíclica vendedora em AUD frente ao NZD (Exaustão de Topo/Fundo)."
+      "thesis": "Base (EUR) CICLO DE FORÇA EM ANDAMENTO (BUSCANDO +0.20) vs Cotada (CAD) CICLO DE FORÇA EM ANDAMENTO (BUSCANDO +0.20)."
     },
     {
       "pair": "EURNZD",
@@ -24185,8 +24171,8 @@
       "base_flag": "🇪🇺",
       "quote_flag": "🇳🇿",
       "total_score": -0.5,
-      "macro_diff": 0.06,
-      "op_diff": 0.05,
+      "macro_diff": 0.04,
+      "op_diff": -0.11,
       "recommendation": "VENDA FORTE (STRONG SELL)",
       "badge_type": "STRONG_SELL",
       "conviction": "MÁXIMA (CONFLUÊNCIA DUPLA)",
@@ -24199,26 +24185,68 @@
       "base_flag": "🇦🇺",
       "quote_flag": "🇺🇸",
       "total_score": -0.5,
-      "macro_diff": 0.5,
-      "op_diff": -0.07,
+      "macro_diff": 0.52,
+      "op_diff": 0.07,
       "recommendation": "VENDA (SELL)",
       "badge_type": "SELL",
       "conviction": "ALTA",
       "thesis": "Pressão cíclica vendedora em AUD frente ao USD (Exaustão de Topo/Fundo)."
     },
     {
-      "pair": "EURUSD",
-      "base": "EUR",
+      "pair": "NZDUSD",
+      "base": "NZD",
       "quote": "USD",
-      "base_flag": "🇪🇺",
+      "base_flag": "🇳🇿",
       "quote_flag": "🇺🇸",
+      "total_score": 0.45,
+      "macro_diff": 0.48,
+      "op_diff": 1.01,
+      "recommendation": "COMPRA FORTE (STRONG BUY)",
+      "badge_type": "STRONG_BUY",
+      "conviction": "MÁXIMA (CONFLUÊNCIA DUPLA)",
+      "thesis": "Base (NZD) CICLO DE FORÇA EM ANDAMENTO (BUSCANDO +0.20) vs Cotada (USD) CUMPRIU CICLO DE BAIXA (ALERTA DE FUNDO / LINHA VERMELHA)."
+    },
+    {
+      "pair": "USDCAD",
+      "base": "USD",
+      "quote": "CAD",
+      "base_flag": "🇺🇸",
+      "quote_flag": "🇨🇦",
       "total_score": -0.45,
-      "macro_diff": 0.51,
-      "op_diff": 0.86,
-      "recommendation": "VENDA (SELL)",
-      "badge_type": "SELL",
+      "macro_diff": -0.4,
+      "op_diff": -0.84,
+      "recommendation": "VENDA FORTE (STRONG SELL)",
+      "badge_type": "STRONG_SELL",
+      "conviction": "MÁXIMA (CONFLUÊNCIA DUPLA)",
+      "thesis": "Base (USD) CUMPRIU CICLO DE BAIXA (ALERTA DE FUNDO / LINHA VERMELHA) vs Cotada (CAD) CICLO DE FORÇA EM ANDAMENTO (BUSCANDO +0.20)."
+    },
+    {
+      "pair": "EURAUD",
+      "base": "EUR",
+      "quote": "AUD",
+      "base_flag": "🇪🇺",
+      "quote_flag": "🇦🇺",
+      "total_score": 0.45,
+      "macro_diff": -0.0,
+      "op_diff": 0.83,
+      "recommendation": "COMPRA (BUY)",
+      "badge_type": "BUY",
       "conviction": "ALTA",
-      "thesis": "Pressão cíclica vendedora em EUR frente ao USD (Exaustão de Topo/Fundo)."
+      "thesis": "Potencial cíclico de fluxo comprador para EUR frente a AUD."
+    },
+    {
+      "pair": "GBPCAD",
+      "base": "GBP",
+      "quote": "CAD",
+      "base_flag": "🇬🇧",
+      "quote_flag": "🇨🇦",
+      "total_score": -0.4,
+      "macro_diff": 0.12,
+      "op_diff": 0.02,
+      "recommendation": "VENDA FORTE (STRONG SELL)",
+      "badge_type": "STRONG_SELL",
+      "conviction": "MÁXIMA (CONFLUÊNCIA DUPLA)",
+      "thesis": "Base (GBP) CICLO DE FORÇA EM ANDAMENTO (BUSCANDO +0.20) vs Cotada (CAD) CICLO DE FORÇA EM ANDAMENTO (BUSCANDO +0.20)."
     },
     {
       "pair": "GBPNZD",
@@ -24227,7 +24255,7 @@
       "base_flag": "🇬🇧",
       "quote_flag": "🇳🇿",
       "total_score": -0.4,
-      "macro_diff": 0.05,
+      "macro_diff": 0.04,
       "op_diff": -0.15,
       "recommendation": "VENDA FORTE (STRONG SELL)",
       "badge_type": "STRONG_SELL",
@@ -24235,60 +24263,74 @@
       "thesis": "Base (GBP) CICLO DE FORÇA EM ANDAMENTO (BUSCANDO +0.20) vs Cotada (NZD) CICLO DE FORÇA EM ANDAMENTO (BUSCANDO +0.20)."
     },
     {
-      "pair": "NZDCAD",
-      "base": "NZD",
-      "quote": "CAD",
-      "base_flag": "🇳🇿",
-      "quote_flag": "🇨🇦",
-      "total_score": 0.4,
-      "macro_diff": 0.04,
-      "op_diff": -0.09,
-      "recommendation": "COMPRA FORTE (STRONG BUY)",
-      "badge_type": "STRONG_BUY",
-      "conviction": "MÁXIMA (CONFLUÊNCIA DUPLA)",
-      "thesis": "Base (NZD) CICLO DE FORÇA EM ANDAMENTO (BUSCANDO +0.20) vs Cotada (CAD) CICLO DE FORÇA EM ANDAMENTO (BUSCANDO +0.20)."
+      "pair": "GBPJPY",
+      "base": "GBP",
+      "quote": "JPY",
+      "base_flag": "🇬🇧",
+      "quote_flag": "🇯🇵",
+      "total_score": 0.3,
+      "macro_diff": 0.16,
+      "op_diff": 0.75,
+      "recommendation": "COMPRA MODERADA",
+      "badge_type": "NEUTRAL",
+      "conviction": "MODERADA",
+      "thesis": "Leve predominância compradora para GBP."
     },
     {
-      "pair": "GBPUSD",
-      "base": "GBP",
-      "quote": "USD",
-      "base_flag": "🇬🇧",
-      "quote_flag": "🇺🇸",
-      "total_score": -0.35,
-      "macro_diff": 0.5,
-      "op_diff": 0.65,
+      "pair": "AUDJPY",
+      "base": "AUD",
+      "quote": "JPY",
+      "base_flag": "🇦🇺",
+      "quote_flag": "🇯🇵",
+      "total_score": -0.25,
+      "macro_diff": 0.15,
+      "op_diff": -0.05,
       "recommendation": "VENDA MODERADA",
       "badge_type": "NEUTRAL",
       "conviction": "MODERADA",
-      "thesis": "Leve predominância vendedora em GBP."
+      "thesis": "Leve predominância vendedora em AUD."
     },
     {
-      "pair": "USDCAD",
+      "pair": "USDJPY",
       "base": "USD",
-      "quote": "CAD",
+      "quote": "JPY",
       "base_flag": "🇺🇸",
-      "quote_flag": "🇨🇦",
-      "total_score": 0.35,
-      "macro_diff": -0.41,
-      "op_diff": -0.9,
+      "quote_flag": "🇯🇵",
+      "total_score": 0.25,
+      "macro_diff": -0.36,
+      "op_diff": -0.11,
       "recommendation": "COMPRA MODERADA",
       "badge_type": "NEUTRAL",
       "conviction": "MODERADA",
       "thesis": "Leve predominância compradora para USD."
     },
     {
-      "pair": "USDCHF",
-      "base": "USD",
-      "quote": "CHF",
-      "base_flag": "🇺🇸",
-      "quote_flag": "🇨🇭",
-      "total_score": -0.2,
-      "macro_diff": -0.32,
-      "op_diff": -0.96,
-      "recommendation": "VENDA MODERADA",
+      "pair": "EURJPY",
+      "base": "EUR",
+      "quote": "JPY",
+      "base_flag": "🇪🇺",
+      "quote_flag": "🇯🇵",
+      "total_score": 0.2,
+      "macro_diff": 0.15,
+      "op_diff": 0.79,
+      "recommendation": "COMPRA MODERADA",
       "badge_type": "NEUTRAL",
       "conviction": "MODERADA",
-      "thesis": "Leve predominância vendedora em USD."
+      "thesis": "Leve predominância compradora para EUR."
+    },
+    {
+      "pair": "CADCHF",
+      "base": "CAD",
+      "quote": "CHF",
+      "base_flag": "🇨🇦",
+      "quote_flag": "🇨🇭",
+      "total_score": -0.15,
+      "macro_diff": 0.06,
+      "op_diff": -0.24,
+      "recommendation": "NEUTRO / LATERAL (BOX)",
+      "badge_type": "NEUTRAL",
+      "conviction": "NEUTRA",
+      "thesis": "Forças equilibradas ou ambas no Box. Evitar operar."
     },
     {
       "pair": "NZDCHF",
@@ -24297,36 +24339,8 @@
       "base_flag": "🇳🇿",
       "quote_flag": "🇨🇭",
       "total_score": -0.15,
-      "macro_diff": 0.13,
-      "op_diff": -0.15,
-      "recommendation": "NEUTRO / LATERAL (BOX)",
-      "badge_type": "NEUTRAL",
-      "conviction": "NEUTRA",
-      "thesis": "Forças equilibradas ou ambas no Box. Evitar operar."
-    },
-    {
-      "pair": "GBPAUD",
-      "base": "GBP",
-      "quote": "AUD",
-      "base_flag": "🇬🇧",
-      "quote_flag": "🇦🇺",
-      "total_score": 0.15,
-      "macro_diff": 0.01,
-      "op_diff": 0.72,
-      "recommendation": "NEUTRO / LATERAL (BOX)",
-      "badge_type": "NEUTRAL",
-      "conviction": "NEUTRA",
-      "thesis": "Forças equilibradas ou ambas no Box. Evitar operar."
-    },
-    {
-      "pair": "AUDCAD",
-      "base": "AUD",
-      "quote": "CAD",
-      "base_flag": "🇦🇺",
-      "quote_flag": "🇨🇦",
-      "total_score": -0.15,
-      "macro_diff": 0.09,
-      "op_diff": -0.97,
+      "macro_diff": 0.14,
+      "op_diff": -0.08,
       "recommendation": "NEUTRO / LATERAL (BOX)",
       "badge_type": "NEUTRAL",
       "conviction": "NEUTRA",
@@ -24339,64 +24353,50 @@
       "base_flag": "🇪🇺",
       "quote_flag": "🇬🇧",
       "total_score": -0.1,
-      "macro_diff": 0.0,
-      "op_diff": 0.21,
+      "macro_diff": -0.01,
+      "op_diff": 0.04,
       "recommendation": "NEUTRO / LATERAL (BOX)",
       "badge_type": "NEUTRAL",
       "conviction": "NEUTRA",
       "thesis": "Forças equilibradas ou ambas no Box. Evitar operar."
     },
     {
-      "pair": "EURCAD",
+      "pair": "EURUSD",
       "base": "EUR",
-      "quote": "CAD",
+      "quote": "USD",
       "base_flag": "🇪🇺",
-      "quote_flag": "🇨🇦",
-      "total_score": -0.1,
-      "macro_diff": 0.1,
-      "op_diff": -0.04,
+      "quote_flag": "🇺🇸",
+      "total_score": -0.05,
+      "macro_diff": 0.51,
+      "op_diff": 0.9,
       "recommendation": "NEUTRO / LATERAL (BOX)",
       "badge_type": "NEUTRAL",
       "conviction": "NEUTRA",
       "thesis": "Forças equilibradas ou ambas no Box. Evitar operar."
     },
     {
-      "pair": "NZDUSD",
-      "base": "NZD",
+      "pair": "GBPUSD",
+      "base": "GBP",
       "quote": "USD",
-      "base_flag": "🇳🇿",
+      "base_flag": "🇬🇧",
       "quote_flag": "🇺🇸",
       "total_score": 0.05,
-      "macro_diff": 0.45,
-      "op_diff": 0.81,
+      "macro_diff": 0.52,
+      "op_diff": 0.86,
       "recommendation": "NEUTRO / LATERAL (BOX)",
       "badge_type": "NEUTRAL",
       "conviction": "NEUTRA",
       "thesis": "Forças equilibradas ou ambas no Box. Evitar operar."
     },
     {
-      "pair": "EURAUD",
-      "base": "EUR",
-      "quote": "AUD",
-      "base_flag": "🇪🇺",
-      "quote_flag": "🇦🇺",
-      "total_score": 0.05,
-      "macro_diff": 0.01,
-      "op_diff": 0.93,
-      "recommendation": "NEUTRO / LATERAL (BOX)",
-      "badge_type": "NEUTRAL",
-      "conviction": "NEUTRA",
-      "thesis": "Forças equilibradas ou ambas no Box. Evitar operar."
-    },
-    {
-      "pair": "GBPCAD",
-      "base": "GBP",
+      "pair": "NZDCAD",
+      "base": "NZD",
       "quote": "CAD",
-      "base_flag": "🇬🇧",
+      "base_flag": "🇳🇿",
       "quote_flag": "🇨🇦",
       "total_score": 0.0,
-      "macro_diff": 0.1,
-      "op_diff": -0.25,
+      "macro_diff": 0.08,
+      "op_diff": 0.17,
       "recommendation": "NEUTRO / LATERAL (BOX)",
       "badge_type": "NEUTRAL",
       "conviction": "NEUTRA",

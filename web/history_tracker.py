@@ -180,56 +180,95 @@ class TrackRecordEngine:
         }
 
     def get_live_session(self):
-        """Retorna a sessão em andamento com cotações tick-a-tick em tempo real do MT5."""
+        """
+        Retorna o estado da sessão de portfólio baseado na janela operacional rigorosa (21h00 às 08h00 BRT).
+        - Entre 21h00 e 07h59 BRT: Sessão ATIVA / AO VIVO com cotações tick-a-tick.
+        - Entre 08h00 e 20h59 BRT: Sessão ENCERRADA às 08h00 (resultado consolidado e aguardando abertura das 21h).
+        """
+        now_dt = datetime.now()
+        hour = now_dt.hour
+        is_overnight_active = (hour >= 21 or hour < 8)
+
         if not self.data or not self.data.get("sessions"):
             self.run_full_backtest(days=15)
 
         sessions = self.data.get("sessions", [])
-        live_sess = None
-        for s in sessions:
-            if s.get("is_in_progress") or s.get("status") == "EM ANDAMENTO":
-                live_sess = s
-                break
-
-        if not live_sess and sessions:
-            live_sess = sessions[0]
-
-        if not live_sess:
+        if not sessions:
             return None
 
-        # Obter cotações em tempo real do MT5 para cada par
-        if ensure_mt5_connected():
-            total_live_pnl = 0.0
-            total_live_pips = 0.0
-            for port in live_sess.get("portfolios", []):
-                p_pnl = 0.0
-                p_pips = 0.0
-                for pair_item in port.get("pairs", []):
-                    pair_sym = pair_item["pair"]
-                    tick = mt5.symbol_info_tick(pair_sym)
-                    if tick:
-                        curr_price = tick.bid if pair_item["action"] == "BUY" else tick.ask
-                        p_entry = pair_item["entry_price"]
-                        final_pnl, final_pips = convert_pnl_to_usd(pair_sym, pair_item["action"], p_entry, curr_price, pair_item.get("lot", 0.01))
-                        pair_item["exit_price"] = curr_price
-                        pair_item["current_price"] = curr_price
-                        pair_item["pnl_usd"] = final_pnl
-                        pair_item["pips"] = final_pips
-                        pair_item["status"] = "WIN" if final_pnl >= 0 else "LOSS"
-                        p_pnl += final_pnl
-                        p_pips += final_pips
-                        if final_pnl > pair_item.get("mfe_usd", 0.0):
-                            pair_item["mfe_usd"] = final_pnl
-                        if final_pnl < pair_item.get("mae_usd", 0.0):
-                            pair_item["mae_usd"] = final_pnl
-                port["pnl_usd"] = round(p_pnl, 2)
-                port["pips"] = round(p_pips, 1)
-                port["status"] = "WIN" if p_pnl >= 0 else "LOSS"
-                total_live_pnl += p_pnl
-                total_live_pips += p_pips
+        # A sessão mais recente
+        base_sess = sessions[0]
+        live_sess = json.loads(json.dumps(base_sess)) # clone profundo
+
+        if is_overnight_active:
+            # SESSÃO AO VIVO (21h00 - 08h00)
+            live_sess["is_in_progress"] = True
+            live_sess["status"] = "EM ANDAMENTO"
+            live_sess["status_label"] = "🔴 AO VIVO (EM ANDAMENTO)"
             
-            live_sess["total_pnl_usd"] = round(total_live_pnl, 2)
-            live_sess["total_pips"] = round(total_live_pips, 1)
+            # Calcular tempo restante até 08h00
+            if hour >= 21:
+                close_dt = (now_dt + timedelta(days=1)).replace(hour=8, minute=0, second=0, microsecond=0)
+            else:
+                close_dt = now_dt.replace(hour=8, minute=0, second=0, microsecond=0)
+            rem_secs = max(0, int((close_dt - now_dt).total_seconds()))
+            rem_h = rem_secs // 3600
+            rem_m = (rem_secs % 3600) // 60
+            live_sess["time_remaining_str"] = f"restam {rem_h}h {rem_m}m"
+            live_sess["session_info_str"] = f"📅 Sessão Ao Vivo | Início: 21h00 ➔ Encerramento: 08h00 BRT ({live_sess['time_remaining_str']})"
+
+            # Obter cotações em tempo real do MT5 para cada par
+            if ensure_mt5_connected():
+                total_live_pnl = 0.0
+                total_live_pips = 0.0
+                for port in live_sess.get("portfolios", []):
+                    p_pnl = 0.0
+                    p_pips = 0.0
+                    for pair_item in port.get("pairs", []):
+                        pair_sym = pair_item["pair"]
+                        tick = mt5.symbol_info_tick(pair_sym)
+                        if tick:
+                            curr_price = tick.bid if pair_item["action"] == "BUY" else tick.ask
+                            p_entry = pair_item["entry_price"]
+                            final_pnl, final_pips = convert_pnl_to_usd(pair_sym, pair_item["action"], p_entry, curr_price, pair_item.get("lot", 0.01))
+                            pair_item["exit_price"] = curr_price
+                            pair_item["current_price"] = curr_price
+                            pair_item["pnl_usd"] = final_pnl
+                            pair_item["pips"] = final_pips
+                            pair_item["status"] = "WIN" if final_pnl >= 0 else "LOSS"
+                            p_pnl += final_pnl
+                            p_pips += final_pips
+                            if final_pnl > pair_item.get("mfe_usd", 0.0):
+                                pair_item["mfe_usd"] = final_pnl
+                            if final_pnl < pair_item.get("mae_usd", 0.0):
+                                pair_item["mae_usd"] = final_pnl
+                    port["pnl_usd"] = round(p_pnl, 2)
+                    port["pips"] = round(p_pips, 1)
+                    port["status"] = "WIN" if p_pnl >= 0 else "LOSS"
+                    total_live_pnl += p_pnl
+                    total_live_pips += p_pips
+                
+                live_sess["total_pnl_usd"] = round(total_live_pnl, 2)
+                live_sess["total_pips"] = round(total_live_pips, 1)
+        else:
+            # SESSÃO ENCERRADA (08h00 - 21h00)
+            live_sess["is_in_progress"] = False
+            live_sess["status"] = "ENCERRADA"
+            live_sess["status_label"] = "🟢 SESSÃO DA MADRUGADA ENCERRADA (08:00 BRT)"
+            
+            # Calcular tempo até a próxima abertura às 21h00
+            next_open_dt = now_dt.replace(hour=21, minute=0, second=0, microsecond=0)
+            rem_secs = max(0, int((next_open_dt - now_dt).total_seconds()))
+            rem_h = rem_secs // 3600
+            rem_m = (rem_secs % 3600) // 60
+            live_sess["next_session_in"] = f"{rem_h}h {rem_m}m"
+            live_sess["session_info_str"] = f"✅ Pregão Noturno Encerrado às 08h00 BRT | Próxima abertura às 21h00 BRT (em {rem_h}h {rem_m}m)"
+
+            # Assegurar que os portfólios estão marcados com os resultados finais realizados
+            for port in live_sess.get("portfolios", []):
+                port["status_label"] = "FECHADA ÀS 08H00"
+                for pair_item in port.get("pairs", []):
+                    pair_item["status_label"] = "Fechado 08h00"
 
         return live_sess
 
