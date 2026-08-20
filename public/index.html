@@ -49,6 +49,12 @@
             </div>
 
             <!-- ACTION BUTTONS -->
+            <button class="action-btn glow-btn" id="btnOpenCrossoversModal" style="background: linear-gradient(135deg, rgba(255, 215, 0, 0.15), rgba(255, 140, 0, 0.15)); border-color: rgba(255, 215, 0, 0.4);">
+                <span class="btn-icon">⚡</span>
+                <span class="btn-text">CRUZAMENTOS DE SCORE</span>
+                <span class="badge-count" id="crossoversFreshCount" style="background: #FFD700; color: #000; font-weight: 800;">0</span>
+            </button>
+
             <button class="action-btn track-record-btn" id="btnOpenTrackRecordModal">
                 <span class="btn-icon">📈</span>
                 <span class="btn-text">TRACK RECORD (21h-08h)</span>
@@ -620,6 +626,113 @@
             </div>
         </div>
     </div>
+    </div>
+
+    <!-- MODAL: CRUZAMENTOS DE SCORE (BASE x QUOTE) -->
+    <div class="modal-backdrop hidden" id="crossoversModal">
+        <div class="modal-dialog modal-xl" style="max-width: 1300px; height: 90vh;">
+            <div class="modal-header" style="padding: 12px 24px; border-bottom: 1px solid var(--border-color);">
+                <div class="modal-title-group">
+                    <span class="modal-icon" style="color: #FFD700;">⚡</span>
+                    <div>
+                        <h3 class="modal-title">Cruzamentos de Score nos 28 Pares Forex</h3>
+                        <p class="modal-subtitle">Detecção de Inversão de Força Relativa (Base × Cotada) e Sinais Direcionais</p>
+                    </div>
+                </div>
+                <div style="display: flex; align-items: center; gap: 12px;">
+                    <!-- TIMEFRAME SELECTOR DO MODAL -->
+                    <div class="tf-tabs" id="crossoversTFTabs">
+                        <button class="tf-tab active" data-tf="H1">H1</button>
+                        <button class="tf-tab" data-tf="H4">H4</button>
+                        <button class="tf-tab" data-tf="D1">D1</button>
+                    </div>
+                    <button class="modal-close" id="btnCloseCrossoversModal">&times;</button>
+                </div>
+            </div>
+
+            <!-- MODAL SUB NAVIGATION TABS -->
+            <div class="track-modal-nav" style="padding: 8px 24px;">
+                <button class="cross-nav-tab active" id="tabBtnCrossoversLive" data-tab="cross-live">
+                    <span class="pulse-dot live" style="background: #FFD700;"></span>
+                    <span class="tab-label">🔥 CRUZAMENTOS RECENTES</span>
+                    <span class="tab-badge" id="crossoversTabBadge" style="background: rgba(255,215,0,0.2); color: #FFD700;">0 Novos</span>
+                </button>
+                <button class="cross-nav-tab" id="tabBtnCrossoversSpread" data-tab="cross-spread">
+                    <span class="tab-icon">📊</span>
+                    <span class="tab-label">RANKING DE SPREAD (28 PARES)</span>
+                </button>
+                <button class="cross-nav-tab" id="tabBtnCrossoversFilter" data-tab="cross-filter">
+                    <span class="tab-icon">🔍</span>
+                    <span class="tab-label">FILTRAR POR MOEDA</span>
+                </button>
+            </div>
+
+            <div class="modal-body" style="padding: 16px 24px; height: calc(100% - 115px); overflow-y: auto;">
+                
+                <!-- TAB 1: CRUZAMENTOS RECENTES -->
+                <div class="cross-tab-pane active" id="paneCrossLive">
+                    <div class="cross-hero-card" style="margin-bottom: 16px;">
+                        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+                            <div>
+                                <span style="font-weight: 800; font-family: var(--font-display); color: #FFF; font-size: 14px;">⚡ Detecção de Inversão de Fluxo nos 28 Pares</span>
+                                <span style="font-size: 11.5px; color: var(--text-muted); display: block;">Quando uma moeda supera a outra em score, o par ganha aceleração imediata na direção do cruzamento.</span>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <span class="region-badge green" style="font-size: 10px; padding: 3px 8px;">🟢 COMPRA: Base > Quote</span>
+                                <span class="region-badge red" style="font-size: 10px; padding: 3px 8px;">🔴 VENDA: Quote > Base</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="crossovers-grid" id="crossoversGrid">
+                        <!-- Injected dynamically via JS -->
+                    </div>
+                </div>
+
+                <!-- TAB 2: RANKING DE SPREAD (28 PARES) -->
+                <div class="cross-tab-pane" id="paneCrossSpread" style="display: none;">
+                    <div class="table-responsive">
+                        <table class="track-table">
+                            <thead>
+                                <tr>
+                                    <th>#</th>
+                                    <th>PAR</th>
+                                    <th>DIREÇÃO SUGERIDA</th>
+                                    <th class="text-right">SCORE BASE</th>
+                                    <th class="text-right">SCORE QUOTE</th>
+                                    <th class="text-right">DIFERENCIAL (SPREAD)</th>
+                                    <th>LÍDER DE FORÇA</th>
+                                    <th>DIAGNÓSTICO INSTITUCIONAL</th>
+                                </tr>
+                            </thead>
+                            <tbody id="crossoversSpreadTableBody">
+                                <!-- Injected dynamically via JS -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- TAB 3: FILTRO POR MOEDA -->
+                <div class="cross-tab-pane" id="paneCrossFilter" style="display: none;">
+                    <div class="filter-pills" id="crossCurrencyFilterPills" style="margin-bottom: 16px;">
+                        <button class="filter-pill active" data-ccy="ALL">TODAS 🌐</button>
+                        <button class="filter-pill" data-ccy="USD">USD 🇺🇸</button>
+                        <button class="filter-pill" data-ccy="EUR">EUR 🇪🇺</button>
+                        <button class="filter-pill" data-ccy="GBP">GBP 🇬🇧</button>
+                        <button class="filter-pill" data-ccy="CHF">CHF 🇨🇭</button>
+                        <button class="filter-pill" data-ccy="JPY">JPY 🇯🇵</button>
+                        <button class="filter-pill" data-ccy="AUD">AUD 🇦🇺</button>
+                        <button class="filter-pill" data-ccy="CAD">CAD 🇨🇦</button>
+                        <button class="filter-pill" data-ccy="NZD">NZD 🇳🇿</button>
+                    </div>
+
+                    <div class="crossovers-grid" id="crossoversFilterGrid">
+                        <!-- Injected dynamically via JS -->
+                    </div>
+                </div>
+
+            </div>
+        </div>
     </div>
 
     <!-- SCRIPTS -->

@@ -2120,4 +2120,138 @@ body.dark-theme {
     }
 }
 
+/* ==========================================================================
+   CROSSOVERS MODAL & SPREAD CARDS STYLING
+   ========================================================================== */
+
+.cross-hero-card {
+    background: linear-gradient(135deg, rgba(255, 215, 0, 0.08), rgba(17, 22, 34, 0.95));
+    border: 1px solid rgba(255, 215, 0, 0.25);
+    border-radius: 10px;
+    padding: 14px 18px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+}
+
+.crossovers-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+    gap: 12px;
+}
+
+.crossover-card {
+    background: #0E131E;
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    transition: all 0.2s ease;
+    position: relative;
+    overflow: hidden;
+}
+
+.crossover-card:hover {
+    border-color: rgba(255, 215, 0, 0.4);
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+}
+
+.crossover-card.fresh {
+    border-color: rgba(255, 215, 0, 0.6);
+    background: linear-gradient(135deg, rgba(255, 215, 0, 0.06), #0E131E);
+}
+
+.crossover-card.buy {
+    border-left: 4px solid var(--color-green);
+}
+
+.crossover-card.sell {
+    border-left: 4px solid var(--color-red);
+}
+
+.crossover-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.crossover-pair-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    font-weight: 800;
+    font-family: var(--font-mono);
+    color: #FFFFFF;
+}
+
+.crossover-badge {
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-size: 10.5px;
+    font-weight: 800;
+    font-family: var(--font-mono);
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.crossover-badge.buy {
+    background: rgba(0, 230, 118, 0.15);
+    color: var(--color-green);
+    border: 1px solid rgba(0, 230, 118, 0.3);
+}
+
+.crossover-badge.sell {
+    background: rgba(255, 51, 75, 0.15);
+    color: var(--color-red);
+    border: 1px solid rgba(255, 51, 75, 0.3);
+}
+
+.crossover-metrics-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    background: #080B11;
+    border: 1px solid rgba(255, 255, 255, 0.04);
+    border-radius: 6px;
+    padding: 8px 10px;
+    gap: 6px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+}
+
+.crossover-metric-item {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.crossover-metric-label {
+    font-size: 9px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+}
+
+.crossover-metric-value {
+    font-weight: 700;
+    color: #FFF;
+}
+
+.crossover-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 10.5px;
+    color: var(--text-muted);
+    padding-top: 4px;
+    border-top: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+@media (max-width: 768px) {
+    .crossovers-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
 

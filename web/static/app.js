@@ -20,6 +20,10 @@ const state = {
     selectedDeepDive: "AUD",
     matrixActiveCcy: "USD",
     matrixActiveTF: "H1",
+    crossoversActiveTF: "H1",
+    crossoversActiveTab: "cross-live",
+    crossoversCurrencyFilter: "ALL",
+    isCrossoversModalOpen: false,
     autoRefreshTimer: null
 };
 
@@ -120,6 +124,7 @@ function setupEventListeners() {
     setupModals();
     setupMatrixModal();
     setupTrackRecordModal();
+    setupCrossoversModal();
 
     // 6. Redimensionamento de Janela
     window.addEventListener("resize", () => {
@@ -184,6 +189,18 @@ async function fetchData() {
         renderAllCharts();
         updateStrongSignalsCount(json.pairs);
         if (typeof renderMatrixChart === "function") renderMatrixChart();
+
+        // Atualizar Badge de Cruzamentos de Score
+        if (json.crossovers) {
+            const count = json.crossovers.fresh_count || 0;
+            const badge = document.getElementById("crossoversFreshCount");
+            if (badge) badge.textContent = count;
+            const tabBadge = document.getElementById("crossoversTabBadge");
+            if (tabBadge) tabBadge.textContent = `${count} Novos`;
+            if (state.isCrossoversModalOpen) {
+                renderCrossoversModal();
+            }
+        }
     } catch (err) {
         console.warn("Falha ao atualizar dados via API:", err);
     }
@@ -1134,30 +1151,33 @@ function setupTrackRecordModal() {
     }
 
     // 1. Alternância das 3 Abas Principais
-    document.querySelectorAll(".track-nav-tab").forEach(tab => {
-        tab.addEventListener("click", () => {
-            document.querySelectorAll(".track-nav-tab").forEach(t => t.classList.remove("active"));
-            document.querySelectorAll(".track-tab-pane").forEach(p => p.classList.remove("active"));
+    const trackModal = document.getElementById("trackRecordModal");
+    if (trackModal) {
+        trackModal.querySelectorAll(".track-nav-tab").forEach(tab => {
+            tab.addEventListener("click", () => {
+                trackModal.querySelectorAll(".track-nav-tab").forEach(t => t.classList.remove("active"));
+                trackModal.querySelectorAll(".track-tab-pane").forEach(p => p.classList.remove("active"));
 
-            tab.classList.add("active");
-            const targetTab = tab.dataset.tab;
-            state.activeTrackTab = targetTab;
+                tab.classList.add("active");
+                const targetTab = tab.dataset.tab;
+                state.activeTrackTab = targetTab;
 
-            if (targetTab === "live") {
-                const pane = document.getElementById("paneLive");
-                if (pane) pane.classList.add("active");
-                fetchLiveSessionData();
-            } else if (targetTab === "audit") {
-                const pane = document.getElementById("paneAudit");
-                if (pane) pane.classList.add("active");
-                if (state.trackRecordData) renderAuditTab(state.trackRecordData);
-            } else if (targetTab === "analytics") {
-                const pane = document.getElementById("paneAnalytics");
-                if (pane) pane.classList.add("active");
-                if (state.trackRecordData) renderAnalyticsTab(state.trackRecordData);
-            }
+                if (targetTab === "live") {
+                    const pane = document.getElementById("paneLive");
+                    if (pane) pane.classList.add("active");
+                    fetchLiveSessionData();
+                } else if (targetTab === "audit") {
+                    const pane = document.getElementById("paneAudit");
+                    if (pane) pane.classList.add("active");
+                    if (state.trackRecordData) renderAuditTab(state.trackRecordData);
+                } else if (targetTab === "analytics") {
+                    const pane = document.getElementById("paneAnalytics");
+                    if (pane) pane.classList.add("active");
+                    if (state.trackRecordData) renderAnalyticsTab(state.trackRecordData);
+                }
+            });
         });
-    });
+    }
 
     // 2. Filtro de Moeda na Aba de Auditoria
     const currSelector = document.getElementById("trackCurrencySelector");
@@ -1247,6 +1267,11 @@ async function loadTrackRecord(ccy = "ALL") {
 
 function renderLiveTab(session) {
     if (!session) return;
+
+    const portfolios = session.portfolios || [];
+    const totalPairsCount = session.total_pairs_count || 0;
+    const totalPnL = session.total_pnl_usd || 0;
+    const totalPips = session.total_pips || 0;
 
     const pnlEl = document.getElementById("liveTotalPnL");
     const pipsEl = document.getElementById("liveTotalPips");
@@ -2007,4 +2032,305 @@ function renderCurrencyBreakdownTable(sessions) {
         `;
     }).join("");
 }
+
+// ==========================================================================
+// CRUZAMENTOS DE SCORE NOS 28 PARES FOREX (BASE x QUOTE)
+// ==========================================================================
+
+function setupCrossoversModal() {
+    const modal = document.getElementById("crossoversModal");
+    const btnOpen = document.getElementById("btnOpenCrossoversModal");
+    const btnClose = document.getElementById("btnCloseCrossoversModal");
+
+    state.crossoversActiveTF = "H1";
+    state.crossoversActiveTab = "cross-live";
+    state.crossoversCurrencyFilter = "ALL";
+    state.isCrossoversModalOpen = false;
+
+    if (btnOpen && modal) {
+        btnOpen.addEventListener("click", () => {
+            modal.classList.remove("hidden");
+            state.isCrossoversModalOpen = true;
+            renderCrossoversModal();
+        });
+    }
+
+    if (btnClose && modal) {
+        btnClose.addEventListener("click", () => {
+            modal.classList.add("hidden");
+            state.isCrossoversModalOpen = false;
+        });
+    }
+
+    if (modal) {
+        modal.addEventListener("click", (e) => {
+            if (e.target === modal) {
+                modal.classList.add("hidden");
+                state.isCrossoversModalOpen = false;
+            }
+        });
+    }
+
+    // 1. Timeframe Tabs
+    const tfTabs = document.getElementById("crossoversTFTabs");
+    if (tfTabs) {
+        tfTabs.querySelectorAll(".tf-tab").forEach(tab => {
+            tab.addEventListener("click", () => {
+                tfTabs.querySelectorAll(".tf-tab").forEach(t => t.classList.remove("active"));
+                tab.classList.add("active");
+                state.crossoversActiveTF = tab.dataset.tf;
+                renderCrossoversModal();
+            });
+        });
+    }
+
+    // 2. Sub Navigation Tabs (Live, Spread, Filter)
+    document.querySelectorAll("#crossoversModal .cross-nav-tab").forEach(tab => {
+        tab.addEventListener("click", () => {
+            document.querySelectorAll("#crossoversModal .cross-nav-tab").forEach(t => t.classList.remove("active"));
+            document.querySelectorAll(".cross-tab-pane").forEach(p => p.style.display = "none");
+
+            tab.classList.add("active");
+            const targetTab = tab.dataset.tab;
+            state.crossoversActiveTab = targetTab;
+
+            if (targetTab === "cross-live") {
+                const pane = document.getElementById("paneCrossLive");
+                if (pane) pane.style.display = "block";
+            } else if (targetTab === "cross-spread") {
+                const pane = document.getElementById("paneCrossSpread");
+                if (pane) pane.style.display = "block";
+            } else if (targetTab === "cross-filter") {
+                const pane = document.getElementById("paneCrossFilter");
+                if (pane) pane.style.display = "block";
+            }
+            renderCrossoversModal();
+        });
+    });
+
+    // 3. Currency Filter Pills
+    const filterContainer = document.getElementById("crossCurrencyFilterPills");
+    if (filterContainer) {
+        filterContainer.querySelectorAll(".filter-pill").forEach(pill => {
+            pill.addEventListener("click", () => {
+                filterContainer.querySelectorAll(".filter-pill").forEach(p => p.classList.remove("active"));
+                pill.classList.add("active");
+                state.crossoversCurrencyFilter = pill.dataset.ccy;
+                renderCrossoversFilterTab();
+            });
+        });
+    }
+}
+
+function renderCrossoversModal() {
+    if (!state.data || !state.data.crossovers) return;
+
+    if (state.crossoversActiveTab === "cross-live") {
+        renderCrossoversLiveTab();
+    } else if (state.crossoversActiveTab === "cross-spread") {
+        renderCrossoversSpreadTab();
+    } else if (state.crossoversActiveTab === "cross-filter") {
+        renderCrossoversFilterTab();
+    }
+}
+
+function renderCrossoversLiveTab() {
+    const container = document.getElementById("crossoversGrid");
+    if (!container || !state.data?.crossovers) return;
+
+    const tf = state.crossoversActiveTF || "H1";
+    const tfData = state.data.crossovers.timeframes?.[tf];
+    const crossovers = tfData?.crossovers || [];
+
+    if (crossovers.length === 0) {
+        container.innerHTML = `
+            <div style="grid-column: 1 / -1; padding: 30px; text-align: center; color: var(--text-muted); background: #0E131E; border-radius: 8px;">
+                Nenhum cruzamento recente detectado no timeframe ${tf}.
+            </div>
+        `;
+        return;
+    }
+
+    container.innerHTML = crossovers.map(cross => {
+        const isBuy = cross.direction === "BUY";
+        const dirClass = isBuy ? "buy" : "sell";
+        const freshClass = cross.is_fresh ? "fresh" : "";
+        const sign = cross.current_spread >= 0 ? "+" : "";
+
+        return `
+            <div class="crossover-card ${dirClass} ${freshClass}">
+                <div class="crossover-card-header">
+                    <div class="crossover-pair-title">
+                        <span>${cross.base_flag}${cross.quote_flag}</span>
+                        <span>${cross.pair}</span>
+                        <span class="tf-tab" style="font-size: 9px; padding: 1px 5px;">${cross.timeframe}</span>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 6px;">
+                        ${cross.is_fresh ? '<span class="pulse-dot live" style="background: #FFD700;" title="Cruzamento recente!"></span>' : ''}
+                        <span class="crossover-badge ${dirClass}">
+                            ${cross.direction_label}
+                        </span>
+                    </div>
+                </div>
+
+                <div class="crossover-metrics-row">
+                    <div class="crossover-metric-item">
+                        <span class="crossover-metric-label">Score ${cross.base}</span>
+                        <span class="crossover-metric-value" style="color: ${CCY_COLORS[cross.base] || '#FFF'};">
+                            ${(cross.current_base_score >= 0 ? "+" : "") + cross.current_base_score.toFixed(2)}
+                        </span>
+                    </div>
+                    <div class="crossover-metric-item">
+                        <span class="crossover-metric-label">Score ${cross.quote}</span>
+                        <span class="crossover-metric-value" style="color: ${CCY_COLORS[cross.quote] || '#FFF'};">
+                            ${(cross.current_quote_score >= 0 ? "+" : "") + cross.current_quote_score.toFixed(2)}
+                        </span>
+                    </div>
+                    <div class="crossover-metric-item">
+                        <span class="crossover-metric-label">Spread Atual</span>
+                        <span class="crossover-metric-value ${cross.current_spread >= 0 ? 'positive' : 'negative'}">
+                            ${sign + cross.current_spread.toFixed(2)}
+                        </span>
+                    </div>
+                </div>
+
+                <div style="font-size: 11px; color: var(--text-secondary);">
+                    💡 <strong>Diagnóstico:</strong> ${cross.action_thesis} (${cross.region}).
+                </div>
+
+                <div class="crossover-footer">
+                    <span>🕒 Cruzou em: <strong>${cross.timestamp}</strong></span>
+                    <span>⏱️ <strong>${cross.bars_ago === 0 ? '🔥 Barra Atual' : cross.bars_ago + ' barras atrás'}</strong></span>
+                </div>
+            </div>
+        `;
+    }).join("");
+}
+
+function renderCrossoversSpreadTab() {
+    const tbody = document.getElementById("crossoversSpreadTableBody");
+    if (!tbody || !state.data?.crossovers) return;
+
+    const tf = state.crossoversActiveTF || "H1";
+    const tfData = state.data.crossovers.timeframes?.[tf];
+    const rankings = tfData?.spread_ranking || [];
+
+    if (rankings.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="8" class="loading-cell">Nenhum dado de spread disponível.</td></tr>`;
+        return;
+    }
+
+    tbody.innerHTML = rankings.map((item, idx) => {
+        const isBuy = item.bias === "BUY";
+        const sign = item.spread >= 0 ? "+" : "";
+
+        return `
+            <tr>
+                <td style="color: var(--text-muted); font-family: var(--font-mono);">${idx + 1}</td>
+                <td>
+                    <div class="pair-badge-cell">
+                        <span>${item.base_flag}${item.quote_flag}</span>
+                        <span style="color: #FFFFFF; font-weight: 700;">${item.pair}</span>
+                    </div>
+                </td>
+                <td>
+                    <span class="crossover-badge ${isBuy ? 'buy' : 'sell'}" style="font-size: 10px;">
+                        ${isBuy ? '🟢 COMPRA (Base > Quote)' : '🔴 VENDA (Quote > Base)'}
+                    </span>
+                </td>
+                <td class="score-cell text-right" style="color: ${CCY_COLORS[item.base] || '#FFF'}; font-weight: 700;">
+                    ${(item.current_base_score >= 0 ? "+" : "") + item.current_base_score.toFixed(2)}
+                </td>
+                <td class="score-cell text-right" style="color: ${CCY_COLORS[item.quote] || '#FFF'}; font-weight: 700;">
+                    ${(item.current_quote_score >= 0 ? "+" : "") + item.current_quote_score.toFixed(2)}
+                </td>
+                <td class="score-cell ${item.spread >= 0 ? 'positive' : 'negative'} text-right" style="font-weight: 800; font-size: 12.5px;">
+                    ${sign + item.spread.toFixed(2)}
+                </td>
+                <td style="font-weight: 800; color: ${CCY_COLORS[item.leader] || '#FFF'};">
+                    ${item.leader} (${CCY_FLAGS[item.leader] || ''})
+                </td>
+                <td style="font-size: 11px; color: var(--text-secondary);">
+                    ${item.leader} lidera com diferencial de ${(Math.abs(item.spread)).toFixed(2)} pts.
+                </td>
+            </tr>
+        `;
+    }).join("");
+}
+
+function renderCrossoversFilterTab() {
+    const container = document.getElementById("crossoversFilterGrid");
+    if (!container || !state.data?.crossovers) return;
+
+    const tf = state.crossoversActiveTF || "H1";
+    const ccy = state.crossoversCurrencyFilter || "ALL";
+    const tfData = state.data.crossovers.timeframes?.[tf];
+    let crossovers = tfData?.crossovers || [];
+
+    if (ccy !== "ALL") {
+        crossovers = crossovers.filter(c => c.base === ccy || c.quote === ccy);
+    }
+
+    if (crossovers.length === 0) {
+        container.innerHTML = `
+            <div style="grid-column: 1 / -1; padding: 30px; text-align: center; color: var(--text-muted); background: #0E131E; border-radius: 8px;">
+                Nenhum cruzamento encontrado para ${ccy} no timeframe ${tf}.
+            </div>
+        `;
+        return;
+    }
+
+    container.innerHTML = crossovers.map(cross => {
+        const isBuy = cross.direction === "BUY";
+        const dirClass = isBuy ? "buy" : "sell";
+        const freshClass = cross.is_fresh ? "fresh" : "";
+        const sign = cross.current_spread >= 0 ? "+" : "";
+
+        return `
+            <div class="crossover-card ${dirClass} ${freshClass}">
+                <div class="crossover-card-header">
+                    <div class="crossover-pair-title">
+                        <span>${cross.base_flag}${cross.quote_flag}</span>
+                        <span>${cross.pair}</span>
+                        <span class="tf-tab" style="font-size: 9px; padding: 1px 5px;">${cross.timeframe}</span>
+                    </div>
+                    <span class="crossover-badge ${dirClass}">
+                        ${cross.direction_label}
+                    </span>
+                </div>
+
+                <div class="crossover-metrics-row">
+                    <div class="crossover-metric-item">
+                        <span class="crossover-metric-label">Score ${cross.base}</span>
+                        <span class="crossover-metric-value" style="color: ${CCY_COLORS[cross.base] || '#FFF'};">
+                            ${(cross.current_base_score >= 0 ? "+" : "") + cross.current_base_score.toFixed(2)}
+                        </span>
+                    </div>
+                    <div class="crossover-metric-item">
+                        <span class="crossover-metric-label">Score ${cross.quote}</span>
+                        <span class="crossover-metric-value" style="color: ${CCY_COLORS[cross.quote] || '#FFF'};">
+                            ${(cross.current_quote_score >= 0 ? "+" : "") + cross.current_quote_score.toFixed(2)}
+                        </span>
+                    </div>
+                    <div class="crossover-metric-item">
+                        <span class="crossover-metric-label">Spread</span>
+                        <span class="crossover-metric-value ${cross.current_spread >= 0 ? 'positive' : 'negative'}">
+                            ${sign + cross.current_spread.toFixed(2)}
+                        </span>
+                    </div>
+                </div>
+
+                <div style="font-size: 11px; color: var(--text-secondary);">
+                    💡 <strong>Diagnóstico:</strong> ${cross.action_thesis} (${cross.region}).
+                </div>
+
+                <div class="crossover-footer">
+                    <span>🕒 Cruzou em: <strong>${cross.timestamp}</strong></span>
+                    <span>⏱️ <strong>${cross.bars_ago === 0 ? '🔥 Barra Atual' : cross.bars_ago + ' barras atrás'}</strong></span>
+                </div>
+            </div>
+        `;
+    }).join("");
+}
+
 

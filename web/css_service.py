@@ -172,6 +172,149 @@ def calculate_full_css(tf_val, count=120):
     return css_res, time_strs, pair_slopes
 
 
+def detect_currency_crossovers(charts_dict):
+    """
+    Detecta cruzamentos de scores entre a Moeda Base e a Moeda Cotada para os 28 pares Forex.
+    Retorna cruzamentos recentes, recência em barras, direção (BUY/SELL) e ranking de spread.
+    """
+    result = {}
+    all_fresh = []
+    
+    tfs = ["H1", "H4", "D1", "W1", "MN1"]
+    for tf in tfs:
+        if tf not in charts_dict or "series" not in charts_dict[tf] or "times" not in charts_dict[tf]:
+            continue
+            
+        series_map = charts_dict[tf]["series"]
+        times = charts_dict[tf]["times"]
+        num_bars = len(times)
+        if num_bars < 2:
+            continue
+            
+        tf_crossovers = []
+        tf_spreads = []
+        
+        for pair in ALL_28_PAIRS:
+            base = pair[:3]
+            quote = pair[3:6]
+            if base not in series_map or quote not in series_map:
+                continue
+                
+            base_curve = series_map[base]
+            quote_curve = series_map[quote]
+            if len(base_curve) < 2 or len(quote_curve) < 2:
+                continue
+                
+            curr_base = base_curve[-1]
+            curr_quote = quote_curve[-1]
+            curr_spread = round(curr_base - curr_quote, 3)
+            
+            # Buscar o cruzamento mais recente (varrendo do fim para o começo)
+            latest_cross = None
+            for i in range(num_bars - 1, 0, -1):
+                prev_base = base_curve[i - 1]
+                prev_quote = quote_curve[i - 1]
+                b = base_curve[i]
+                q = quote_curve[i]
+                
+                # Cruzamento de Alta (Base cruza Quote para cima -> BUY no par)
+                if prev_base <= prev_quote and b > q:
+                    bars_ago = num_bars - 1 - i
+                    cross_region = (
+                        "Zona de Sobreforça (+0.20)" if b >= 0.20 else
+                        "Zona de Sobrefraqueza (-0.20)" if b <= -0.20 else
+                        "Zona de Equilíbrio (0.00)"
+                    )
+                    latest_cross = {
+                        "pair": pair,
+                        "base": base,
+                        "quote": quote,
+                        "base_flag": CCY_FLAGS.get(base, ""),
+                        "quote_flag": CCY_FLAGS.get(quote, ""),
+                        "timeframe": tf,
+                        "direction": "BUY",
+                        "direction_label": "🟢 COMPRA",
+                        "action_thesis": f"{base} superou {quote} em força relativa ({base} > {quote})",
+                        "timestamp": times[i],
+                        "bars_ago": bars_ago,
+                        "is_fresh": bars_ago <= 3,
+                        "base_score_cross": round(b, 2),
+                        "quote_score_cross": round(q, 2),
+                        "current_base_score": round(curr_base, 2),
+                        "current_quote_score": round(curr_quote, 2),
+                        "current_spread": curr_spread,
+                        "abs_spread": abs(curr_spread),
+                        "region": cross_region
+                    }
+                    break
+                    
+                # Cruzamento de Baixa (Quote cruza Base para cima / Base cruza para baixo -> SELL no par)
+                elif prev_base >= prev_quote and b < q:
+                    bars_ago = num_bars - 1 - i
+                    cross_region = (
+                        "Zona de Sobreforça (+0.20)" if q >= 0.20 else
+                        "Zona de Sobrefraqueza (-0.20)" if q <= -0.20 else
+                        "Zona de Equilíbrio (0.00)"
+                    )
+                    latest_cross = {
+                        "pair": pair,
+                        "base": base,
+                        "quote": quote,
+                        "base_flag": CCY_FLAGS.get(base, ""),
+                        "quote_flag": CCY_FLAGS.get(quote, ""),
+                        "timeframe": tf,
+                        "direction": "SELL",
+                        "direction_label": "🔴 VENDA",
+                        "action_thesis": f"{quote} superou {base} em força relativa ({quote} > {base})",
+                        "timestamp": times[i],
+                        "bars_ago": bars_ago,
+                        "is_fresh": bars_ago <= 3,
+                        "base_score_cross": round(b, 2),
+                        "quote_score_cross": round(q, 2),
+                        "current_base_score": round(curr_base, 2),
+                        "current_quote_score": round(curr_quote, 2),
+                        "current_spread": curr_spread,
+                        "abs_spread": abs(curr_spread),
+                        "region": cross_region
+                    }
+                    break
+            
+            if latest_cross:
+                tf_crossovers.append(latest_cross)
+                if latest_cross["is_fresh"]:
+                    all_fresh.append(latest_cross)
+            
+            tf_spreads.append({
+                "pair": pair,
+                "base": base,
+                "quote": quote,
+                "base_flag": CCY_FLAGS.get(base, ""),
+                "quote_flag": CCY_FLAGS.get(quote, ""),
+                "timeframe": tf,
+                "current_base_score": round(curr_base, 2),
+                "current_quote_score": round(curr_quote, 2),
+                "spread": curr_spread,
+                "abs_spread": abs(curr_spread),
+                "leader": base if curr_base > curr_quote else quote,
+                "bias": "BUY" if curr_base > curr_quote else "SELL"
+            })
+            
+        # Ordenar cruzamentos por recência (os mais recentes primeiro)
+        tf_crossovers.sort(key=lambda x: x["bars_ago"])
+        tf_spreads.sort(key=lambda x: x["abs_spread"], reverse=True)
+        
+        result[tf] = {
+            "crossovers": tf_crossovers,
+            "spread_ranking": tf_spreads
+        }
+        
+    return {
+        "timeframes": result,
+        "fresh_crossovers": all_fresh,
+        "fresh_count": len(all_fresh)
+    }
+
+
 class CSSDataEngine:
     _instance = None
 
@@ -334,6 +477,8 @@ class CSSDataEngine:
                 "thesis": item["thesis"]
             })
 
+        crossovers_data = detect_currency_crossovers(tf_charts)
+
         self.cache = {
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "mt5_connected": self.is_mt5_connected,
@@ -341,6 +486,7 @@ class CSSDataEngine:
             "charts": tf_charts,
             "pair_charts": tf_pair_charts,
             "pairs": formatted_pairs,
+            "crossovers": crossovers_data,
             "colors": CCY_COLORS,
             "flags": CCY_FLAGS
         }
@@ -437,6 +583,7 @@ class CSSDataEngine:
                 {"pair": "AUDJPY", "base": "AUD", "quote": "JPY", "base_flag": "🇦🇺", "quote_flag": "🇯🇵", "total_score": -0.22, "macro_diff": -0.15, "op_diff": -0.28, "recommendation": "VENDA FORTE (STRONG SELL)", "badge_type": "STRONG_SELL", "conviction": "ALTA", "thesis": "AUD fraquejando frente ao JPY."},
                 {"pair": "USDJPY", "base": "USD", "quote": "JPY", "base_flag": "🇺🇸", "quote_flag": "🇯🇵", "total_score": -0.19, "macro_diff": -0.31, "op_diff": -0.01, "recommendation": "VENDA (SELL)", "badge_type": "SELL", "conviction": "ALTA", "thesis": "Pressão de venda em USD frente ao JPY."}
             ],
+            "crossovers": detect_currency_crossovers(charts),
             "colors": CCY_COLORS,
             "flags": CCY_FLAGS
         }

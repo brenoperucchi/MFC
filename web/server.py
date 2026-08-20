@@ -82,6 +82,24 @@ async def get_pairs():
     return {"pairs": data.get("pairs", [])}
 
 
+@app.get("/api/crossovers")
+async def get_crossovers():
+    """Retorna os cruzamentos de scores detectados entre as moedas dos 28 pares Forex."""
+    data = css_engine.update_data(force=False)
+    return JSONResponse(content=data.get("crossovers", {}))
+
+
+@app.get("/api/crossovers/{tf}")
+async def get_crossovers_by_tf(tf: str):
+    """Retorna cruzamentos específicos para um timeframe (H1, H4, D1, etc.)."""
+    tf_upper = tf.upper()
+    data = css_engine.update_data(force=False)
+    crossovers = data.get("crossovers", {}).get("timeframes", {})
+    if tf_upper not in crossovers:
+        raise HTTPException(status_code=404, detail=f"Timeframe '{tf_upper}' não encontrado nos cruzamentos.")
+    return JSONResponse(content=crossovers[tf_upper])
+
+
 @app.get("/api/history/dates")
 async def get_history_dates():
     """Retorna as datas de análises diárias disponíveis no arquivo."""

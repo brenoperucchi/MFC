@@ -7,8 +7,10 @@ import os
 import shutil
 import json
 import urllib.request
+import sys
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, BASE_DIR)
 STATIC_DIR = os.path.join(BASE_DIR, "web", "static")
 PUBLIC_DIR = os.path.join(BASE_DIR, "public")
 API_DIR = os.path.join(PUBLIC_DIR, "api")
@@ -22,11 +24,14 @@ def build():
     os.makedirs(os.path.join(API_DIR, "track-record"), exist_ok=True)
 
     # 1. Copiar index.html, styles.css, app.js
+    os.makedirs(os.path.join(PUBLIC_DIR, "static"), exist_ok=True)
     for f in ["index.html", "styles.css", "app.js"]:
         src = os.path.join(STATIC_DIR, f)
         dst = os.path.join(PUBLIC_DIR, f)
         if os.path.exists(src):
             shutil.copy2(src, dst)
+            if f != "index.html":
+                shutil.copy2(src, os.path.join(PUBLIC_DIR, "static", f))
             print(f"  [+] Copiado: {f}")
 
     # Ajustar referências de /static/ em index.html para caminhos raiz
@@ -44,17 +49,13 @@ def build():
     
     # CSS All
     try:
-        req = urllib.request.urlopen("http://127.0.0.1:8050/api/css/all", timeout=5)
-        css_data = json.loads(req.read().decode("utf-8"))
+        from web.css_service import css_engine
+        css_data = css_engine.update_data(force=True)
         with open(os.path.join(API_DIR, "css", "all.json"), "w", encoding="utf-8") as f:
             json.dump(css_data, f, indent=2, ensure_ascii=False)
         print("  [+] Gerado: /api/css/all.json")
     except Exception as e:
-        print(f"  [!] Fallback para CSS local: {e}")
-        from web.css_service import get_all_css_data
-        css_data = get_all_css_data()
-        with open(os.path.join(API_DIR, "css", "all.json"), "w", encoding="utf-8") as f:
-            json.dump(css_data, f, indent=2, ensure_ascii=False)
+        print(f"  [!] Erro ao gerar CSS snapshot: {e}")
 
     # Track Record Summary
     try:
