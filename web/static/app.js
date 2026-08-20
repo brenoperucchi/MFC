@@ -24,6 +24,8 @@ const state = {
 };
 
 // Bandeiras e Cores Oficiais
+const CURRENCIES = ["USD", "EUR", "GBP", "CHF", "JPY", "AUD", "CAD", "NZD"];
+
 const CCY_FLAGS = {
     USD: "🇺🇸", EUR: "🇪🇺", GBP: "🇬🇧", CHF: "🇨🇭",
     JPY: "🇯🇵", AUD: "🇦🇺", CAD: "🇨🇦", NZD: "🇳🇿"
@@ -123,7 +125,10 @@ function setupEventListeners() {
     window.addEventListener("resize", () => {
         renderAllCharts();
         renderMatrixChart();
-        if (state.trackRecordData) renderEquityCurve(state.trackRecordData.equity_curve);
+        if (state.trackRecordData) {
+            if (state.activeTrackTab === 'analytics') renderGlobalEquityCurve(state.trackRecordData.equity_curve || []);
+            else if (state.activeTrackTab === 'audit' && state.auditSelectedSession) renderAuditDetailPanel(state.auditSelectedSession);
+        }
     });
 }
 
@@ -1021,31 +1026,74 @@ async function loadReportContent(dateStr) {
 }
 
 // ==========================================================================
-// TRACK RECORD & SIMULAÇÃO MULTI-PORTFÓLIO (21H ➔ 08H)
+// TRACK RECORD & AUDITORIA MULTI-PORTFÓLIO (3 ABAS & MASTER-DETAIL)
 // ==========================================================================
+
 function setupTrackRecordModal() {
-    const btnOpen = document.getElementById("btnOpenTrackRecordModal");
     const modal = document.getElementById("trackRecordModal");
+    const btnOpen = document.getElementById("btnOpenTrackRecordModal");
     const btnClose = document.getElementById("btnCloseTrackRecordModal");
     const btnRecalc = document.getElementById("btnRecalculateTrackRecord");
 
+    state.activeTrackTab = "live"; // 'live', 'audit', 'analytics'
+    state.livePollingTimer = null;
+
     if (btnOpen && modal) {
-        btnOpen.addEventListener("click", async () => {
+        btnOpen.addEventListener("click", () => {
             modal.classList.remove("hidden");
-            await loadTrackRecord();
-        });
-        if (btnClose) btnClose.addEventListener("click", () => modal.classList.add("hidden"));
-        modal.addEventListener("click", (e) => {
-            if (e.target === modal) modal.classList.add("hidden");
+            loadTrackRecord(state.trackRecordFilter || "ALL");
+            startLivePolling();
         });
     }
 
-    // Seletor de Moedas
-    const ccySelector = document.getElementById("trackCurrencySelector");
-    if (ccySelector) {
-        ccySelector.querySelectorAll(".filter-pill").forEach(pill => {
+    if (btnClose && modal) {
+        btnClose.addEventListener("click", () => {
+            modal.classList.add("hidden");
+            stopLivePolling();
+        });
+    }
+
+    if (modal) {
+        modal.addEventListener("click", (e) => {
+            if (e.target === modal) {
+                modal.classList.add("hidden");
+                stopLivePolling();
+            }
+        });
+    }
+
+    // 1. Alternância das 3 Abas Principais
+    document.querySelectorAll(".track-nav-tab").forEach(tab => {
+        tab.addEventListener("click", () => {
+            document.querySelectorAll(".track-nav-tab").forEach(t => t.classList.remove("active"));
+            document.querySelectorAll(".track-tab-pane").forEach(p => p.classList.remove("active"));
+
+            tab.classList.add("active");
+            const targetTab = tab.dataset.tab;
+            state.activeTrackTab = targetTab;
+
+            if (targetTab === "live") {
+                const pane = document.getElementById("paneLive");
+                if (pane) pane.classList.add("active");
+                fetchLiveSessionData();
+            } else if (targetTab === "audit") {
+                const pane = document.getElementById("paneAudit");
+                if (pane) pane.classList.add("active");
+                if (state.trackRecordData) renderAuditTab(state.trackRecordData);
+            } else if (targetTab === "analytics") {
+                const pane = document.getElementById("paneAnalytics");
+                if (pane) pane.classList.add("active");
+                if (state.trackRecordData) renderAnalyticsTab(state.trackRecordData);
+            }
+        });
+    });
+
+    // 2. Filtro de Moeda na Aba de Auditoria
+    const currSelector = document.getElementById("trackCurrencySelector");
+    if (currSelector) {
+        currSelector.querySelectorAll(".filter-pill").forEach(pill => {
             pill.addEventListener("click", async () => {
-                ccySelector.querySelectorAll(".filter-pill").forEach(p => p.classList.remove("active"));
+                currSelector.querySelectorAll(".filter-pill").forEach(p => p.classList.remove("active"));
                 pill.classList.add("active");
                 state.trackRecordFilter = pill.dataset.ccy;
                 const label = document.getElementById("trackFilterActiveLabel");
@@ -1057,23 +1105,7 @@ function setupTrackRecordModal() {
         });
     }
 
-    // Toggle de Visão do Gráfico (Acumulado vs Intraday)
-    const viewTabs = document.getElementById("chartViewTabs");
-    if (viewTabs) {
-        viewTabs.querySelectorAll(".tf-tab").forEach(tab => {
-            tab.addEventListener("click", () => {
-                viewTabs.querySelectorAll(".tf-tab").forEach(t => t.classList.remove("active"));
-                tab.classList.add("active");
-                state.trackChartView = tab.dataset.view;
-                const sub = document.getElementById("equityChartSubtitle");
-                if (sub) {
-                    sub.textContent = state.trackChartView === "global" ? "Evolução do Saldo ao Longo das Sessões" : "Flutuação de Lucro e Drawdown (MAE/MFE) das 21h às 08h";
-                }
-                renderTrackCharts();
-            });
-        });
-    }
-
+    // 3. Botão de Recalcular Backtest
     if (btnRecalc) {
         btnRecalc.addEventListener("click", async () => {
             btnRecalc.disabled = true;
@@ -1091,27 +1123,619 @@ function setupTrackRecordModal() {
     }
 }
 
+function startLivePolling() {
+    stopLivePolling();
+    fetchLiveSessionData();
+    state.livePollingTimer = setInterval(fetchLiveSessionData, 3000);
+}
+
+function stopLivePolling() {
+    if (state.livePollingTimer) {
+        clearInterval(state.livePollingTimer);
+        state.livePollingTimer = null;
+    }
+}
+
+async function fetchLiveSessionData() {
+    try {
+        const res = await fetch("/api/track-record/live");
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data && data.session) {
+            state.liveSessionData = data.session;
+            renderLiveTab(data.session);
+        }
+    } catch (err) {
+        console.error("Erro no polling da sessão ao vivo:", err);
+    }
+}
+
 async function loadTrackRecord(ccy = "ALL") {
     try {
         const res = await fetch(`/api/track-record/summary?currency=${ccy}`);
         if (!res.ok) throw new Error("Erro ao buscar dados do track record");
         const json = await res.json();
         state.trackRecordData = json;
-        // Selecionar por padrão a primeira sessão ativa
-        const activeSessions = (json.sessions || []).filter(s => s.portfolios_count > 0);
-        state.trackSelectedSession = activeSessions.length > 0 ? activeSessions[0] : (json.sessions && json.sessions[0]);
-        renderTrackRecord(json);
+
+        // Atualizar aba ativa
+        if (state.activeTrackTab === "live") {
+            await fetchLiveSessionData();
+        } else if (state.activeTrackTab === "audit") {
+            renderAuditTab(json);
+        } else if (state.activeTrackTab === "analytics") {
+            renderAnalyticsTab(json);
+        }
     } catch (err) {
         console.error("Falha ao carregar track record:", err);
     }
 }
 
-function renderTrackRecord(data) {
+// ==========================================================================
+// ABA 1: RENDERIZAÇÃO DA SESSÃO AO VIVO (EM ANDAMENTO)
+// ==========================================================================
+
+function renderLiveTab(session) {
+    if (!session) return;
+
+    const pnlEl = document.getElementById("liveTotalPnL");
+    const pipsEl = document.getElementById("liveTotalPips");
+    const mfeEl = document.getElementById("liveTotalMFE");
+    const maeEl = document.getElementById("liveTotalMAE");
+    const countEl = document.getElementById("liveActiveBasketsCount");
+    const pairsCountEl = document.getElementById("liveActivePairsCount");
+    const badgeTab = document.getElementById("livePortfoliosBadge");
+    const timerBadge = document.getElementById("liveElapsedTimer");
+
+    const totalPnL = session.total_pnl_usd || 0;
+    const totalPips = session.total_pips || 0;
+    const portfolios = session.portfolios || [];
+    const totalPairsCount = portfolios.reduce((acc, p) => acc + (p.pairs || []).length, 0);
+
+    if (pnlEl) {
+        pnlEl.textContent = (totalPnL >= 0 ? "+$" : "-$") + Math.abs(totalPnL).toFixed(2);
+        pnlEl.className = "kpi-value " + (totalPnL >= 0 ? "positive" : "negative");
+    }
+    if (pipsEl) pipsEl.textContent = `${(totalPips >= 0 ? "+" : "") + totalPips.toFixed(1)} pips flutuantes`;
+    if (mfeEl) mfeEl.textContent = `+$${(session.mfe_usd || 0).toFixed(2)}`;
+    if (maeEl) maeEl.textContent = `-$${Math.abs(session.mae_usd || 0).toFixed(2)}`;
+    if (countEl) countEl.textContent = `${portfolios.length} Cestas`;
+    if (pairsCountEl) pairsCountEl.textContent = `${totalPairsCount} pares operados`;
+    if (badgeTab) badgeTab.textContent = `${portfolios.length} Cestas Ativas`;
+
+    // 1. Renderizar Cards de Cestas Ativas
+    const basketsContainer = document.getElementById("liveBasketsCardsContainer");
+    if (basketsContainer) {
+        if (portfolios.length === 0) {
+            basketsContainer.innerHTML = `
+                <div style="grid-column: 1 / -1; padding: 20px; background: #0C101A; border-radius: 8px; color: var(--text-muted); text-align: center;">
+                    🛡️ Nenhuma cesta atingiu 4+ TFs com ciclo válido às 21h00. Mercado sem alinhamento direcional (Preservação de Capital).
+                </div>
+            `;
+        } else {
+            basketsContainer.innerHTML = portfolios.map(port => {
+                const pnl = port.pnl_usd || 0;
+                const isPos = pnl >= 0;
+                return `
+                    <div class="live-basket-card">
+                        <div style="display: flex; align-items: center; justify-content: space-between;">
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <span style="font-size: 20px;">${port.flag || '🏳️'}</span>
+                                <div>
+                                    <span style="font-weight: 800; font-family: var(--font-mono); color: #FFF; font-size: 13px;">Cesta ${port.currency}</span>
+                                    <span class="region-badge ${port.bias === 'BUY' ? 'green' : 'red'}" style="margin-left: 6px; font-size: 9px; padding: 1px 5px;">${port.bias === 'BUY' ? 'COMPRA' : 'VENDA'}</span>
+                                </div>
+                            </div>
+                            <div class="leds-container">
+                                <span class="led-dot ${port.leds?.MN1 || 'yellow'}" title="MN1"></span>
+                                <span class="led-dot ${port.leds?.W1 || 'yellow'}" title="W1"></span>
+                                <span class="led-dot ${port.leds?.D1 || 'yellow'}" title="D1"></span>
+                                <span class="led-dot ${port.leds?.H4 || 'yellow'}" title="H4"></span>
+                                <span class="led-dot ${port.leds?.H1 || 'yellow'}" title="H1"></span>
+                            </div>
+                        </div>
+                        <div style="font-size: 10.5px; color: var(--text-muted);">
+                            📌 <em>${port.reason || 'Confluência Multi-TF'}</em>
+                        </div>
+                        <div style="display: flex; align-items: center; justify-content: space-between; padding-top: 6px; border-top: 1px solid rgba(255,255,255,0.06); font-family: var(--font-mono); font-size: 11px;">
+                            <span>MFE: <strong style="color: var(--color-green);">+$${(port.mfe_usd||0).toFixed(2)}</strong></span>
+                            <span>MAE: <strong style="color: var(--color-red);">-$${Math.abs(port.mae_usd||0).toFixed(2)}</strong></span>
+                            <span style="font-weight: 800; font-size: 13px; color: ${isPos ? 'var(--color-green)' : 'var(--color-red)'};">
+                                ${(isPos ? "+$" : "-$") + Math.abs(pnl).toFixed(2)}
+                            </span>
+                        </div>
+                    </div>
+                `;
+            }).join("");
+        }
+    }
+
+    // 2. Renderizar Tabela Live dos 28 Pares
+    const tbody = document.getElementById("livePairsTableBody");
+    if (tbody) {
+        const allLivePairs = [];
+        portfolios.forEach(port => {
+            (port.pairs || []).forEach(p => {
+                allLivePairs.push({ ...p, basket: port.currency, basketFlag: port.flag });
+            });
+        });
+
+        if (allLivePairs.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="10" class="loading-cell">Nenhum par em operação ativa nesta sessão.</td></tr>`;
+        } else {
+            tbody.innerHTML = allLivePairs.map(p => {
+                const pnl = p.pnl_usd || 0;
+                const pips = p.pips || 0;
+                const isPos = pnl >= 0;
+                const pnlClass = isPos ? "positive" : "negative";
+                const currPrice = p.current_price || p.exit_price || p.entry_price;
+
+                return `
+                    <tr>
+                        <td style="font-family: var(--font-mono); font-weight: 800; color: #FFF;">${p.pair}</td>
+                        <td>
+                            <span style="font-family: var(--font-mono); font-weight: 700; color: var(--color-cyan);">
+                                ${p.basketFlag} ${p.basket}
+                            </span>
+                        </td>
+                        <td>
+                            <span class="region-badge ${p.action === 'BUY' ? 'green' : 'red'}" style="font-size: 9px; padding: 1px 6px;">
+                                ${p.action}
+                            </span>
+                        </td>
+                        <td class="text-right" style="font-family: var(--font-mono);">${p.entry_price.toFixed(5)}</td>
+                        <td class="text-right" style="font-family: var(--font-mono); font-weight: 700; color: #FFF;">${Number(currPrice).toFixed(5)}</td>
+                        <td class="score-cell positive text-right">+${(p.mfe_usd || 0).toFixed(2)}</td>
+                        <td class="score-cell negative text-right">-${Math.abs(p.mae_usd || 0).toFixed(2)}</td>
+                        <td class="score-cell ${pnlClass} text-right">${(pips >= 0 ? "+" : "") + pips.toFixed(1)}p</td>
+                        <td class="score-cell ${pnlClass} text-right" style="font-weight: 800; font-size: 13px;">
+                            ${(isPos ? "+$" : "-$") + Math.abs(pnl).toFixed(2)}
+                        </td>
+                        <td class="text-center">
+                            <span class="signal-pill ${isPos ? 'buy' : 'sell'}" style="font-size: 9px; padding: 1px 6px;">
+                                ${isPos ? 'LUCRO' : 'DRAWDOWN'}
+                            </span>
+                        </td>
+                    </tr>
+                `;
+            }).join("");
+        }
+    }
+}
+
+// ==========================================================================
+// ABA 2: AUDITORIA DE SESSÕES (MESTRE-DETALHE)
+// ==========================================================================
+
+function renderAuditTab(data) {
+    if (!data) return;
+    const sessions = data.sessions || [];
+
+    const countEl = document.getElementById("auditSessionsCount");
+    if (countEl) countEl.textContent = `${sessions.length} Sessões`;
+
+    const sidebarList = document.getElementById("auditSessionsList");
+    if (!sidebarList) return;
+
+    if (sessions.length === 0) {
+        sidebarList.innerHTML = `<div style="padding: 16px; color: var(--text-muted); text-align: center;">Nenhuma sessão encontrada.</div>`;
+        return;
+    }
+
+    sidebarList.innerHTML = sessions.map((sess, idx) => {
+        const isInProgress = sess.status === "EM ANDAMENTO" || sess.is_in_progress === true;
+        const isNeut = sess.portfolios_count === 0 && !isInProgress;
+        const isWin = sess.total_pnl_usd >= 0;
+        const isSelected = state.auditSelectedSession && state.auditSelectedSession.date === sess.date;
+
+        let statusBadge = isNeut ? '🛡️ NEUTRO' : (isInProgress ? '🟡 AO VIVO' : (isWin ? '✅ GANHO' : '❌ PERDA'));
+        let statusStyle = isInProgress ? 'color: #FFD600; background: rgba(255,214,0,0.15);' : (isNeut ? 'color: #94A3B8;' : (isWin ? 'color: #00FF88; background: rgba(0,255,136,0.12);' : 'color: #FF334B; background: rgba(255,51,75,0.12);'));
+
+        const pnlStr = (sess.total_pnl_usd >= 0 ? "+$" : "-$") + Math.abs(sess.total_pnl_usd || 0).toFixed(2);
+        const pnlColor = isNeut ? '#94A3B8' : (sess.total_pnl_usd >= 0 ? 'var(--color-green)' : 'var(--color-red)');
+
+        const flags = (sess.portfolios || []).map(p => p.flag).join(" ");
+
+        return `
+            <div class="session-card-item ${isSelected ? 'active' : ''}" data-sidx="${idx}" onclick="selectAuditSession(${idx})">
+                <div class="session-card-top">
+                    <span class="session-card-date">📅 ${sess.date}</span>
+                    <span style="font-size: 9px; font-weight: 800; padding: 2px 6px; border-radius: 4px; ${statusStyle}">
+                        ${statusBadge}
+                    </span>
+                </div>
+                <div class="session-card-bottom">
+                    <span style="color: var(--text-muted); font-size: 11px;">${flags || 'Sem Cestas'}</span>
+                    <span style="font-weight: 800; font-size: 12px; color: ${pnlColor};">${pnlStr}</span>
+                </div>
+            </div>
+        `;
+    }).join("");
+
+    // Selecionar a primeira sessão se nenhuma estiver selecionada
+    if (!state.auditSelectedSession && sessions.length > 0) {
+        selectAuditSession(0);
+    } else if (state.auditSelectedSession) {
+        const found = sessions.find(s => s.date === state.auditSelectedSession.date);
+        if (found) renderAuditDetailPanel(found);
+    }
+}
+
+window.selectAuditSession = function(index) {
+    if (!state.trackRecordData || !state.trackRecordData.sessions) return;
+    const sess = state.trackRecordData.sessions[index];
+    if (!sess) return;
+
+    state.auditSelectedSession = sess;
+    document.querySelectorAll(".session-card-item").forEach((card, idx) => {
+        card.classList.toggle("active", idx === index);
+    });
+
+    renderAuditDetailPanel(sess);
+};
+
+function renderAuditDetailPanel(sess) {
+    const panel = document.getElementById("auditDetailPanel");
+    if (!panel || !sess) return;
+
+    const isInProgress = sess.status === "EM ANDAMENTO" || sess.is_in_progress === true;
+    const isNeut = sess.portfolios_count === 0 && !isInProgress;
+    const isWin = sess.total_pnl_usd >= 0;
+    const pnl = sess.total_pnl_usd || 0;
+    const pips = sess.total_pips || 0;
+    const pnlColor = isNeut ? '#94A3B8' : (pnl >= 0 ? 'var(--color-green)' : 'var(--color-red)');
+
+    const portfolios = sess.portfolios || [];
+
+    panel.innerHTML = `
+        <!-- HEADER DA SESSÃO SELECIONADA -->
+        <div style="display: flex; align-items: center; justify-content: space-between; padding-bottom: 12px; border-bottom: 1px solid var(--border-color); flex-wrap: wrap; gap: 10px;">
+            <div>
+                <h4 style="font-family: var(--font-display); font-size: 16px; font-weight: 800; color: #FFF;">
+                    📅 Sessão de ${sess.date}
+                </h4>
+                <span style="font-family: var(--font-mono); font-size: 11px; color: var(--text-muted);">
+                    Horário de Execução: 21h00 ➔ 08h00 Brasília | Duração: 11 horas
+                </span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 16px; font-family: var(--font-mono);">
+                <div>
+                    <span style="font-size: 10px; color: var(--text-muted); display: block;">MFE (Pico):</span>
+                    <span style="font-weight: 800; color: var(--color-green);">+$${(sess.mfe_usd||0).toFixed(2)}</span>
+                </div>
+                <div>
+                    <span style="font-size: 10px; color: var(--text-muted); display: block;">MAE (Drawdown):</span>
+                    <span style="font-weight: 800; color: var(--color-red);">-$${Math.abs(sess.mae_usd||0).toFixed(2)}</span>
+                </div>
+                <div>
+                    <span style="font-size: 10px; color: var(--text-muted); display: block;">Resultado Pips:</span>
+                    <span style="font-weight: 800; color: #FFF;">${(pips >= 0 ? "+" : "") + pips.toFixed(1)}p</span>
+                </div>
+                <div style="background: rgba(255,255,255,0.05); padding: 4px 12px; border-radius: 8px; border: 1px solid var(--border-color);">
+                    <span style="font-size: 10px; color: var(--text-muted); display: block;">Lucro Líquido:</span>
+                    <span style="font-size: 16px; font-weight: 900; color: ${pnlColor};">
+                        ${(pnl >= 0 ? "+$" : "-$") + Math.abs(pnl).toFixed(2)}
+                    </span>
+                </div>
+            </div>
+        </div>
+
+        <!-- TESE INSTITUCIONAL DE DISPARO -->
+        ${isNeut ? `
+            <div style="padding: 14px; background: #101624; border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; font-size: 12px; color: var(--text-secondary);">
+                🛡️ <strong>Sessão Neutra com Proteção Total de Capital:</strong> Nenhuma moeda atingiu confluência em 4+ timeframes acompanhados de ciclo institucional válido às 21h00. O robô permaneceu fora do mercado com 0 trades.
+            </div>
+        ` : `
+            <div style="display: flex; flex-direction: column; gap: 8px;">
+                <span style="font-weight: 700; font-family: var(--font-display); color: var(--color-cyan); font-size: 12px;">
+                    ⚡ Diagnóstico & Teses de Disparo Institucional (21h00):
+                </span>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 10px;">
+                    ${portfolios.map(p => `
+                        <div style="background: #111728; border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; padding: 10px 12px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                                <span style="font-weight: 800; font-family: var(--font-mono); color: #FFF; font-size: 12px;">${p.flag} ${p.bias_label}</span>
+                                <div class="leds-container">
+                                    <span class="led-dot ${p.leds?.MN1 || 'yellow'}" title="MN1"></span>
+                                    <span class="led-dot ${p.leds?.W1 || 'yellow'}" title="W1"></span>
+                                    <span class="led-dot ${p.leds?.D1 || 'yellow'}" title="D1"></span>
+                                    <span class="led-dot ${p.leds?.H4 || 'yellow'}" title="H4"></span>
+                                    <span class="led-dot ${p.leds?.H1 || 'yellow'}" title="H1"></span>
+                                </div>
+                            </div>
+                            <span style="font-size: 11px; color: var(--text-muted); display: block;"><em>${p.reason}</em></span>
+                            <div style="margin-top: 6px; font-family: var(--font-mono); font-size: 11px; display: flex; justify-content: space-between;">
+                                <span>Pico (MFE): <strong style="color: var(--color-green);">+$${(p.mfe_usd||0).toFixed(2)}</strong></span>
+                                <span>Saldo: <strong style="color: ${p.pnl_usd >= 0 ? 'var(--color-green)' : 'var(--color-red)'};">${(p.pnl_usd >= 0 ? "+$" : "-$") + Math.abs(p.pnl_usd).toFixed(2)}</strong></span>
+                            </div>
+                        </div>
+                    `).join("")}
+                </div>
+            </div>
+        `}
+
+        <!-- DUAL AUDIT CHARTS FOR THIS SESSION -->
+        ${!isNeut ? `
+            <div class="track-dual-charts-grid" style="grid-template-columns: 1fr 1fr; gap: 12px;">
+                <div class="equity-chart-wrapper">
+                    <div class="equity-chart-header">
+                        <span style="font-weight: 700; font-family: var(--font-display); color: #FFF; font-size: 11.5px;">📈 Curva de Capital Intraday das 11 Horas</span>
+                        <span style="font-size: 9.5px; color: var(--text-muted);">Evolução das 21h às 08h</span>
+                    </div>
+                    <div style="height: 160px; width: 100%; position: relative;">
+                        <canvas id="auditIntradayCanvas"></canvas>
+                    </div>
+                </div>
+                <div class="equity-chart-wrapper">
+                    <div class="equity-chart-header">
+                        <span style="font-weight: 700; font-family: var(--font-display); color: var(--color-cyan); font-size: 11.5px;">⚡ Trajetória do CSS H1 e H4</span>
+                        <div class="chart-legend-hints" style="font-size: 9px;">
+                            <span class="legend-hint green-hint">+0.20</span>
+                            <span class="legend-hint red-hint">-0.20</span>
+                        </div>
+                    </div>
+                    <div style="height: 160px; width: 100%; position: relative;">
+                        <canvas id="auditCssCanvas"></canvas>
+                    </div>
+                </div>
+            </div>
+        ` : ''}
+
+        <!-- TABELA DE AUDITORIA DETALHADA DOS 7 PARES POR CESTA -->
+        ${!isNeut ? `
+            <div style="display: flex; flex-direction: column; gap: 8px;">
+                <span style="font-weight: 700; font-family: var(--font-display); color: #FFF; font-size: 12.5px;">
+                    📋 Auditoria Completa dos Pares Operados nesta Sessão:
+                </span>
+                <div class="table-responsive" style="border: 1px solid var(--border-color); border-radius: 8px;">
+                    <table class="track-table">
+                        <thead>
+                            <tr>
+                                <th>PAR</th>
+                                <th>CESTA</th>
+                                <th>AÇÃO</th>
+                                <th class="text-right">ENTRADA (21h00)</th>
+                                <th class="text-right">SAÍDA (08h00)</th>
+                                <th class="text-right">MFE (PICO)</th>
+                                <th class="text-right">MAE (DD MÁX)</th>
+                                <th class="text-right">PIPS</th>
+                                <th class="text-right">RESULTADO ($)</th>
+                                <th class="text-center">STATUS</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${portfolios.flatMap(port => (port.pairs || []).map(p => {
+                                const isPos = p.pnl_usd >= 0;
+                                const pnlClass = isPos ? "positive" : "negative";
+                                return `
+                                    <tr>
+                                        <td style="font-family: var(--font-mono); font-weight: 800; color: #FFF;">${p.pair}</td>
+                                        <td><span style="font-family: var(--font-mono); font-weight: 700; color: var(--color-cyan);">${port.flag} ${port.currency}</span></td>
+                                        <td><span class="region-badge ${p.action === 'BUY' ? 'green' : 'red'}" style="font-size: 9px; padding: 1px 6px;">${p.action}</span></td>
+                                        <td class="text-right" style="font-family: var(--font-mono);">${p.entry_price.toFixed(5)}</td>
+                                        <td class="text-right" style="font-family: var(--font-mono); color: #FFF;">${p.exit_price.toFixed(5)}</td>
+                                        <td class="score-cell positive text-right">+${(p.mfe_usd||0).toFixed(2)}</td>
+                                        <td class="score-cell negative text-right">-${Math.abs(p.mae_usd||0).toFixed(2)}</td>
+                                        <td class="score-cell ${pnlClass} text-right">${(p.pips >= 0 ? "+" : "") + p.pips.toFixed(1)}p</td>
+                                        <td class="score-cell ${pnlClass} text-right" style="font-weight: 800;">
+                                            ${(isPos ? "+$" : "-$") + Math.abs(p.pnl_usd).toFixed(2)}
+                                        </td>
+                                        <td class="text-center">
+                                            <span class="signal-pill ${isPos ? 'buy' : 'sell'}" style="font-size: 9px; padding: 1px 6px;">
+                                                ${isPos ? 'WIN' : 'LOSS'}
+                                            </span>
+                                        </td>
+                                    </tr>
+                                `;
+                            })).join("")}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        ` : ''}
+    `;
+
+    // Desenhar gráficos da sessão no detalhe
+    if (!isNeut) {
+        setTimeout(() => {
+            renderAuditIntradayCanvas(sess);
+            renderAuditCssCanvas(sess);
+        }, 60);
+    }
+}
+
+function renderAuditIntradayCanvas(sess) {
+    const canvas = document.getElementById("auditIntradayCanvas");
+    if (!canvas || !sess) return;
+
+    const pnlCurve = sess.intraday_pnl_curve || [0.0];
+    const hours = sess.intraday_hours || ["21h", "22h", "23h", "00h", "01h", "02h", "03h", "04h", "05h", "06h", "07h", "08h"];
+    const numPoints = pnlCurve.length;
+
+    const ctx = canvas.getContext("2d");
+    const rect = canvas.parentElement.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    ctx.scale(dpr, dpr);
+
+    const width = rect.width;
+    const height = rect.height;
+    ctx.clearRect(0, 0, width, height);
+
+    const padding = { top: 20, bottom: 20, left: 45, right: 25 };
+    const chartW = width - padding.left - padding.right;
+    const chartH = height - padding.top - padding.bottom;
+
+    let minVal = Math.min(...pnlCurve, sess.mae_usd || 0, -1.0);
+    let maxVal = Math.max(...pnlCurve, sess.mfe_usd || 0, 2.0);
+    const range = (maxVal - minVal) || 1.0;
+    minVal -= range * 0.1;
+    maxVal += range * 0.1;
+
+    const getX = (i) => padding.left + (i / (numPoints - 1)) * chartW;
+    const getY = (val) => padding.top + chartH * (1 - (val - minVal) / (maxVal - minVal));
+
+    const y0 = getY(0.0);
+    ctx.save();
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.15)";
+    ctx.lineWidth = 1;
+    ctx.setLineDash([3, 3]);
+    ctx.beginPath();
+    ctx.moveTo(padding.left, y0);
+    ctx.lineTo(width - padding.right, y0);
+    ctx.stroke();
+    ctx.restore();
+
+    const lastVal = pnlCurve[pnlCurve.length - 1];
+    const lineColor = lastVal >= 0 ? "#00E676" : "#FF334B";
+    const grad = ctx.createLinearGradient(0, padding.top, 0, height - padding.bottom);
+    grad.addColorStop(0, lastVal >= 0 ? "rgba(0, 230, 118, 0.25)" : "rgba(255, 51, 75, 0.25)");
+    grad.addColorStop(1, "rgba(0, 0, 0, 0.0)");
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(getX(0), y0);
+    for (let i = 0; i < numPoints; i++) ctx.lineTo(getX(i), getY(pnlCurve[i]));
+    ctx.lineTo(getX(numPoints - 1), y0);
+    ctx.closePath();
+    ctx.fillStyle = grad;
+    ctx.fill();
+    ctx.restore();
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.strokeStyle = lineColor;
+    ctx.lineWidth = 2.0;
+    for (let i = 0; i < numPoints; i++) {
+        const x = getX(i);
+        const y = getY(pnlCurve[i]);
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+    ctx.restore();
+
+    // Rótulos do Eixo
+    ctx.fillStyle = "#94A3B8";
+    ctx.font = "8.5px JetBrains Mono";
+    ctx.textAlign = "center";
+    for (let i = 0; i < numPoints; i += 3) {
+        ctx.fillText(hours[i] || "", getX(i), height - 4);
+    }
+    ctx.textAlign = "right";
+    ctx.fillText(`$${maxVal.toFixed(1)}`, padding.left - 4, padding.top + 4);
+    ctx.fillText(`$${minVal.toFixed(1)}`, padding.left - 4, height - padding.bottom);
+}
+
+function renderAuditCssCanvas(sess) {
+    const canvas = document.getElementById("auditCssCanvas");
+    if (!canvas || !sess) return;
+
+    const portfolios = sess.portfolios || [];
+    if (portfolios.length === 0) return;
+
+    const port = portfolios[0];
+    const h1Curve = port.css_h1_curve || [];
+    const h4Curve = port.css_h4_curve || [];
+    const hours = sess.intraday_hours || ["21h", "22h", "23h", "00h", "01h", "02h", "03h", "04h", "05h", "06h", "07h", "08h"];
+
+    if (h1Curve.length === 0) return;
+
+    const ctx = canvas.getContext("2d");
+    const rect = canvas.parentElement.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    ctx.scale(dpr, dpr);
+
+    const width = rect.width;
+    const height = rect.height;
+    ctx.clearRect(0, 0, width, height);
+
+    const padding = { top: 20, bottom: 20, left: 40, right: 20 };
+    const chartW = width - padding.left - padding.right;
+    const chartH = height - padding.top - padding.bottom;
+
+    let allVals = [...h1Curve, ...h4Curve, 0.25, -0.25];
+    let minVal = Math.min(...allVals) - 0.05;
+    let maxVal = Math.max(...allVals) + 0.05;
+
+    const getX = (i) => padding.left + (i / (h1Curve.length - 1)) * chartW;
+    const getY = (val) => padding.top + chartH * (1 - (val - minVal) / (maxVal - minVal));
+
+    // +0.20
+    const yGreen = getY(0.20);
+    ctx.save();
+    ctx.strokeStyle = "rgba(0, 230, 118, 0.5)";
+    ctx.lineWidth = 1;
+    ctx.setLineDash([3, 3]);
+    ctx.beginPath();
+    ctx.moveTo(padding.left, yGreen);
+    ctx.lineTo(width - padding.right, yGreen);
+    ctx.stroke();
+    ctx.restore();
+
+    // -0.20
+    const yRed = getY(-0.20);
+    ctx.save();
+    ctx.strokeStyle = "rgba(255, 51, 75, 0.5)";
+    ctx.lineWidth = 1;
+    ctx.setLineDash([3, 3]);
+    ctx.beginPath();
+    ctx.moveTo(padding.left, yRed);
+    ctx.lineTo(width - padding.right, yRed);
+    ctx.stroke();
+    ctx.restore();
+
+    // H4 Dourado
+    if (h4Curve.length > 0) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.strokeStyle = "#FFD600";
+        ctx.lineWidth = 1.6;
+        for (let i = 0; i < h4Curve.length; i++) {
+            const x = getX(i);
+            const y = getY(h4Curve[i]);
+            if (i === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+        ctx.restore();
+    }
+
+    // H1 Ciano
+    ctx.save();
+    ctx.beginPath();
+    ctx.strokeStyle = "#00E5FF";
+    ctx.lineWidth = 2.0;
+    for (let i = 0; i < h1Curve.length; i++) {
+        const x = getX(i);
+        const y = getY(h1Curve[i]);
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+    ctx.restore();
+
+    ctx.fillStyle = "#94A3B8";
+    ctx.font = "8.5px JetBrains Mono";
+    ctx.textAlign = "center";
+    for (let i = 0; i < h1Curve.length; i += 3) {
+        ctx.fillText(hours[i] || "", getX(i), height - 4);
+    }
+}
+
+// ==========================================================================
+// ABA 3: CURVA DE CAPITAL & ANALYTICS MACRO
+// ==========================================================================
+
+function renderAnalyticsTab(data) {
     if (!data) return;
     const summary = data.summary || {};
     const sessions = data.sessions || [];
 
-    // 1. Atualizar Métricas
     const pnlEl = document.getElementById("trackTotalPnL");
     const pipsEl = document.getElementById("trackTotalPips");
     const wrEl = document.getElementById("trackWinRate");
@@ -1136,7 +1760,6 @@ function renderTrackRecord(data) {
     if (portEl) portEl.textContent = `${summary.total_portfolios || 0} Cestas Operadas`;
     if (neutEl) neutEl.textContent = `${summary.neutral_sessions || 0} Sessões Neutras`;
 
-    // Médias de MAE e MFE das sessões ativas
     const activeS = sessions.filter(s => s.portfolios_count > 0);
     if (activeS.length > 0) {
         const avgMFE = activeS.reduce((acc, s) => acc + (s.mfe_usd || 0), 0) / activeS.length;
@@ -1145,24 +1768,15 @@ function renderTrackRecord(data) {
         if (avgMAEEl) avgMAEEl.textContent = `-$${Math.abs(avgMAE).toFixed(2)}`;
     }
 
-    // 2. Renderizar Gráficos Sincronizados
-    renderTrackCharts();
-
-    // 3. Renderizar Tabela em Cascata
-    renderTrackSessionsTable(sessions);
-}
-
-function renderTrackCharts() {
     setTimeout(() => {
-        if (!state.trackRecordData) return;
-        renderEquityOrIntradayCurve();
-        renderCssCycleCurve();
-    }, 50);
+        renderGlobalEquityCurve(data.equity_curve || []);
+        renderCurrencyBreakdownTable(sessions);
+    }, 60);
 }
 
-function renderEquityOrIntradayCurve() {
-    const canvas = document.getElementById("equityCanvas");
-    if (!canvas || !state.trackRecordData) return;
+function renderGlobalEquityCurve(curveData) {
+    const canvas = document.getElementById("equityCanvasGlobal");
+    if (!canvas || curveData.length < 2) return;
 
     const ctx = canvas.getContext("2d");
     const rect = canvas.parentElement.getBoundingClientRect();
@@ -1176,459 +1790,124 @@ function renderEquityOrIntradayCurve() {
     const height = rect.height;
     ctx.clearRect(0, 0, width, height);
 
-    const padding = { top: 25, bottom: 25, left: 55, right: 30 };
+    const padding = { top: 25, bottom: 30, left: 60, right: 30 };
     const chartW = width - padding.left - padding.right;
     const chartH = height - padding.top - padding.bottom;
 
-    if (state.trackChartView === "intraday" && state.trackSelectedSession) {
-        // MODO INTRADAY DA SESSÃO SELECIONADA
-        const sess = state.trackSelectedSession;
-        const pnlCurve = sess.intraday_pnl_curve || [0.0];
-        const hours = sess.intraday_hours || ["21h", "22h", "23h", "00h", "01h", "02h", "03h", "04h", "05h", "06h", "07h", "08h"];
-        const numPoints = pnlCurve.length;
+    const equities = curveData.map(d => d.equity);
+    let minVal = Math.min(...equities, 0.0);
+    let maxVal = Math.max(...equities, 10.0);
+    const range = (maxVal - minVal) || 1.0;
+    minVal -= range * 0.08;
+    maxVal += range * 0.08;
 
-        let minVal = Math.min(...pnlCurve, sess.mae_usd || 0, -2.0);
-        let maxVal = Math.max(...pnlCurve, sess.mfe_usd || 0, 5.0);
-        const range = (maxVal - minVal) || 1.0;
-        minVal -= range * 0.1;
-        maxVal += range * 0.1;
-
-        const getX = (i) => padding.left + (i / (numPoints - 1)) * chartW;
-        const getY = (val) => padding.top + chartH * (1 - (val - minVal) / (maxVal - minVal));
-
-        // Linha Zero
-        const y0 = getY(0.0);
-        ctx.save();
-        ctx.strokeStyle = "rgba(255, 255, 255, 0.15)";
-        ctx.lineWidth = 1;
-        ctx.setLineDash([4, 4]);
-        ctx.beginPath();
-        ctx.moveTo(padding.left, y0);
-        ctx.lineTo(width - padding.right, y0);
-        ctx.stroke();
-        ctx.restore();
-
-        // Área Sombreada
-        const lastVal = pnlCurve[pnlCurve.length - 1];
-        const lineColor = lastVal >= 0 ? "#00E676" : "#FF334B";
-        const grad = ctx.createLinearGradient(0, padding.top, 0, height - padding.bottom);
-        grad.addColorStop(0, lastVal >= 0 ? "rgba(0, 230, 118, 0.25)" : "rgba(255, 51, 75, 0.25)");
-        grad.addColorStop(1, "rgba(0, 0, 0, 0.0)");
-
-        ctx.save();
-        ctx.beginPath();
-        ctx.moveTo(getX(0), y0);
-        for (let i = 0; i < numPoints; i++) ctx.lineTo(getX(i), getY(pnlCurve[i]));
-        ctx.lineTo(getX(numPoints - 1), y0);
-        ctx.closePath();
-        ctx.fillStyle = grad;
-        ctx.fill();
-        ctx.restore();
-
-        // Linha do PnL
-        ctx.save();
-        ctx.beginPath();
-        ctx.strokeStyle = lineColor;
-        ctx.lineWidth = 2.2;
-        ctx.shadowColor = lineColor;
-        ctx.shadowBlur = 6;
-        for (let i = 0; i < numPoints; i++) {
-            const x = getX(i);
-            const y = getY(pnlCurve[i]);
-            if (i === 0) ctx.moveTo(x, y);
-            else ctx.lineTo(x, y);
-        }
-        ctx.stroke();
-        ctx.restore();
-
-        // Destaque MFE (Verde) e MAE (Vermelho)
-        const mfeVal = sess.mfe_usd || 0;
-        const maeVal = sess.mae_usd || 0;
-        const mfeIdx = pnlCurve.indexOf(mfeVal);
-        const maeIdx = pnlCurve.indexOf(maeVal);
-
-        if (mfeIdx >= 0 && mfeVal > 0) {
-            const mx = getX(mfeIdx);
-            const my = getY(mfeVal);
-            ctx.save();
-            ctx.fillStyle = "#00E676";
-            ctx.shadowColor = "#00E676";
-            ctx.shadowBlur = 8;
-            ctx.beginPath();
-            ctx.arc(mx, my, 4.5, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.fillStyle = "#FFF";
-            ctx.font = "9.5px JetBrains Mono";
-            ctx.fillText(`MFE: +$${mfeVal.toFixed(2)}`, mx - 20, my - 8);
-            ctx.restore();
-        }
-
-        if (maeIdx >= 0 && maeVal < 0) {
-            const ax = getX(maeIdx);
-            const ay = getY(maeVal);
-            ctx.save();
-            ctx.fillStyle = "#FF334B";
-            ctx.shadowColor = "#FF334B";
-            ctx.shadowBlur = 8;
-            ctx.beginPath();
-            ctx.arc(ax, ay, 4.5, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.fillStyle = "#FFF";
-            ctx.font = "9.5px JetBrains Mono";
-            ctx.fillText(`MAE: -$${Math.abs(maeVal).toFixed(2)}`, ax - 20, ay + 14);
-            ctx.restore();
-        }
-
-        // Rótulos de horas no eixo X
-        ctx.fillStyle = "#94A3B8";
-        ctx.font = "9px JetBrains Mono";
-        ctx.textAlign = "center";
-        for (let i = 0; i < numPoints; i += 2) {
-            ctx.fillText(hours[i] || "", getX(i), height - 8);
-        }
-        ctx.textAlign = "right";
-        ctx.fillText(`$${maxVal.toFixed(1)}`, padding.left - 6, padding.top + 4);
-        ctx.fillText(`$${minVal.toFixed(1)}`, padding.left - 6, height - padding.bottom);
-    } else {
-        // MODO GLOBAL (CURVA DE CAPITAL ACUMULADA)
-        const curveData = state.trackRecordData.equity_curve || [];
-        if (curveData.length < 2) return;
-
-        const equities = curveData.map(d => d.equity);
-        let minVal = Math.min(...equities, 0.0);
-        let maxVal = Math.max(...equities, 10.0);
-        const range = (maxVal - minVal) || 1.0;
-        minVal -= range * 0.05;
-        maxVal += range * 0.05;
-
-        const getX = (i) => padding.left + (i / (curveData.length - 1)) * chartW;
-        const getY = (val) => padding.top + chartH * (1 - (val - minVal) / (maxVal - minVal));
-
-        const y0 = getY(0.0);
-        ctx.save();
-        ctx.strokeStyle = "rgba(255, 255, 255, 0.15)";
-        ctx.lineWidth = 1;
-        ctx.setLineDash([4, 4]);
-        ctx.beginPath();
-        ctx.moveTo(padding.left, y0);
-        ctx.lineTo(width - padding.right, y0);
-        ctx.stroke();
-        ctx.restore();
-
-        const lastEquity = equities[equities.length - 1];
-        const lineColor = lastEquity >= 0 ? "#00E676" : "#FF334B";
-        const grad = ctx.createLinearGradient(0, padding.top, 0, height - padding.bottom);
-        grad.addColorStop(0, lastEquity >= 0 ? "rgba(0, 230, 118, 0.25)" : "rgba(255, 51, 75, 0.25)");
-        grad.addColorStop(1, "rgba(0, 0, 0, 0.0)");
-
-        ctx.save();
-        ctx.beginPath();
-        ctx.moveTo(getX(0), y0);
-        for (let i = 0; i < curveData.length; i++) ctx.lineTo(getX(i), getY(curveData[i].equity));
-        ctx.lineTo(getX(curveData.length - 1), y0);
-        ctx.closePath();
-        ctx.fillStyle = grad;
-        ctx.fill();
-        ctx.restore();
-
-        ctx.save();
-        ctx.beginPath();
-        ctx.strokeStyle = lineColor;
-        ctx.lineWidth = 2.4;
-        ctx.shadowColor = lineColor;
-        ctx.shadowBlur = 6;
-        for (let i = 0; i < curveData.length; i++) {
-            const x = getX(i);
-            const y = getY(curveData[i].equity);
-            if (i === 0) ctx.moveTo(x, y);
-            else ctx.lineTo(x, y);
-        }
-        ctx.stroke();
-        ctx.restore();
-
-        ctx.fillStyle = "#94A3B8";
-        ctx.font = "10px JetBrains Mono";
-        ctx.textAlign = "right";
-        ctx.fillText(`$${maxVal.toFixed(0)}`, padding.left - 8, padding.top + 5);
-        ctx.fillText(`$${minVal.toFixed(0)}`, padding.left - 8, height - padding.bottom);
-        ctx.fillText(`$0`, padding.left - 8, y0 + 3);
-    }
-}
-
-function renderCssCycleCurve() {
-    const canvas = document.getElementById("cssCycleCanvas");
-    if (!canvas || !state.trackSelectedSession) return;
-
-    const sess = state.trackSelectedSession;
-    const portfolios = sess.portfolios || [];
-    if (portfolios.length === 0) return;
-
-    const port = portfolios[0]; // Portfólio principal
-    const h1Curve = port.css_h1_curve || [];
-    const h4Curve = port.css_h4_curve || [];
-    const hours = sess.intraday_hours || ["21h", "22h", "23h", "00h", "01h", "02h", "03h", "04h", "05h", "06h", "07h", "08h"];
-
-    if (h1Curve.length === 0) return;
-
-    const ctx = canvas.getContext("2d");
-    const rect = canvas.parentElement.getBoundingClientRect();
-    const dpr = window.devicePixelRatio || 1;
-
-    canvas.width = rect.width * dpr;
-    canvas.height = rect.height * dpr;
-    ctx.scale(dpr, dpr);
-
-    const width = rect.width;
-    const height = rect.height;
-    ctx.clearRect(0, 0, width, height);
-
-    const padding = { top: 25, bottom: 25, left: 45, right: 25 };
-    const chartW = width - padding.left - padding.right;
-    const chartH = height - padding.top - padding.bottom;
-
-    let allVals = [...h1Curve, ...h4Curve, 0.25, -0.25];
-    let minVal = Math.min(...allVals) - 0.05;
-    let maxVal = Math.max(...allVals) + 0.05;
-
-    const getX = (i) => padding.left + (i / (h1Curve.length - 1)) * chartW;
+    const getX = (i) => padding.left + (i / (curveData.length - 1)) * chartW;
     const getY = (val) => padding.top + chartH * (1 - (val - minVal) / (maxVal - minVal));
 
-    // Níveis Institucionais (+0.20, 0.00, -0.20)
-    // +0.20
-    const yGreen = getY(0.20);
-    ctx.save();
-    ctx.strokeStyle = "rgba(0, 230, 118, 0.6)";
-    ctx.lineWidth = 1;
-    ctx.setLineDash([4, 4]);
-    ctx.beginPath();
-    ctx.moveTo(padding.left, yGreen);
-    ctx.lineTo(width - padding.right, yGreen);
-    ctx.stroke();
-    ctx.restore();
-
-    // 0.00
     const y0 = getY(0.0);
     ctx.save();
-    ctx.strokeStyle = "rgba(255, 255, 255, 0.2)";
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.15)";
     ctx.lineWidth = 1;
-    ctx.setLineDash([3, 3]);
+    ctx.setLineDash([4, 4]);
     ctx.beginPath();
     ctx.moveTo(padding.left, y0);
     ctx.lineTo(width - padding.right, y0);
     ctx.stroke();
     ctx.restore();
 
-    // -0.20
-    const yRed = getY(-0.20);
+    const lastEquity = equities[equities.length - 1];
+    const lineColor = lastEquity >= 0 ? "#00E676" : "#FF334B";
+    const grad = ctx.createLinearGradient(0, padding.top, 0, height - padding.bottom);
+    grad.addColorStop(0, lastEquity >= 0 ? "rgba(0, 230, 118, 0.28)" : "rgba(255, 51, 75, 0.28)");
+    grad.addColorStop(1, "rgba(0, 0, 0, 0.0)");
+
     ctx.save();
-    ctx.strokeStyle = "rgba(255, 51, 75, 0.6)";
-    ctx.lineWidth = 1;
-    ctx.setLineDash([4, 4]);
     ctx.beginPath();
-    ctx.moveTo(padding.left, yRed);
-    ctx.lineTo(width - padding.right, yRed);
-    ctx.stroke();
+    ctx.moveTo(getX(0), y0);
+    for (let i = 0; i < curveData.length; i++) ctx.lineTo(getX(i), getY(curveData[i].equity));
+    ctx.lineTo(getX(curveData.length - 1), y0);
+    ctx.closePath();
+    ctx.fillStyle = grad;
+    ctx.fill();
     ctx.restore();
 
-    // Curva H4 (Amarelo / Dourado)
-    if (h4Curve.length > 0) {
-        ctx.save();
-        ctx.beginPath();
-        ctx.strokeStyle = "#FFD600";
-        ctx.lineWidth = 1.8;
-        ctx.shadowColor = "#FFD600";
-        ctx.shadowBlur = 4;
-        for (let i = 0; i < h4Curve.length; i++) {
-            const x = getX(i);
-            const y = getY(h4Curve[i]);
-            if (i === 0) ctx.moveTo(x, y);
-            else ctx.lineTo(x, y);
-        }
-        ctx.stroke();
-        ctx.restore();
-    }
-
-    // Curva H1 (Azul / Ciano)
     ctx.save();
     ctx.beginPath();
-    ctx.strokeStyle = "#00E5FF";
-    ctx.lineWidth = 2.2;
-    ctx.shadowColor = "#00E5FF";
+    ctx.strokeStyle = lineColor;
+    ctx.lineWidth = 2.4;
+    ctx.shadowColor = lineColor;
     ctx.shadowBlur = 6;
-    for (let i = 0; i < h1Curve.length; i++) {
+    for (let i = 0; i < curveData.length; i++) {
         const x = getX(i);
-        const y = getY(h1Curve[i]);
+        const y = getY(curveData[i].equity);
         if (i === 0) ctx.moveTo(x, y);
         else ctx.lineTo(x, y);
     }
     ctx.stroke();
     ctx.restore();
 
-    // Rótulos do Eixo X
     ctx.fillStyle = "#94A3B8";
-    ctx.font = "9px JetBrains Mono";
-    ctx.textAlign = "center";
-    for (let i = 0; i < h1Curve.length; i += 2) {
-        ctx.fillText(hours[i] || "", getX(i), height - 8);
-    }
+    ctx.font = "10px JetBrains Mono";
     ctx.textAlign = "right";
-    ctx.fillText("+0.20", padding.left - 6, yGreen + 3);
-    ctx.fillText("0.00", padding.left - 6, y0 + 3);
-    ctx.fillText("-0.20", padding.left - 6, yRed + 3);
+    ctx.fillText(`$${maxVal.toFixed(1)}`, padding.left - 8, padding.top + 5);
+    ctx.fillText(`$${minVal.toFixed(1)}`, padding.left - 8, height - padding.bottom);
+    ctx.fillText(`$0`, padding.left - 8, y0 + 3);
 }
 
-function renderTrackSessionsTable(sessions) {
-    const tbody = document.getElementById("trackSessionsTableBody");
+function renderCurrencyBreakdownTable(sessions) {
+    const tbody = document.getElementById("currencyAnalyticsTableBody");
     if (!tbody) return;
 
-    if (!sessions || sessions.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="8" class="loading-cell">Nenhuma sessão registrada.</td></tr>`;
-        return;
-    }
-
-    tbody.innerHTML = "";
-
-    sessions.forEach((sess, sIdx) => {
-        const isInProgress = sess.status === "EM ANDAMENTO" || sess.is_in_progress === true;
-        const isNeut = sess.portfolios_count === 0 && !isInProgress;
-        const isWin = sess.total_pnl_usd >= 0;
-        const statusClass = isInProgress ? "warning" : (isNeut ? "neutral" : (isWin ? "buy" : "sell"));
-        const pnlClass = isNeut ? "neutral" : (sess.total_pnl_usd >= 0 ? "positive" : "negative");
-
-        const tr = document.createElement("tr");
-        tr.className = "track-session-row" + (state.trackSelectedSession && state.trackSelectedSession.date === sess.date ? " selected-row" : "");
-        tr.dataset.sidx = sIdx;
-        
-        let portPillsHtml = "";
-        if (isNeut) {
-            portPillsHtml = `<span style="color: var(--text-muted); font-size: 11px;">🛡️ Nenhuma moeda atingiu 4+ TFs (Proteção de Capital)</span>`;
-        } else {
-            portPillsHtml = sess.portfolios.map(p => `
-                <span class="region-badge ${p.bias === 'BUY' ? 'green' : 'red'}" style="margin-right: 6px;">
-                    ${p.flag} ${p.currency} (${p.bias}) : ${(p.pnl_usd >= 0 ? "+$" : "-$") + Math.abs(p.pnl_usd).toFixed(2)}
-                </span>
-            `).join("");
-        }
-
-        const mfeStr = isNeut ? "--" : `+$${(sess.mfe_usd || 0).toFixed(2)}`;
-        const maeStr = isNeut ? "--" : `-$${Math.abs(sess.mae_usd || 0).toFixed(2)}`;
-
-        let statusText = isNeut ? 'NEUTRO' : (isWin ? '✅ GANHO' : '❌ PERDA');
-        if (isInProgress) {
-            statusText = '🟡 EM ANDAMENTO';
-        }
-
-        tr.innerHTML = `
-            <td style="font-family: var(--font-mono); font-weight: 700; color: #FFF;">
-                📅 ${sess.date} <br>
-                <small style="color: ${isInProgress ? 'var(--color-yellow)' : 'var(--text-muted)'}; font-size: 9.5px;">
-                    ${isInProgress ? '🔴 AO VIVO (21h00 ➔ 08h00)' : '21h00 ➔ 08h00 BRT'}
-                </small>
-            </td>
-            <td>
-                <span class="signal-pill ${statusClass}" style="font-size: 9.5px; padding: 2px 8px; ${isInProgress ? 'background: rgba(255,214,0,0.15); color: #FFD600; border: 1px solid #FFD600;' : ''}">
-                    ${statusText}
-                </span>
-            </td>
-            <td>${portPillsHtml}</td>
-            <td class="score-cell positive text-right" style="font-size: 11.5px;">${mfeStr}</td>
-            <td class="score-cell negative text-right" style="font-size: 11.5px;">${maeStr}</td>
-            <td class="score-cell ${pnlClass} text-right">${(sess.total_pips >= 0 ? "+" : "") + sess.total_pips.toFixed(1)}</td>
-            <td class="score-cell ${pnlClass} text-right" style="font-size: 13.5px;">
-                ${(sess.total_pnl_usd >= 0 ? "+$" : "-$") + Math.abs(sess.total_pnl_usd).toFixed(2)}
-            </td>
-            <td class="text-center">
-                <button class="btn-raio-x" style="font-size: 10px; padding: 2px 6px;">
-                    ${isNeut ? 'Ver Motivo' : '▼ Auditoria'}
-                </button>
-            </td>
-        `;
-
-        // Linha Expansível (Sub-detalhes com MAE/MFE dos 7 pares)
-        const trDetail = document.createElement("tr");
-        trDetail.className = "track-detail-row hidden";
-        trDetail.id = `sessDetail_${sIdx}`;
-
-        let detailContent = "";
-        if (isNeut) {
-            detailContent = `
-                <div style="padding: 12px; background: #0C101A; border-radius: 6px; color: var(--text-secondary); font-size: 11.5px;">
-                    ℹ️ <strong>Sessão Neutra:</strong> Nenhuma das 8 moedas satisfez a confluência de pelo menos 4 Timeframes (MN1, W1, D1, H4, H1) acompanhados de ciclo institucional válido às 21h00. O sistema preservou capital com 0 trades.
-                </div>
-            `;
-        } else {
-            detailContent = sess.portfolios.map(port => `
-                <div class="track-portfolio-card">
-                    <div class="portfolio-header">
-                        <div class="portfolio-badge" style="color: ${port.color};">
-                            <span>${port.flag}</span>
-                            <span>${port.bias_label}</span>
-                            <div class="leds-container" style="margin-left: 12px;">
-                                <span class="led-dot ${port.leds.MN1 || 'yellow'}" title="MN1"></span>
-                                <span class="led-dot ${port.leds.W1 || 'yellow'}" title="W1"></span>
-                                <span class="led-dot ${port.leds.D1 || 'yellow'}" title="D1"></span>
-                                <span class="led-dot ${port.leds.H4 || 'yellow'}" title="H4"></span>
-                                <span class="led-dot ${port.leds.H1 || 'yellow'}" title="H1"></span>
-                            </div>
-                        </div>
-                        <div style="display: flex; gap: 16px; font-family: var(--font-mono); font-size: 11.5px;">
-                            <span style="color: var(--color-green);">MFE (Pico): +$${(port.mfe_usd || 0).toFixed(2)}</span>
-                            <span style="color: var(--color-red);">MAE (Drawdown): -$${Math.abs(port.mae_usd || 0).toFixed(2)}</span>
-                            <span style="font-weight: 800; color: ${port.pnl_usd >= 0 ? 'var(--color-green)' : 'var(--color-red)'}; font-size: 13px;">
-                                Resultado: ${(port.pnl_usd >= 0 ? "+$" : "-$") + Math.abs(port.pnl_usd).toFixed(2)}
-                            </span>
-                        </div>
-                    </div>
-                    <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 8px;">
-                        📌 <em>${port.reason}</em>
-                    </div>
-                    <div class="pairs-grid-mini">
-                        ${port.pairs.map(p => `
-                            <div class="pair-item-mini">
-                                <div class="pair-name">
-                                    <span>${p.pair}</span>
-                                    <span class="region-badge ${p.action === 'BUY' ? 'green' : 'red'}" style="font-size: 8.5px; padding: 1px 4px;">${p.action}</span>
-                                </div>
-                                <div style="font-size: 9px; color: var(--text-muted);">
-                                    ${p.entry_price.toFixed(4)} ➔ ${p.exit_price.toFixed(4)}
-                                </div>
-                                <div style="display: flex; justify-content: space-between; font-size: 9px; margin-top: 2px;">
-                                    <span style="color: var(--color-green);">MFE: +$${(p.mfe_usd||0).toFixed(2)}</span>
-                                    <span style="color: var(--color-red);">MAE: -$${Math.abs(p.mae_usd||0).toFixed(2)}</span>
-                                </div>
-                                <div class="pair-pnl ${p.pnl_usd >= 0 ? 'positive' : 'negative'}" style="border-top: 1px solid rgba(255,255,255,0.06); padding-top: 2px; margin-top: 2px;">
-                                    <span>${(p.pnl_usd >= 0 ? "+$" : "-$") + Math.abs(p.pnl_usd).toFixed(2)}</span>
-                                    <span>${(p.pips >= 0 ? "+" : "") + p.pips}p</span>
-                                </div>
-                            </div>
-                        `).join("")}
-                    </div>
-                </div>
-            `).join("");
-        }
-
-        trDetail.innerHTML = `
-            <td colspan="8" style="padding: 10px 16px; background: #0A0E18;">
-                ${detailContent}
-            </td>
-        `;
-
-        tr.addEventListener("click", () => {
-            // Selecionar e atualizar os dois gráficos sincronizados
-            state.trackSelectedSession = sess;
-            document.querySelectorAll(".track-session-row").forEach(r => r.classList.remove("selected-row"));
-            tr.classList.add("selected-row");
-            renderTrackCharts();
-
-            const isHidden = trDetail.classList.contains("hidden");
-            trDetail.classList.toggle("hidden", !isHidden);
-            tr.classList.toggle("expanded", isHidden);
-            const btn = tr.querySelector(".btn-raio-x");
-            if (btn) btn.textContent = isHidden ? "▲ Fechar" : (isNeut ? "Ver Motivo" : "▼ Auditoria");
-        });
-
-        tbody.appendChild(tr);
-        tbody.appendChild(trDetail);
+    const stats = {};
+    CURRENCIES.forEach(c => {
+        stats[c] = { count: 0, pnl: 0.0, pips: 0.0, mfes: [], maes: [] };
     });
+
+    sessions.forEach(sess => {
+        (sess.portfolios || []).forEach(port => {
+            const c = port.currency;
+            if (stats[c]) {
+                stats[c].count += 1;
+                stats[c].pnl += (port.pnl_usd || 0);
+                stats[c].pips += (port.pips || 0);
+                stats[c].mfes.push(port.mfe_usd || 0);
+                stats[c].maes.push(port.mae_usd || 0);
+            }
+        });
+    });
+
+    tbody.innerHTML = CURRENCIES.map(c => {
+        const st = stats[c];
+        const avgMfe = st.mfes.length > 0 ? (st.mfes.reduce((a,b)=>a+b, 0) / st.mfes.length) : 0;
+        const avgMae = st.maes.length > 0 ? (st.maes.reduce((a,b)=>a+b, 0) / st.maes.length) : 0;
+        const isPos = st.pnl >= 0;
+        const pnlClass = st.count === 0 ? "neutral" : (isPos ? "positive" : "negative");
+
+        return `
+            <tr>
+                <td style="font-family: var(--font-mono); font-weight: 800; color: #FFF;">
+                    ${CCY_FLAGS[c] || ''} ${c}
+                </td>
+                <td>${st.count} Cestas</td>
+                <td class="score-cell ${pnlClass} text-right" style="font-weight: 800; font-size: 13px;">
+                    ${st.count === 0 ? '--' : ((isPos ? "+$" : "-$") + Math.abs(st.pnl).toFixed(2))}
+                </td>
+                <td class="score-cell ${pnlClass} text-right">
+                    ${st.count === 0 ? '--' : ((st.pips >= 0 ? "+" : "") + st.pips.toFixed(1) + "p")}
+                </td>
+                <td class="score-cell positive text-right">
+                    ${st.count === 0 ? '--' : `+$${avgMfe.toFixed(2)}`}
+                </td>
+                <td class="score-cell negative text-right">
+                    ${st.count === 0 ? '--' : `-$${Math.abs(avgMae).toFixed(2)}`}
+                </td>
+                <td class="text-center">
+                    <span class="signal-pill ${st.count === 0 ? 'neutral' : (isPos ? 'buy' : 'sell')}" style="font-size: 9px; padding: 1px 6px;">
+                        ${st.count === 0 ? 'SEM TRADES' : (isPos ? 'LUCRO' : 'PREJUÍZO')}
+                    </span>
+                </td>
+            </tr>
+        `;
+    }).join("");
 }
 

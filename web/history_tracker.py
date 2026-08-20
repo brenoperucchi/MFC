@@ -65,27 +65,26 @@ def convert_pnl_to_usd(pair, action, entry_price, exit_price, lot_size=0.01, rat
     elif base == "USD":
         pnl_usd = pnl_quote / exit_price if exit_price > 0 else 0.0
     else:
-        conv_rate = 1.0
+        conv_done = False
         if rates_dict:
             quote_usd_pair = f"{quote}USD"
             usd_quote_pair = f"USD{quote}"
-            if quote_usd_pair in rates_dict:
-                conv_rate = rates_dict[quote_usd_pair]
-                pnl_usd = pnl_quote * conv_rate
-            elif usd_quote_pair in rates_dict:
-                conv_rate = rates_dict[usd_quote_pair]
-                pnl_usd = pnl_quote / conv_rate if conv_rate > 0 else 0.0
-            else:
-                if quote == "JPY": pnl_usd = pnl_quote / 150.0
-                elif quote == "GBP": pnl_usd = pnl_quote * 1.30
-                elif quote == "EUR": pnl_usd = pnl_quote * 1.08
-                elif quote == "CHF": pnl_usd = pnl_quote / 0.88
-                elif quote == "CAD": pnl_usd = pnl_quote / 1.36
-                elif quote == "AUD": pnl_usd = pnl_quote * 0.65
-                elif quote == "NZD": pnl_usd = pnl_quote * 0.60
-                else: pnl_usd = pnl_quote
-        else:
-            pnl_usd = pnl_quote
+            if quote_usd_pair in rates_dict and rates_dict[quote_usd_pair] > 0:
+                pnl_usd = pnl_quote * rates_dict[quote_usd_pair]
+                conv_done = True
+            elif usd_quote_pair in rates_dict and rates_dict[usd_quote_pair] > 0:
+                pnl_usd = pnl_quote / rates_dict[usd_quote_pair]
+                conv_done = True
+
+        if not conv_done:
+            if quote == "JPY": pnl_usd = pnl_quote / 155.0
+            elif quote == "GBP": pnl_usd = pnl_quote * 1.30
+            elif quote == "EUR": pnl_usd = pnl_quote * 1.08
+            elif quote == "CHF": pnl_usd = pnl_quote / 0.88
+            elif quote == "CAD": pnl_usd = pnl_quote / 1.36
+            elif quote == "AUD": pnl_usd = pnl_quote * 0.65
+            elif quote == "NZD": pnl_usd = pnl_quote * 0.60
+            else: pnl_usd = pnl_quote
             
     return round(float(pnl_usd), 2), round(float(pips), 1)
 
@@ -179,6 +178,60 @@ class TrackRecordEngine:
             "equity_curve": equity_curve,
             "sessions": filtered_sessions
         }
+
+    def get_live_session(self):
+        """Retorna a sessão em andamento com cotações tick-a-tick em tempo real do MT5."""
+        if not self.data or not self.data.get("sessions"):
+            self.run_full_backtest(days=15)
+
+        sessions = self.data.get("sessions", [])
+        live_sess = None
+        for s in sessions:
+            if s.get("is_in_progress") or s.get("status") == "EM ANDAMENTO":
+                live_sess = s
+                break
+
+        if not live_sess and sessions:
+            live_sess = sessions[0]
+
+        if not live_sess:
+            return None
+
+        # Obter cotações em tempo real do MT5 para cada par
+        if ensure_mt5_connected():
+            total_live_pnl = 0.0
+            total_live_pips = 0.0
+            for port in live_sess.get("portfolios", []):
+                p_pnl = 0.0
+                p_pips = 0.0
+                for pair_item in port.get("pairs", []):
+                    pair_sym = pair_item["pair"]
+                    tick = mt5.symbol_info_tick(pair_sym)
+                    if tick:
+                        curr_price = tick.bid if pair_item["action"] == "BUY" else tick.ask
+                        p_entry = pair_item["entry_price"]
+                        final_pnl, final_pips = convert_pnl_to_usd(pair_sym, pair_item["action"], p_entry, curr_price, pair_item.get("lot", 0.01))
+                        pair_item["exit_price"] = curr_price
+                        pair_item["current_price"] = curr_price
+                        pair_item["pnl_usd"] = final_pnl
+                        pair_item["pips"] = final_pips
+                        pair_item["status"] = "WIN" if final_pnl >= 0 else "LOSS"
+                        p_pnl += final_pnl
+                        p_pips += final_pips
+                        if final_pnl > pair_item.get("mfe_usd", 0.0):
+                            pair_item["mfe_usd"] = final_pnl
+                        if final_pnl < pair_item.get("mae_usd", 0.0):
+                            pair_item["mae_usd"] = final_pnl
+                port["pnl_usd"] = round(p_pnl, 2)
+                port["pips"] = round(p_pips, 1)
+                port["status"] = "WIN" if p_pnl >= 0 else "LOSS"
+                total_live_pnl += p_pnl
+                total_live_pips += p_pips
+            
+            live_sess["total_pnl_usd"] = round(total_live_pnl, 2)
+            live_sess["total_pips"] = round(total_live_pips, 1)
+
+        return live_sess
 
     def run_full_backtest(self, days=45):
         """Executa backtest multi-portfólio com cálculo hora a hora de MAE/MFE e CSS H1/H4."""

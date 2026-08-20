@@ -372,13 +372,13 @@
 
     <!-- MODAL: TRACK RECORD & SIMULAÇÃO 21H-08H -->
     <div class="modal-backdrop hidden" id="trackRecordModal">
-        <div class="modal-dialog modal-xl" style="max-width: 1250px; height: 90vh;">
-            <div class="modal-header">
+        <div class="modal-dialog modal-xl" style="max-width: 1400px; height: 92vh;">
+            <div class="modal-header" style="padding: 12px 24px; border-bottom: 1px solid var(--border-color);">
                 <div class="modal-title-group">
                     <span class="modal-icon">📈</span>
                     <div>
-                        <h3 class="modal-title">Track Record & Simulação Multi-Portfólio (21h ➔ 08h Brasília)</h3>
-                        <p class="modal-subtitle">Estratégia Institucional de Cestas: Moedas com Confluência em 4+ TFs operadas em lote 0.01 por par</p>
+                        <h3 class="modal-title">Track Record Institucional & Auditoria de Portfólios (21h ➔ 08h)</h3>
+                        <p class="modal-subtitle">Monitoramento de Cestas Institucionais em Tempo Real e Auditoria Histórica dos 28 Pares Forex</p>
                     </div>
                 </div>
                 <div style="display: flex; align-items: center; gap: 12px;">
@@ -389,126 +389,237 @@
                 </div>
             </div>
 
-            <!-- MODAL TOOLBAR: CURRENCY FILTER -->
-            <div class="modal-toolbar" style="display: flex; justify-content: space-between; align-items: center;">
-                <div class="filter-pills" id="trackCurrencySelector">
-                    <span style="font-size: 11px; font-weight: 700; color: var(--text-muted); margin-right: 6px;">Filtrar Moeda:</span>
-                    <button class="filter-pill active" data-ccy="ALL">Todas as Moedas (Consolidado)</button>
-                    <button class="filter-pill" data-ccy="USD">USD 🇺🇸</button>
-                    <button class="filter-pill" data-ccy="EUR">EUR 🇪🇺</button>
-                    <button class="filter-pill" data-ccy="GBP">GBP 🇬🇧</button>
-                    <button class="filter-pill" data-ccy="CHF">CHF 🇨🇭</button>
-                    <button class="filter-pill" data-ccy="JPY">JPY 🇯🇵</button>
-                    <button class="filter-pill" data-ccy="AUD">AUD 🇦🇺</button>
-                    <button class="filter-pill" data-ccy="CAD">CAD 🇨🇦</button>
-                    <button class="filter-pill" data-ccy="NZD">NZD 🇳🇿</button>
-                </div>
-                <div style="font-size: 11px; font-family: var(--font-mono); color: var(--color-cyan);" id="trackFilterActiveLabel">
-                    Exibindo: Consolidado Geral
-                </div>
+            <!-- MODAL MAIN NAVIGATION TABS -->
+            <div class="track-modal-nav">
+                <button class="track-nav-tab active" id="tabBtnLive" data-tab="live">
+                    <span class="pulse-dot live"></span>
+                    <span class="tab-label">🔴 SESSÃO AO VIVO (EM ANDAMENTO)</span>
+                    <span class="tab-badge" id="livePortfoliosBadge">4 Cestas Ativas</span>
+                </button>
+                <button class="track-nav-tab" id="tabBtnAudit" data-tab="audit">
+                    <span class="tab-icon">📊</span>
+                    <span class="tab-label">AUDITORIA DE SESSÕES (MESTRE-DETALHE)</span>
+                </button>
+                <button class="track-nav-tab" id="tabBtnAnalytics" data-tab="analytics">
+                    <span class="tab-icon">📈</span>
+                    <span class="tab-label">CURVA DE CAPITAL & ANALYTICS</span>
+                </button>
             </div>
 
-            <div class="modal-body" style="padding: 16px 20px; display: flex; flex-direction: column; gap: 16px;">
-                <!-- METRICS CARDS -->
-                <div class="track-metrics-grid" id="trackMetricsGrid">
-                    <div class="metric-card">
-                        <div class="metric-label">Lucro Líquido Acumulado</div>
-                        <div class="metric-value" id="trackTotalPnL">+$0.00</div>
-                        <div class="metric-sub" id="trackTotalPips">0.0 pips</div>
+            <!-- MODAL BODY WITH 3 TAB CONTENTS -->
+            <div class="modal-body" style="padding: 16px 24px; height: calc(100% - 110px); overflow-y: auto;">
+                
+                <!-- ============================================================ -->
+                <!-- TAB 1: SESSÃO AO VIVO (EM ANDAMENTO) -->
+                <!-- ============================================================ -->
+                <div class="track-tab-pane active" id="paneLive">
+                    <!-- LIVE HERO BANNER -->
+                    <div class="live-hero-card">
+                        <div class="live-hero-header">
+                            <div class="live-status-pill">
+                                <span class="pulse-ring-live"></span>
+                                <span class="status-live-text">🔴 PREGÃO DA MADRUGADA AO VIVO</span>
+                            </div>
+                            <div class="live-time-info" id="liveSessionTimeInfo">
+                                📅 Sessão de Hoje | Início: 21h00 BRT ➔ Encerramento: 08h00 BRT
+                            </div>
+                            <div class="live-timer-badge" id="liveElapsedTimer">
+                                ⏱️ Em andamento
+                            </div>
+                        </div>
+
+                        <div class="live-kpi-grid">
+                            <div class="live-kpi-card highlight">
+                                <div class="kpi-title">PnL Flutuante em Tempo Real</div>
+                                <div class="kpi-value" id="liveTotalPnL">+$0.00</div>
+                                <div class="kpi-sub" id="liveTotalPips">0.0 pips flutuantes</div>
+                            </div>
+                            <div class="live-kpi-card">
+                                <div class="kpi-title">MFE Flutuante (Pico da Noite)</div>
+                                <div class="kpi-value positive" id="liveTotalMFE">+$0.00</div>
+                                <div class="kpi-sub">Excursão Favorável Máxima</div>
+                            </div>
+                            <div class="live-kpi-card">
+                                <div class="kpi-title">MAE Flutuante (Drawdown Máx)</div>
+                                <div class="kpi-value negative" id="liveTotalMAE">-$0.00</div>
+                                <div class="kpi-sub">Excursão Adversa Máxima</div>
+                            </div>
+                            <div class="live-kpi-card">
+                                <div class="kpi-title">Portfólios Qualificados</div>
+                                <div class="kpi-value cyan" id="liveActiveBasketsCount">0</div>
+                                <div class="kpi-sub" id="liveActivePairsCount">0 pares operados</div>
+                            </div>
+                        </div>
                     </div>
-                    <div class="metric-card">
-                        <div class="metric-label">Taxa de Acerto (Win Rate)</div>
-                        <div class="metric-value highlight-green" id="trackWinRate">0.0%</div>
-                        <div class="metric-sub" id="trackWinLossCount">0 Wins / 0 Losses</div>
+
+                    <!-- ACTIVE BASKETS CARDS -->
+                    <div class="live-baskets-section">
+                        <div class="section-title-live">
+                            <span>🧺 Cestas e Portfólios Ativos nesta Sessão</span>
+                            <span style="font-size: 11px; color: var(--text-muted);">Lote fixo institucional de 0.01 por par</span>
+                        </div>
+                        <div class="live-baskets-grid" id="liveBasketsCardsContainer">
+                            <!-- Injected dynamically via JS -->
+                        </div>
                     </div>
-                    <div class="metric-card">
-                        <div class="metric-label">Fator de Lucro (Profit Factor)</div>
-                        <div class="metric-value highlight-cyan" id="trackProfitFactor">0.00</div>
-                        <div class="metric-sub" id="trackActiveSessions">0 Sessões Ativas</div>
-                    </div>
-                    <div class="metric-card">
-                        <div class="metric-label">MFE Médio (Pico de Lucro)</div>
-                        <div class="metric-value highlight-green" id="trackAvgMFE">+$0.00</div>
-                        <div class="metric-sub">Excursão Favorável Máxima</div>
-                    </div>
-                    <div class="metric-card">
-                        <div class="metric-label">MAE Médio (Drawdown Máx)</div>
-                        <div class="metric-value highlight-red" id="trackAvgMAE">-$0.00</div>
-                        <div class="metric-sub">Excursão Adversa Máxima</div>
-                    </div>
-                    <div class="metric-card">
-                        <div class="metric-label">Portfólios Operados</div>
-                        <div class="metric-value" id="trackTotalPortfolios">0</div>
-                        <div class="metric-sub" id="trackNeutralSessions">0 Sessões Neutras</div>
+
+                    <!-- FULL LIVE 28 PAIRS TABLE -->
+                    <div class="live-pairs-section">
+                        <div class="section-title-live">
+                            <span>📋 Auditoria em Tempo Real dos Pares Operados</span>
+                            <span style="font-size: 11px; color: var(--text-muted);">Cotações sincronizadas tick-a-tick com o MetaTrader 5</span>
+                        </div>
+                        <div class="table-responsive" style="border: 1px solid var(--border-color); border-radius: 8px;">
+                            <table class="track-table">
+                                <thead>
+                                    <tr>
+                                        <th>PAR FOREX</th>
+                                        <th>CESTA</th>
+                                        <th>DIREÇÃO</th>
+                                        <th class="text-right">ENTRADA (21h00)</th>
+                                        <th class="text-right">ATUAL (MT5 LIVE)</th>
+                                        <th class="text-right">MFE FLUTUANTE</th>
+                                        <th class="text-right">MAE FLUTUANTE</th>
+                                        <th class="text-right">PIPS</th>
+                                        <th class="text-right">PNL FLUTUANTE ($)</th>
+                                        <th class="text-center">STATUS</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="livePairsTableBody">
+                                    <tr><td colspan="10" class="loading-cell">Carregando cotações ao vivo do MT5...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
 
-                <!-- DUAL AUDIT CHARTS (EQUITY / INTRADAY + CSS H1/H4 CYCLE) -->
-                <div class="track-dual-charts-grid">
-                    <!-- Chart 1: Curva de Capital & Intraday PnL -->
-                    <div class="equity-chart-wrapper">
+                <!-- ============================================================ -->
+                <!-- TAB 2: AUDITORIA DE SESSÕES (MESTRE-DETALHE) -->
+                <!-- ============================================================ -->
+                <div class="track-tab-pane" id="paneAudit">
+                    <!-- TOOLBAR DE FILTRO POR MOEDA -->
+                    <div class="modal-toolbar" style="margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center;">
+                        <div class="filter-pills" id="trackCurrencySelector">
+                            <span style="font-size: 11px; font-weight: 700; color: var(--text-muted); margin-right: 6px;">Filtrar Moeda:</span>
+                            <button class="filter-pill active" data-ccy="ALL">Todas as Moedas (Consolidado)</button>
+                            <button class="filter-pill" data-ccy="USD">USD 🇺🇸</button>
+                            <button class="filter-pill" data-ccy="EUR">EUR 🇪🇺</button>
+                            <button class="filter-pill" data-ccy="GBP">GBP 🇬🇧</button>
+                            <button class="filter-pill" data-ccy="CHF">CHF 🇨🇭</button>
+                            <button class="filter-pill" data-ccy="JPY">JPY 🇯🇵</button>
+                            <button class="filter-pill" data-ccy="AUD">AUD 🇦🇺</button>
+                            <button class="filter-pill" data-ccy="CAD">CAD 🇨🇦</button>
+                            <button class="filter-pill" data-ccy="NZD">NZD 🇳🇿</button>
+                        </div>
+                        <div style="font-size: 11px; font-family: var(--font-mono); color: var(--color-cyan);" id="trackFilterActiveLabel">
+                            Exibindo: Consolidado Geral
+                        </div>
+                    </div>
+
+                    <!-- MASTER-DETAIL 2-COLUMN LAYOUT -->
+                    <div class="audit-master-detail-container">
+                        <!-- LEFT SIDEBAR: SESSIONS LIST -->
+                        <div class="audit-sidebar">
+                            <div class="sidebar-header">
+                                <span style="font-weight: 700; font-family: var(--font-display); color: #FFF; font-size: 12px;">📅 Histórico de Sessões</span>
+                                <span class="badge-count" id="auditSessionsCount">0</span>
+                            </div>
+                            <div class="sessions-card-list" id="auditSessionsList">
+                                <!-- Dynamic Session Cards injected via JS -->
+                            </div>
+                        </div>
+
+                        <!-- RIGHT PANEL: DETAILED SESSION AUDITOR -->
+                        <div class="audit-detail-panel" id="auditDetailPanel">
+                            <!-- Injected dynamically based on selected session -->
+                            <div class="empty-detail-state">
+                                <span>👈 Selecione uma sessão na lista à esquerda para carregar a auditoria detalhada</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ============================================================ -->
+                <!-- TAB 3: CURVA DE CAPITAL & ANALYTICS -->
+                <!-- ============================================================ -->
+                <div class="track-tab-pane" id="paneAnalytics">
+                    <!-- CONSOLIDATED METRICS CARDS -->
+                    <div class="track-metrics-grid" id="trackMetricsGrid" style="margin-bottom: 16px;">
+                        <div class="metric-card">
+                            <div class="metric-label">Lucro Líquido Acumulado</div>
+                            <div class="metric-value" id="trackTotalPnL">+$0.00</div>
+                            <div class="metric-sub" id="trackTotalPips">0.0 pips</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-label">Taxa de Acerto (Win Rate)</div>
+                            <div class="metric-value highlight-green" id="trackWinRate">0.0%</div>
+                            <div class="metric-sub" id="trackWinLossCount">0 Wins / 0 Losses</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-label">Fator de Lucro (Profit Factor)</div>
+                            <div class="metric-value highlight-cyan" id="trackProfitFactor">0.00</div>
+                            <div class="metric-sub" id="trackActiveSessions">0 Sessões Ativas</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-label">MFE Médio (Pico de Lucro)</div>
+                            <div class="metric-value highlight-green" id="trackAvgMFE">+$0.00</div>
+                            <div class="metric-sub">Excursão Favorável Máxima</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-label">MAE Médio (Drawdown Máx)</div>
+                            <div class="metric-value highlight-red" id="trackAvgMAE">-$0.00</div>
+                            <div class="metric-sub">Excursão Adversa Máxima</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-label">Portfólios Operados</div>
+                            <div class="metric-value" id="trackTotalPortfolios">0</div>
+                            <div class="metric-sub" id="trackNeutralSessions">0 Sessões Neutras</div>
+                        </div>
+                    </div>
+
+                    <!-- EXPANDED EQUITY CURVE -->
+                    <div class="equity-chart-wrapper" style="margin-bottom: 16px;">
                         <div class="equity-chart-header">
                             <div>
-                                <span style="font-weight: 700; font-family: var(--font-display); color: #FFF; font-size: 12.5px;">📈 Curva de Capital Acumulada & Intraday (USD)</span>
-                                <span style="font-size: 11px; color: var(--text-muted); display: block;" id="equityChartSubtitle">Evolução do Saldo ao Longo das Sessões</span>
-                            </div>
-                            <div class="tf-tabs" id="chartViewTabs">
-                                <button class="tf-tab active" id="btnShowGlobalEquity" data-view="global">Acumulado</button>
-                                <button class="tf-tab" id="btnShowIntraday" data-view="intraday">Intraday (21h-08h)</button>
+                                <span style="font-weight: 700; font-family: var(--font-display); color: #FFF; font-size: 13px;">📈 Curva de Capital Consolidada (USD)</span>
+                                <span style="font-size: 11px; color: var(--text-muted); display: block;">Evolução de Saldo em Tempo Real ao Longo das Sessões</span>
                             </div>
                         </div>
-                        <div style="height: 190px; width: 100%; position: relative;">
-                            <canvas id="equityCanvas"></canvas>
+                        <div style="height: 260px; width: 100%; position: relative;">
+                            <canvas id="equityCanvasGlobal"></canvas>
                         </div>
                     </div>
 
-                    <!-- Chart 2: Trajetória do Ciclo CSS da Moeda (H1 & H4) das 21h às 08h -->
-                    <div class="equity-chart-wrapper">
-                        <div class="equity-chart-header">
-                            <div>
-                                <span style="font-weight: 700; font-family: var(--font-display); color: var(--color-cyan); font-size: 12.5px;">⚡ Evolução do Ciclo CSS no Período (21h ➔ 08h)</span>
-                                <span style="font-size: 11px; color: var(--text-muted); display: block;" id="cssCycleSubtitle">Acompanhamento do Slope em H1 (Azul) e H4 (Amarelo)</span>
-                            </div>
-                            <div class="chart-legend-hints" style="font-size: 9.5px;">
-                                <span class="legend-hint green-hint">+0.20</span>
-                                <span class="legend-hint grey-hint">0.00</span>
-                                <span class="legend-hint red-hint">-0.20</span>
-                            </div>
+                    <!-- CURRENCY BREAKDOWN PERFORMANCE TABLE -->
+                    <div class="track-sessions-wrapper">
+                        <div class="track-sessions-header">
+                            <span style="font-weight: 700; font-family: var(--font-display); color: #FFF; font-size: 13px;">🏆 Performance Consolidada por Moeda</span>
+                            <span style="font-size: 11px; color: var(--text-muted);">Rentabilidade e Drawdown individual de cada cesta monetária</span>
                         </div>
-                        <div style="height: 190px; width: 100%; position: relative;">
-                            <canvas id="cssCycleCanvas"></canvas>
+                        <div class="table-responsive">
+                            <table class="track-table">
+                                <thead>
+                                    <tr>
+                                        <th>MOEDA</th>
+                                        <th>TOTAL DE SESSÕES OPERADAS</th>
+                                        <th class="text-right">LUCRO LÍQUIDO ($)</th>
+                                        <th class="text-right">PIPS LÍQUIDOS</th>
+                                        <th class="text-right">MFE MÉDIO ($)</th>
+                                        <th class="text-right">MAE MÉDIO ($)</th>
+                                        <th class="text-center">STATUS</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="currencyAnalyticsTableBody">
+                                    <!-- Injected dynamically via JS -->
+                                </tbody>
+                            </table>
                         </div>
                     </div>
                 </div>
 
-                <!-- CASCADING SESSIONS TABLE WITH MAE/MFE -->
-                <div class="track-sessions-wrapper">
-                    <div class="track-sessions-header">
-                        <span style="font-weight: 700; font-family: var(--font-display); color: #FFF; font-size: 13px;">📋 Histórico Detalhado: Sessões, Portfólios, MAE & MFE</span>
-                        <span style="font-size: 11px; color: var(--text-muted);">Clique em qualquer sessão para carregar suas curvas intraday nos gráficos acima e auditar os 7 pares</span>
-                    </div>
-                    <div class="table-responsive" style="max-height: 280px; overflow-y: auto;">
-                        <table class="track-table">
-                            <thead>
-                                <tr>
-                                    <th>DATA (21h ➔ 08h)</th>
-                                    <th>STATUS</th>
-                                    <th>PORTFÓLIOS / CESTAS</th>
-                                    <th class="text-right">MFE (PICO LÚCIDO)</th>
-                                    <th class="text-right">MAE (DRAWDOWN MÁX)</th>
-                                    <th class="text-right">PIPS</th>
-                                    <th class="text-right">RESULTADO FINAL ($)</th>
-                                    <th class="text-center">AUDITORIA</th>
-                                </tr>
-                            </thead>
-                            <tbody id="trackSessionsTableBody">
-                                <tr><td colspan="8" class="loading-cell">Carregando histórico de operações...</td></tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
             </div>
         </div>
+    </div>
     </div>
 
     <!-- SCRIPTS -->

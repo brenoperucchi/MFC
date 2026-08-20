@@ -116,6 +116,13 @@ async def get_track_record_summary(currency: str = "ALL"):
     return JSONResponse(content=data)
 
 
+@app.get("/api/track-record/live")
+async def get_track_record_live():
+    """Retorna a sessão em andamento com cotações tick-a-tick em tempo real do MT5."""
+    data = history_engine.get_live_session()
+    return JSONResponse(content={"session": data})
+
+
 @app.post("/api/track-record/recalculate")
 async def recalculate_track_record(days: int = 45):
     """Força o recálculo do backtest multi-portfólio a partir do MT5."""
