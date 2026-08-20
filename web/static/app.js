@@ -1037,15 +1037,17 @@ function drawTriadMiniChart(canvasId, target, tf) {
     if (!chartData || !chartData.series) return;
 
     const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
     const rect = canvas.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
 
-    canvas.width = rect.width * dpr;
-    canvas.height = rect.height * dpr;
-    ctx.scale(dpr, dpr);
+    const w = (rect.width > 0 ? rect.width : (canvas.parentElement ? canvas.parentElement.clientWidth : 0)) || 320;
+    const h = (rect.height > 0 ? rect.height : (canvas.parentElement ? canvas.parentElement.clientHeight : 0)) || 125;
 
-    const w = rect.width;
-    const h = rect.height;
+    canvas.width = w * dpr;
+    canvas.height = h * dpr;
+    ctx.scale(dpr, dpr);
     ctx.clearRect(0, 0, w, h);
 
     // Identificar moedas envolvidas (1 moeda ou Par com 2 moedas)
@@ -1070,7 +1072,7 @@ function drawTriadMiniChart(canvasId, target, tf) {
     minVal -= 0.06;
     maxVal += 0.06;
 
-    const padT = 16, padB = 16, padL = 8, padR = 42;
+    const padT = 16, padB = 16, padL = 8, padR = 45;
     const plotW = w - padL - padR;
     const plotH = h - padT - padB;
 
@@ -1084,13 +1086,13 @@ function drawTriadMiniChart(canvasId, target, tf) {
     if (+0.20 >= minVal && +0.20 <= maxVal) {
         const y20 = getY(0.20);
         ctx.beginPath();
-        ctx.strokeStyle = "rgba(0, 230, 118, 0.4)";
+        ctx.strokeStyle = "rgba(0, 230, 118, 0.45)";
         ctx.lineWidth = 1;
         ctx.setLineDash([3, 3]);
         ctx.moveTo(padL, y20);
         ctx.lineTo(w - padR, y20);
         ctx.stroke();
-        ctx.fillStyle = "rgba(0, 230, 118, 0.7)";
+        ctx.fillStyle = "rgba(0, 230, 118, 0.75)";
         ctx.font = "8.5px monospace";
         ctx.fillText("+0.20", w - padR + 4, y20 + 3);
     }
@@ -1105,7 +1107,7 @@ function drawTriadMiniChart(canvasId, target, tf) {
         ctx.moveTo(padL, y0);
         ctx.lineTo(w - padR, y0);
         ctx.stroke();
-        ctx.fillStyle = "rgba(0, 229, 255, 0.6)";
+        ctx.fillStyle = "rgba(0, 229, 255, 0.65)";
         ctx.font = "8.5px monospace";
         ctx.fillText("0.00", w - padR + 4, y0 + 3);
     }
@@ -1114,13 +1116,13 @@ function drawTriadMiniChart(canvasId, target, tf) {
     if (-0.20 >= minVal && -0.20 <= maxVal) {
         const yN20 = getY(-0.20);
         ctx.beginPath();
-        ctx.strokeStyle = "rgba(255, 51, 75, 0.4)";
+        ctx.strokeStyle = "rgba(255, 51, 75, 0.45)";
         ctx.lineWidth = 1;
         ctx.setLineDash([3, 3]);
         ctx.moveTo(padL, yN20);
         ctx.lineTo(w - padR, yN20);
         ctx.stroke();
-        ctx.fillStyle = "rgba(255, 51, 75, 0.7)";
+        ctx.fillStyle = "rgba(255, 51, 75, 0.75)";
         ctx.font = "8.5px monospace";
         ctx.fillText("-0.20", w - padR + 4, yN20 + 3);
     }
@@ -1135,7 +1137,7 @@ function drawTriadMiniChart(canvasId, target, tf) {
         ctx.save();
         ctx.beginPath();
         ctx.strokeStyle = color;
-        ctx.lineWidth = 2.0;
+        ctx.lineWidth = 2.2;
         ctx.lineJoin = "round";
         ctx.lineCap = "round";
         ctx.shadowColor = color;
@@ -1160,9 +1162,9 @@ function drawTriadMiniChart(canvasId, target, tf) {
         ctx.fillStyle = color;
         ctx.fill();
 
-        ctx.font = "bold 9px monospace";
+        ctx.font = "bold 9.5px monospace";
         ctx.fillStyle = color;
-        ctx.fillText(`${(lastScore >= 0 ? "+" : "") + lastScore.toFixed(2)} ${ccy}`, lastX - 35, lastY - 6);
+        ctx.fillText(`${(lastScore >= 0 ? "+" : "") + lastScore.toFixed(2)} ${ccy}`, lastX - 42, lastY - 6);
         ctx.restore();
     });
 }
@@ -1210,8 +1212,8 @@ window.openDeepDive = function(target) {
                     <span class="triad-score positive" style="font-size: 11px;">${baseFlag} ${base} × ${quote} ${quoteFlag}</span>
                 </div>
                 
-                <div class="triad-canvas-container">
-                    <canvas id="deepDiveCanvas_${tf}"></canvas>
+                <div class="triad-canvas-container" style="width: 100%; height: 125px; min-height: 125px; background: #080B11; border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 8px; position: relative; overflow: hidden; margin: 4px 0;">
+                    <canvas id="deepDiveCanvas_${tf}" style="width: 100%; height: 125px; display: block;"></canvas>
                 </div>
 
                 <div class="triad-step">
@@ -1226,11 +1228,12 @@ window.openDeepDive = function(target) {
 
         document.getElementById("deepDiveModal").classList.remove("hidden");
 
-        setTimeout(() => {
-            tfs.forEach(tf => {
-                drawTriadMiniChart(`deepDiveCanvas_${tf}`, target, tf);
-            });
-        }, 80);
+        const renderCharts = () => {
+            tfs.forEach(tf => drawTriadMiniChart(`deepDiveCanvas_${tf}`, target, tf));
+        };
+        requestAnimationFrame(renderCharts);
+        setTimeout(renderCharts, 60);
+        setTimeout(renderCharts, 200);
 
         return;
     }
@@ -1270,8 +1273,8 @@ window.openDeepDive = function(target) {
                 <span class="triad-score ${triad.score > 0 ? 'positive' : 'negative'}">${triad.score_str} ${triad.dir}</span>
             </div>
 
-            <div class="triad-canvas-container">
-                <canvas id="deepDiveCanvas_${tf}"></canvas>
+            <div class="triad-canvas-container" style="width: 100%; height: 125px; min-height: 125px; background: #080B11; border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 8px; position: relative; overflow: hidden; margin: 4px 0;">
+                <canvas id="deepDiveCanvas_${tf}" style="width: 100%; height: 125px; display: block;"></canvas>
             </div>
 
             <div class="triad-step">
@@ -1296,11 +1299,12 @@ window.openDeepDive = function(target) {
 
     document.getElementById("deepDiveModal").classList.remove("hidden");
 
-    setTimeout(() => {
-        tfs.forEach(tf => {
-            drawTriadMiniChart(`deepDiveCanvas_${tf}`, ccy, tf);
-        });
-    }, 80);
+    const renderCharts = () => {
+        tfs.forEach(tf => drawTriadMiniChart(`deepDiveCanvas_${tf}`, ccy, tf));
+    };
+    requestAnimationFrame(renderCharts);
+    setTimeout(renderCharts, 60);
+    setTimeout(renderCharts, 200);
 };
 
 // HISTÓRICO DE RELATÓRIOS
