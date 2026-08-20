@@ -98,7 +98,8 @@ function setupEventListeners() {
         });
     });
 
-    // 3. Timeframe Tabs para cada gráfico
+    // 3. Timeframe Tabs no Header Principal e nos Gráficos
+    setupHeaderTFTabs();
     setupTFTabs("chart1TFTabs", "chart1");
     setupTFTabs("chart2TFTabs", "chart2");
     setupTFTabs("chart3TFTabs", "chart3");
@@ -127,6 +128,31 @@ function setupEventListeners() {
     });
 }
 
+function setupHeaderTFTabs() {
+    const headerTFs = document.getElementById("headerTFTabs");
+    if (!headerTFs) return;
+    headerTFs.querySelectorAll(".tf-header-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+            headerTFs.querySelectorAll(".tf-header-btn").forEach(b => b.classList.remove("active"));
+            btn.classList.add("active");
+            const tf = btn.dataset.tf;
+            state.chartTFs.chart1 = tf;
+
+            // Sincronizar abas do gráfico 1
+            const c1Tabs = document.getElementById("chart1TFTabs");
+            if (c1Tabs) {
+                c1Tabs.querySelectorAll(".tf-tab").forEach(t => {
+                    t.classList.toggle("active", t.dataset.tf === tf);
+                });
+            }
+            const badge = document.getElementById("chart1TFBadge");
+            if (badge) badge.textContent = tf;
+
+            renderChart("chart1");
+        });
+    });
+}
+
 function setupTFTabs(containerId, chartKey) {
     const container = document.getElementById(containerId);
     if (!container) return;
@@ -134,11 +160,22 @@ function setupTFTabs(containerId, chartKey) {
         tab.addEventListener("click", () => {
             container.querySelectorAll(".tf-tab").forEach(t => t.classList.remove("active"));
             tab.classList.add("active");
-            state.chartTFs[chartKey] = tab.dataset.tf;
+            const tf = tab.dataset.tf;
+            state.chartTFs[chartKey] = tf;
             
+            // Sincronizar com header se for chart1
+            if (chartKey === "chart1") {
+                const headerTFs = document.getElementById("headerTFTabs");
+                if (headerTFs) {
+                    headerTFs.querySelectorAll(".tf-header-btn").forEach(b => {
+                        b.classList.toggle("active", b.dataset.tf === tf);
+                    });
+                }
+            }
+
             // Atualizar badge de título
             const badge = document.getElementById(`${chartKey}TFBadge`);
-            if (badge) badge.textContent = tab.dataset.tf;
+            if (badge) badge.textContent = tf;
             
             renderChart(chartKey);
         });

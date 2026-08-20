@@ -9,3 +9,4 @@
 | 16/08/2026 | `20260816` | **AUDUSD / USDCAD** | COMPRA / VENDA | Sistema Multi-Agente (Macro + Operacional) | 🟢 Concluído | [20260816.md](file:///c:/Users/ryzen/Downloads/Antigravity/MFC/log_conhecimento/20260816.md) |
 | 17/08/2026 | `20260817` | **AUDUSD / USDCAD** | COMPRA / VENDA | Sistema Multi-Agente (Macro + Operacional) | 🟢 Concluído | [20260817.md](file:///c:/Users/ryzen/Downloads/Antigravity/MFC/log_conhecimento/20260817.md) |
 | 18/08/2026 | `20260818` | **EURCHF / CHFJPY** | COMPRA / VENDA | Sistema Multi-Agente (Macro + Operacional) | 🟢 Concluído | [20260818.md](file:///c:/Users/ryzen/Downloads/Antigravity/MFC/log_conhecimento/20260818.md) |
+| 19/08/2026 | `20260819` | **EURUSD / NZDCAD** | COMPRA / VENDA | Sistema Multi-Agente (Macro + Operacional) | 🟢 Concluído | [20260819.md](file:///c:/Users/ryzen/Downloads/Antigravity/MFC/log_conhecimento/20260819.md) |
