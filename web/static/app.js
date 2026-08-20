@@ -306,8 +306,9 @@ function renderChart(chartKey) {
         return padding.left + (idx / (numPoints - 1)) * chartW;
     };
 
-    // 1. Desenhar Linhas de Grade e Níveis Institucionais
+    // 1. Desenhar Linhas de Grade, Níveis Institucionais e Eixo de Horários
     drawInstitutionalLevels(ctx, width, getX, getY, minVal, maxVal, padding);
+    drawTimeAxis(ctx, width, height, times, getX, padding, tf);
 
     // 2. Desenhar Curvas das Moedas Ativas
     const lastPoints = [];
@@ -423,6 +424,57 @@ function drawInstitutionalLevels(ctx, width, getX, getY, minVal, maxVal, padding
             ctx.restore();
         }
     });
+}
+
+function drawTimeAxis(ctx, width, height, times, getX, padding, tf) {
+    if (!times || times.length < 2) return;
+
+    ctx.save();
+    ctx.font = "9.5px 'JetBrains Mono', monospace";
+    ctx.textAlign = "center";
+
+    const isMobile = window.innerWidth <= 768;
+    const isSmall = window.innerWidth <= 480;
+    const targetLabelsCount = isSmall ? 3 : (isMobile ? 5 : 7);
+    const step = Math.max(1, Math.floor((times.length - 1) / targetLabelsCount));
+
+    for (let i = 0; i < times.length; i += step) {
+        const tStr = times[i];
+        if (!tStr) continue;
+
+        const x = getX(i);
+        
+        // Linha de grade vertical sutil
+        ctx.save();
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.05)";
+        ctx.lineWidth = 1;
+        ctx.setLineDash([2, 4]);
+        ctx.beginPath();
+        ctx.moveTo(x, padding.top);
+        ctx.lineTo(x, height - padding.bottom);
+        ctx.stroke();
+        ctx.restore();
+
+        // Formatação amigável do horário/data
+        let label = tStr;
+        if (tStr.includes(" ")) {
+            const [datePart, timePart] = tStr.split(" ");
+            const [year, month, day] = datePart.split("-");
+            if (tf === "H1" || tf === "H4") {
+                label = isSmall ? `${timePart}` : `${timePart} (${day}/${month})`;
+            } else if (tf === "D1" || tf === "W1") {
+                label = `${day}/${month}`;
+            } else if (tf === "MN1") {
+                label = `${month}/${year ? year.slice(2) : ''}`;
+            }
+        }
+
+        ctx.save();
+        ctx.fillStyle = "rgba(148, 163, 184, 0.85)";
+        ctx.fillText(label, x, height - 7);
+        ctx.restore();
+    }
+    ctx.restore();
 }
 
 function resolveBadgePositions(points, containerHeight, minSpacing = 24) {
@@ -797,7 +849,14 @@ function renderMatrixChart() {
     minVal -= 0.05;
     maxVal += 0.05;
 
-    const padding = { top: 25, bottom: 25, left: 15, right: 175 };
+    const isMobile = window.innerWidth <= 768;
+    const isSmall = window.innerWidth <= 480;
+    const padding = { 
+        top: 25, 
+        bottom: 28, 
+        left: isSmall ? 8 : 15, 
+        right: isSmall ? 80 : (isMobile ? 100 : 175) 
+    };
     const chartW = width - padding.left - padding.right;
     const chartH = height - padding.top - padding.bottom;
 
@@ -805,6 +864,7 @@ function renderMatrixChart() {
     const getX = (idx) => padding.left + (idx / (numPoints - 1)) * chartW;
 
     drawInstitutionalLevels(ctx, width, getX, getY, minVal, maxVal, padding);
+    drawTimeAxis(ctx, width, height, times, getX, padding, tf);
 
     const lastPoints = [];
 
