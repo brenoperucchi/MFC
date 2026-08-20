@@ -1,0 +1,628 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CSS Institutional — Multi-Timeframe Currency Strength Platform</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/styles.css">
+</head>
+<body class="dark-theme">
+    <!-- TOP NAVIGATION BAR -->
+    <header class="app-header">
+        <div class="header-left">
+            <div class="brand-container">
+                <div class="brand-logo">
+                    <span class="pulse-ring"></span>
+                    <span class="logo-icon">📊</span>
+                </div>
+                <div class="brand-text">
+                    <span class="brand-title">CSS <span class="brand-pro">PRO</span></span>
+                    <span class="brand-subtitle">INSTITUTIONAL CURRENCY STRENGTH</span>
+                </div>
+            </div>
+
+            <!-- CURRENCY FILTER TOGGLES -->
+            <div class="currency-toggles" id="currencyToggles">
+                <div class="toggles-label">Moedas:</div>
+                <button class="ccy-btn active" data-ccy="USD" style="--ccy-color: #FF3B30;"><span class="flag">🇺🇸</span> USD</button>
+                <button class="ccy-btn active" data-ccy="EUR" style="--ccy-color: #00BFFF;"><span class="flag">🇪🇺</span> EUR</button>
+                <button class="ccy-btn active" data-ccy="GBP" style="--ccy-color: #3872FF;"><span class="flag">🇬🇧</span> GBP</button>
+                <button class="ccy-btn active" data-ccy="CHF" style="--ccy-color: #00E5FF;"><span class="flag">🇨🇭</span> CHF</button>
+                <button class="ccy-btn active" data-ccy="JPY" style="--ccy-color: #FFD700;"><span class="flag">🇯🇵</span> JPY</button>
+                <button class="ccy-btn active" data-ccy="AUD" style="--ccy-color: #FF8C00;"><span class="flag">🇦🇺</span> AUD</button>
+                <button class="ccy-btn active" data-ccy="CAD" style="--ccy-color: #E0245E;"><span class="flag">🇨🇦</span> CAD</button>
+                <button class="ccy-btn active" data-ccy="NZD" style="--ccy-color: #D2B48C;"><span class="flag">🇳🇿</span> NZD</button>
+                <button class="ccy-btn-all" id="btnToggleAll" title="Selecionar/Desmarcar Todas">Todas</button>
+            </div>
+        </div>
+
+        <div class="header-right">
+            <!-- VIEW MODE SELECTOR -->
+            <div class="view-mode-selector">
+                <button class="mode-btn active" id="btnModeSingle" data-mode="single">Gráfico Único</button>
+                <button class="mode-btn" id="btnModeSplit2" data-mode="split2">Split 2X (H4 / H1)</button>
+                <button class="mode-btn" id="btnModeSplit3" data-mode="split3">Split 3X (D1 / H4 / H1)</button>
+            </div>
+
+            <!-- ACTION BUTTONS -->
+            <button class="action-btn track-record-btn" id="btnOpenTrackRecordModal">
+                <span class="btn-icon">📈</span>
+                <span class="btn-text">TRACK RECORD (21h-08h)</span>
+            </button>
+
+            <button class="action-btn secondary-btn" id="btnOpenMatrixModal">
+                <span class="btn-icon">🕸️</span>
+                <span class="btn-text">MATRIZ DE PARES</span>
+            </button>
+
+            <button class="action-btn glow-btn" id="btnOpenPairsModal">
+                <span class="btn-icon">⚡</span>
+                <span class="btn-text">OPERAÇÕES & SINAIS</span>
+                <span class="badge-count" id="strongSignalsCount">0</span>
+            </button>
+
+            <button class="action-btn secondary-btn" id="btnOpenHistoryModal">
+                <span class="btn-icon">📖</span>
+                <span class="btn-text">HISTÓRICO</span>
+            </button>
+
+            <button class="action-btn icon-btn" id="btnRefresh" title="Recalcular Dados do MT5">
+                <span class="refresh-icon">🔄</span>
+            </button>
+
+            <!-- STATUS BADGE -->
+            <div class="status-badge" id="mt5StatusBadge">
+                <span class="status-dot online"></span>
+                <div class="status-info">
+                    <span class="status-title" id="mt5StatusText">MT5 LIVE</span>
+                    <span class="status-time" id="lastUpdateTime">--:--:--</span>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- MAIN DASHBOARD CONTENT -->
+    <main class="dashboard-main">
+        <!-- CHARTS SECTION CONTAINER -->
+        <section class="charts-section" id="chartsContainer">
+            <!-- Dynamic Chart Containers injected via JS based on view mode -->
+            <div class="chart-card-wrapper" id="chartCardWrapper1">
+                <div class="chart-header">
+                    <div class="chart-header-left">
+                        <span class="chart-icon">📈</span>
+                        <span class="chart-title" id="chart1Title">CSS Flow</span>
+                        <!-- TF SELECTOR FOR CHART 1 -->
+                        <div class="tf-tabs" id="chart1TFTabs">
+                            <span class="tf-tabs-label">TF:</span>
+                            <button class="tf-tab" data-tf="MN1">MN1</button>
+                            <button class="tf-tab" data-tf="W1">W1</button>
+                            <button class="tf-tab" data-tf="D1">D1</button>
+                            <button class="tf-tab" data-tf="H4">H4</button>
+                            <button class="tf-tab active" data-tf="H1">H1</button>
+                        </div>
+                    </div>
+
+                    <div class="chart-legend-hints">
+                        <span class="legend-hint green-hint"><span class="hint-line green"></span> +0.20</span>
+                        <span class="legend-hint grey-hint"><span class="hint-line grey"></span> 0.00</span>
+                        <span class="legend-hint red-hint"><span class="hint-line red"></span> -0.20</span>
+                    </div>
+                </div>
+
+                <div class="chart-canvas-container" id="chartContainer1">
+                    <canvas id="cssCanvas1"></canvas>
+                    <div class="right-badges-overlay" id="badgesOverlay1"></div>
+                    <div class="chart-tooltip" id="chartTooltip1"></div>
+                </div>
+            </div>
+
+            <!-- SECOND CHART (FOR SPLIT VIEW) -->
+            <div class="chart-card-wrapper hidden" id="chartCardWrapper2">
+                <div class="chart-header">
+                    <div class="chart-header-left">
+                        <span class="chart-icon">📈</span>
+                        <span class="chart-title" id="chart2Title">CSS Flow</span>
+                        <div class="tf-tabs" id="chart2TFTabs">
+                            <span class="tf-tabs-label">TF:</span>
+                            <button class="tf-tab" data-tf="MN1">MN1</button>
+                            <button class="tf-tab" data-tf="W1">W1</button>
+                            <button class="tf-tab" data-tf="D1">D1</button>
+                            <button class="tf-tab active" data-tf="H4">H4</button>
+                            <button class="tf-tab" data-tf="H1">H1</button>
+                        </div>
+                    </div>
+
+                    <div class="chart-legend-hints">
+                        <span class="legend-hint green-hint"><span class="hint-line green"></span> +0.20</span>
+                        <span class="legend-hint grey-hint"><span class="hint-line grey"></span> 0.00</span>
+                        <span class="legend-hint red-hint"><span class="hint-line red"></span> -0.20</span>
+                    </div>
+                </div>
+
+                <div class="chart-canvas-container" id="chartContainer2">
+                    <canvas id="cssCanvas2"></canvas>
+                    <div class="right-badges-overlay" id="badgesOverlay2"></div>
+                    <div class="chart-tooltip" id="chartTooltip2"></div>
+                </div>
+            </div>
+
+            <!-- THIRD CHART (FOR 3X SPLIT VIEW) -->
+            <div class="chart-card-wrapper hidden" id="chartCardWrapper3">
+                <div class="chart-header">
+                    <div class="chart-header-left">
+                        <span class="chart-icon">📈</span>
+                        <span class="chart-title" id="chart3Title">CSS Flow</span>
+                        <div class="tf-tabs" id="chart3TFTabs">
+                            <span class="tf-tabs-label">TF:</span>
+                            <button class="tf-tab" data-tf="MN1">MN1</button>
+                            <button class="tf-tab" data-tf="W1">W1</button>
+                            <button class="tf-tab active" data-tf="D1">D1</button>
+                            <button class="tf-tab" data-tf="H4">H4</button>
+                            <button class="tf-tab" data-tf="H1">H1</button>
+                        </div>
+                    </div>
+
+                    <div class="chart-legend-hints">
+                        <span class="legend-hint green-hint"><span class="hint-line green"></span> +0.20</span>
+                        <span class="legend-hint grey-hint"><span class="hint-line grey"></span> 0.00</span>
+                        <span class="legend-hint red-hint"><span class="hint-line red"></span> -0.20</span>
+                    </div>
+                </div>
+
+                <div class="chart-canvas-container" id="chartContainer3">
+                    <canvas id="cssCanvas3"></canvas>
+                    <div class="right-badges-overlay" id="badgesOverlay3"></div>
+                    <div class="chart-tooltip" id="chartTooltip3"></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- REAL-TIME INSTITUTIONAL CURRENCY TABLE (AS IN VIDEO) -->
+        <section class="table-section">
+            <div class="section-header">
+                <div class="section-title-group">
+                    <span class="section-icon">⚡</span>
+                    <h2 class="section-title">Matriz Institucional de Moedas & Sinais em Tempo Real</h2>
+                    <span class="section-subtitle">Diagnóstico Cíclico, Tríade Analítica & Alinhamento Multi-Timeframe</span>
+                </div>
+                <div class="table-legend">
+                    <span class="legend-item"><span class="led-dot green"></span> UP (Força)</span>
+                    <span class="legend-item"><span class="led-dot red"></span> DN (Fraqueza)</span>
+                    <span class="legend-item"><span class="led-dot yellow"></span> Neutro / Transição</span>
+                </div>
+            </div>
+
+            <div class="table-container">
+                <table class="css-institutional-table" id="currencyTable">
+                    <thead>
+                        <tr>
+                            <th>MOEDA</th>
+                            <th>SCORE H1</th>
+                            <th>SCORE H4</th>
+                            <th>SCORE D1</th>
+                            <th>ANGULAÇÃO / ROC</th>
+                            <th>REGIÃO NO BOX</th>
+                            <th class="text-center">STATUS MULTI-TF <br><small>MN1 | W1 | D1 | H4 | H1</small></th>
+                            <th class="text-center">SINAL</th>
+                            <th>CICLO DEVENDO</th>
+                            <th class="text-center">AÇÕES</th>
+                        </tr>
+                    </thead>
+                    <tbody id="currencyTableBody">
+                        <!-- Injected via JS -->
+                        <tr><td colspan="10" class="loading-cell">Carregando dados institucionais...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </main>
+
+    <!-- MODAL: OPERAÇÕES & SINAIS (28 PARES FOREX SCREENER) -->
+    <div class="modal-backdrop hidden" id="pairsModal">
+        <div class="modal-dialog modal-xl">
+            <div class="modal-header">
+                <div class="modal-title-group">
+                    <span class="modal-icon">⚡</span>
+                    <div>
+                        <h3 class="modal-title">Radar de Confluência dos 28 Pares Forex</h3>
+                        <p class="modal-subtitle">Conexão do Motor Macro (MN1/W1/D1) com o Operacional (H4/H1) — Ordenado por Vantagem de Fluxo</p>
+                    </div>
+                </div>
+                <button class="modal-close" id="btnClosePairsModal">&times;</button>
+            </div>
+
+            <div class="modal-toolbar">
+                <div class="filter-pills" id="pairFilters">
+                    <button class="filter-pill active" data-filter="ALL">Todos os 28 Pares</button>
+                    <button class="filter-pill" data-filter="BUY">Oportunidades de Compra (BUY)</button>
+                    <button class="filter-pill" data-filter="SELL">Oportunidades de Venda (SELL)</button>
+                    <button class="filter-pill" data-filter="STRONG">Confluência Dupla Máxima 🔥</button>
+                    <button class="filter-pill" data-filter="BOX">Box / Neutro</button>
+                </div>
+                <div class="search-box">
+                    <input type="text" id="pairSearchInput" placeholder="Buscar par (ex: EURAUD, USD)...">
+                </div>
+            </div>
+
+            <div class="modal-body table-responsive">
+                <table class="pairs-screener-table">
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>PAR</th>
+                            <th>AÇÃO RECOMENDADA</th>
+                            <th>CONVICÇÃO</th>
+                            <th>TOTAL SCORE</th>
+                            <th>MACRO DIFF</th>
+                            <th>OP DIFF</th>
+                            <th>TESE CÍCLICA DE CONFLUÊNCIA</th>
+                        </tr>
+                    </thead>
+                    <tbody id="pairsTableBody">
+                        <!-- Injected via JS -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: RAIO-X 5-TIMEFRAMES DA MOEDA -->
+    <div class="modal-backdrop hidden" id="deepDiveModal">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-header">
+                <div class="modal-title-group">
+                    <span class="modal-flag" id="deepDiveFlag">🇦🇺</span>
+                    <div>
+                        <h3 class="modal-title">Raio-X Institucional da Moeda: <span id="deepDiveTitle">AUD</span></h3>
+                        <p class="modal-subtitle" id="deepDiveSubtitle">Avaliação Estruturada da Tríade Analítica nos 5 Timeframes</p>
+                    </div>
+                </div>
+                <button class="modal-close" id="btnCloseDeepDiveModal">&times;</button>
+            </div>
+
+            <div class="modal-body">
+                <div class="deep-dive-verdict-card" id="deepDiveVerdictCard">
+                    <!-- Dynamic verdict header -->
+                </div>
+
+                <div class="triad-cards-grid" id="deepDiveTriadsGrid">
+                    <!-- 5 TF Triad Cards injected via JS -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: HISTÓRICO DE RELATÓRIOS -->
+    <div class="modal-backdrop hidden" id="historyModal">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-header">
+                <div class="modal-title-group">
+                    <span class="modal-icon">📖</span>
+                    <div>
+                        <h3 class="modal-title">Histórico de Relatórios Diários de Inteligência</h3>
+                        <p class="modal-subtitle">Consulte análises e diagnósticos salvos de sessões anteriores</p>
+                    </div>
+                </div>
+                <button class="modal-close" id="btnCloseHistoryModal">&times;</button>
+            </div>
+
+            <div class="modal-body history-body-layout">
+                <div class="history-sidebar">
+                    <div class="sidebar-title">Datas Arquivadas:</div>
+                    <div class="history-dates-list" id="historyDatesList">
+                        <!-- Dates injected via JS -->
+                    </div>
+                </div>
+                <div class="history-content-viewer">
+                    <div class="history-viewer-header" id="historyViewerHeader">
+                        <span>Selecione uma data para ler o relatório completo</span>
+                    </div>
+                    <div class="history-markdown-body" id="historyMarkdownBody"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: MATRIZ DE PARES -->
+    <div class="modal-backdrop hidden" id="matrixModal">
+        <div class="modal-dialog modal-xl">
+            <div class="modal-header">
+                <div class="modal-title-group">
+                    <span class="modal-icon">🕸️</span>
+                    <div>
+                        <h3 class="modal-title">Matriz de Pares por Moeda Base</h3>
+                        <p class="modal-subtitle">Análise isolada de todos os cruzamentos de uma moeda específica.</p>
+                    </div>
+                </div>
+                <button class="modal-close" id="btnCloseMatrixModal">&times;</button>
+            </div>
+
+            <div class="modal-toolbar" style="display: flex; justify-content: space-between;">
+                <div class="filter-pills" id="matrixCcySelector">
+                    <button class="filter-pill active" data-ccy="USD">USD 🇺🇸</button>
+                    <button class="filter-pill" data-ccy="EUR">EUR 🇪🇺</button>
+                    <button class="filter-pill" data-ccy="GBP">GBP 🇬🇧</button>
+                    <button class="filter-pill" data-ccy="CHF">CHF 🇨🇭</button>
+                    <button class="filter-pill" data-ccy="JPY">JPY 🇯🇵</button>
+                    <button class="filter-pill" data-ccy="AUD">AUD 🇦🇺</button>
+                    <button class="filter-pill" data-ccy="CAD">CAD 🇨🇦</button>
+                    <button class="filter-pill" data-ccy="NZD">NZD 🇳🇿</button>
+                </div>
+                <div class="tf-tabs" id="matrixTFTabs">
+                    <button class="tf-tab" data-tf="MN1">MN1</button>
+                    <button class="tf-tab" data-tf="W1">W1</button>
+                    <button class="tf-tab" data-tf="D1">D1</button>
+                    <button class="tf-tab" data-tf="H4">H4</button>
+                    <button class="tf-tab active" data-tf="H1">H1</button>
+                </div>
+            </div>
+
+            <div class="modal-body" style="padding-top: 10px;">
+                <div class="chart-canvas-container" style="height: 500px; position: relative; background: var(--bg-card); border-radius: 8px; border: 1px solid var(--border-color);">
+                    <canvas id="matrixCanvas"></canvas>
+                    <div class="right-badges-overlay" id="matrixBadgesOverlay"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: TRACK RECORD & SIMULAÇÃO 21H-08H -->
+    <div class="modal-backdrop hidden" id="trackRecordModal">
+        <div class="modal-dialog modal-xl" style="max-width: 1400px; height: 92vh;">
+            <div class="modal-header" style="padding: 12px 24px; border-bottom: 1px solid var(--border-color);">
+                <div class="modal-title-group">
+                    <span class="modal-icon">📈</span>
+                    <div>
+                        <h3 class="modal-title">Track Record Institucional & Auditoria de Portfólios (21h ➔ 08h)</h3>
+                        <p class="modal-subtitle">Monitoramento de Cestas Institucionais em Tempo Real e Auditoria Histórica dos 28 Pares Forex</p>
+                    </div>
+                </div>
+                <div style="display: flex; align-items: center; gap: 12px;">
+                    <button class="action-btn secondary-btn" id="btnRecalculateTrackRecord" style="font-size: 11px; padding: 4px 10px;">
+                        <span>🔄 Recalcular Backtest</span>
+                    </button>
+                    <button class="modal-close" id="btnCloseTrackRecordModal">&times;</button>
+                </div>
+            </div>
+
+            <!-- MODAL MAIN NAVIGATION TABS -->
+            <div class="track-modal-nav">
+                <button class="track-nav-tab active" id="tabBtnLive" data-tab="live">
+                    <span class="pulse-dot live"></span>
+                    <span class="tab-label">🔴 SESSÃO AO VIVO (EM ANDAMENTO)</span>
+                    <span class="tab-badge" id="livePortfoliosBadge">4 Cestas Ativas</span>
+                </button>
+                <button class="track-nav-tab" id="tabBtnAudit" data-tab="audit">
+                    <span class="tab-icon">📊</span>
+                    <span class="tab-label">AUDITORIA DE SESSÕES (MESTRE-DETALHE)</span>
+                </button>
+                <button class="track-nav-tab" id="tabBtnAnalytics" data-tab="analytics">
+                    <span class="tab-icon">📈</span>
+                    <span class="tab-label">CURVA DE CAPITAL & ANALYTICS</span>
+                </button>
+            </div>
+
+            <!-- MODAL BODY WITH 3 TAB CONTENTS -->
+            <div class="modal-body" style="padding: 16px 24px; height: calc(100% - 110px); overflow-y: auto;">
+                
+                <!-- ============================================================ -->
+                <!-- TAB 1: SESSÃO AO VIVO (EM ANDAMENTO) -->
+                <!-- ============================================================ -->
+                <div class="track-tab-pane active" id="paneLive">
+                    <!-- LIVE HERO BANNER -->
+                    <div class="live-hero-card">
+                        <div class="live-hero-header">
+                            <div class="live-status-pill">
+                                <span class="pulse-ring-live"></span>
+                                <span class="status-live-text">🔴 PREGÃO DA MADRUGADA AO VIVO</span>
+                            </div>
+                            <div class="live-time-info" id="liveSessionTimeInfo">
+                                📅 Sessão de Hoje | Início: 21h00 BRT ➔ Encerramento: 08h00 BRT
+                            </div>
+                            <div class="live-timer-badge" id="liveElapsedTimer">
+                                ⏱️ Em andamento
+                            </div>
+                        </div>
+
+                        <div class="live-kpi-grid">
+                            <div class="live-kpi-card highlight">
+                                <div class="kpi-title">PnL Flutuante em Tempo Real</div>
+                                <div class="kpi-value" id="liveTotalPnL">+$0.00</div>
+                                <div class="kpi-sub" id="liveTotalPips">0.0 pips flutuantes</div>
+                            </div>
+                            <div class="live-kpi-card">
+                                <div class="kpi-title">MFE Flutuante (Pico da Noite)</div>
+                                <div class="kpi-value positive" id="liveTotalMFE">+$0.00</div>
+                                <div class="kpi-sub">Excursão Favorável Máxima</div>
+                            </div>
+                            <div class="live-kpi-card">
+                                <div class="kpi-title">MAE Flutuante (Drawdown Máx)</div>
+                                <div class="kpi-value negative" id="liveTotalMAE">-$0.00</div>
+                                <div class="kpi-sub">Excursão Adversa Máxima</div>
+                            </div>
+                            <div class="live-kpi-card">
+                                <div class="kpi-title">Portfólios Qualificados</div>
+                                <div class="kpi-value cyan" id="liveActiveBasketsCount">0</div>
+                                <div class="kpi-sub" id="liveActivePairsCount">0 pares operados</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- ACTIVE BASKETS CARDS -->
+                    <div class="live-baskets-section">
+                        <div class="section-title-live">
+                            <span>🧺 Cestas e Portfólios Ativos nesta Sessão</span>
+                            <span style="font-size: 11px; color: var(--text-muted);">Lote fixo institucional de 0.01 por par</span>
+                        </div>
+                        <div class="live-baskets-grid" id="liveBasketsCardsContainer">
+                            <!-- Injected dynamically via JS -->
+                        </div>
+                    </div>
+
+                    <!-- FULL LIVE 28 PAIRS TABLE -->
+                    <div class="live-pairs-section">
+                        <div class="section-title-live">
+                            <span>📋 Auditoria em Tempo Real dos Pares Operados</span>
+                            <span style="font-size: 11px; color: var(--text-muted);">Cotações sincronizadas tick-a-tick com o MetaTrader 5</span>
+                        </div>
+                        <div class="table-responsive" style="border: 1px solid var(--border-color); border-radius: 8px;">
+                            <table class="track-table">
+                                <thead>
+                                    <tr>
+                                        <th>PAR FOREX</th>
+                                        <th>CESTA</th>
+                                        <th>DIREÇÃO</th>
+                                        <th class="text-right">ENTRADA (21h00)</th>
+                                        <th class="text-right">ATUAL (MT5 LIVE)</th>
+                                        <th class="text-right">MFE FLUTUANTE</th>
+                                        <th class="text-right">MAE FLUTUANTE</th>
+                                        <th class="text-right">PIPS</th>
+                                        <th class="text-right">PNL FLUTUANTE ($)</th>
+                                        <th class="text-center">STATUS</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="livePairsTableBody">
+                                    <tr><td colspan="10" class="loading-cell">Carregando cotações ao vivo do MT5...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ============================================================ -->
+                <!-- TAB 2: AUDITORIA DE SESSÕES (MESTRE-DETALHE) -->
+                <!-- ============================================================ -->
+                <div class="track-tab-pane" id="paneAudit">
+                    <!-- TOOLBAR DE FILTRO POR MOEDA -->
+                    <div class="modal-toolbar" style="margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center;">
+                        <div class="filter-pills" id="trackCurrencySelector">
+                            <span style="font-size: 11px; font-weight: 700; color: var(--text-muted); margin-right: 6px;">Filtrar Moeda:</span>
+                            <button class="filter-pill active" data-ccy="ALL">Todas as Moedas (Consolidado)</button>
+                            <button class="filter-pill" data-ccy="USD">USD 🇺🇸</button>
+                            <button class="filter-pill" data-ccy="EUR">EUR 🇪🇺</button>
+                            <button class="filter-pill" data-ccy="GBP">GBP 🇬🇧</button>
+                            <button class="filter-pill" data-ccy="CHF">CHF 🇨🇭</button>
+                            <button class="filter-pill" data-ccy="JPY">JPY 🇯🇵</button>
+                            <button class="filter-pill" data-ccy="AUD">AUD 🇦🇺</button>
+                            <button class="filter-pill" data-ccy="CAD">CAD 🇨🇦</button>
+                            <button class="filter-pill" data-ccy="NZD">NZD 🇳🇿</button>
+                        </div>
+                        <div style="font-size: 11px; font-family: var(--font-mono); color: var(--color-cyan);" id="trackFilterActiveLabel">
+                            Exibindo: Consolidado Geral
+                        </div>
+                    </div>
+
+                    <!-- MASTER-DETAIL 2-COLUMN LAYOUT -->
+                    <div class="audit-master-detail-container">
+                        <!-- LEFT SIDEBAR: SESSIONS LIST -->
+                        <div class="audit-sidebar">
+                            <div class="sidebar-header">
+                                <span style="font-weight: 700; font-family: var(--font-display); color: #FFF; font-size: 12px;">📅 Histórico de Sessões</span>
+                                <span class="badge-count" id="auditSessionsCount">0</span>
+                            </div>
+                            <div class="sessions-card-list" id="auditSessionsList">
+                                <!-- Dynamic Session Cards injected via JS -->
+                            </div>
+                        </div>
+
+                        <!-- RIGHT PANEL: DETAILED SESSION AUDITOR -->
+                        <div class="audit-detail-panel" id="auditDetailPanel">
+                            <!-- Injected dynamically based on selected session -->
+                            <div class="empty-detail-state">
+                                <span>👈 Selecione uma sessão na lista à esquerda para carregar a auditoria detalhada</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ============================================================ -->
+                <!-- TAB 3: CURVA DE CAPITAL & ANALYTICS -->
+                <!-- ============================================================ -->
+                <div class="track-tab-pane" id="paneAnalytics">
+                    <!-- CONSOLIDATED METRICS CARDS -->
+                    <div class="track-metrics-grid" id="trackMetricsGrid" style="margin-bottom: 16px;">
+                        <div class="metric-card">
+                            <div class="metric-label">Lucro Líquido Acumulado</div>
+                            <div class="metric-value" id="trackTotalPnL">+$0.00</div>
+                            <div class="metric-sub" id="trackTotalPips">0.0 pips</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-label">Taxa de Acerto (Win Rate)</div>
+                            <div class="metric-value highlight-green" id="trackWinRate">0.0%</div>
+                            <div class="metric-sub" id="trackWinLossCount">0 Wins / 0 Losses</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-label">Fator de Lucro (Profit Factor)</div>
+                            <div class="metric-value highlight-cyan" id="trackProfitFactor">0.00</div>
+                            <div class="metric-sub" id="trackActiveSessions">0 Sessões Ativas</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-label">MFE Médio (Pico de Lucro)</div>
+                            <div class="metric-value highlight-green" id="trackAvgMFE">+$0.00</div>
+                            <div class="metric-sub">Excursão Favorável Máxima</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-label">MAE Médio (Drawdown Máx)</div>
+                            <div class="metric-value highlight-red" id="trackAvgMAE">-$0.00</div>
+                            <div class="metric-sub">Excursão Adversa Máxima</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-label">Portfólios Operados</div>
+                            <div class="metric-value" id="trackTotalPortfolios">0</div>
+                            <div class="metric-sub" id="trackNeutralSessions">0 Sessões Neutras</div>
+                        </div>
+                    </div>
+
+                    <!-- EXPANDED EQUITY CURVE -->
+                    <div class="equity-chart-wrapper" style="margin-bottom: 16px;">
+                        <div class="equity-chart-header">
+                            <div>
+                                <span style="font-weight: 700; font-family: var(--font-display); color: #FFF; font-size: 13px;">📈 Curva de Capital Consolidada (USD)</span>
+                                <span style="font-size: 11px; color: var(--text-muted); display: block;">Evolução de Saldo em Tempo Real ao Longo das Sessões</span>
+                            </div>
+                        </div>
+                        <div style="height: 260px; width: 100%; position: relative;">
+                            <canvas id="equityCanvasGlobal"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- CURRENCY BREAKDOWN PERFORMANCE TABLE -->
+                    <div class="track-sessions-wrapper">
+                        <div class="track-sessions-header">
+                            <span style="font-weight: 700; font-family: var(--font-display); color: #FFF; font-size: 13px;">🏆 Performance Consolidada por Moeda</span>
+                            <span style="font-size: 11px; color: var(--text-muted);">Rentabilidade e Drawdown individual de cada cesta monetária</span>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="track-table">
+                                <thead>
+                                    <tr>
+                                        <th>MOEDA</th>
+                                        <th>TOTAL DE SESSÕES OPERADAS</th>
+                                        <th class="text-right">LUCRO LÍQUIDO ($)</th>
+                                        <th class="text-right">PIPS LÍQUIDOS</th>
+                                        <th class="text-right">MFE MÉDIO ($)</th>
+                                        <th class="text-right">MAE MÉDIO ($)</th>
+                                        <th class="text-center">STATUS</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="currencyAnalyticsTableBody">
+                                    <!-- Injected dynamically via JS -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+    </div>
+
+    <!-- SCRIPTS -->
+    <script src="/app.js"></script>
+</body>
+</html>
