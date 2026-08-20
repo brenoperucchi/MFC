@@ -2255,12 +2255,12 @@ body.dark-theme {
 }
 
 /* ==========================================================================
-   RAIO-X 5-TIMEFRAMES MINI CHARTS GRID STYLING
+   RAIO-X 5-TIMEFRAMES HORIZONTAL SPLIT (3/4 CHART + 1/4 INFO)
    ========================================================================== */
 
 .triad-cards-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    display: flex;
+    flex-direction: column;
     gap: 14px;
     margin-top: 14px;
 }
@@ -2269,7 +2269,7 @@ body.dark-theme {
     background: #0E131E;
     border: 1px solid var(--border-color);
     border-radius: 10px;
-    padding: 14px;
+    padding: 14px 16px;
     display: flex;
     flex-direction: column;
     gap: 10px;
@@ -2285,7 +2285,7 @@ body.dark-theme {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding-bottom: 6px;
+    padding-bottom: 8px;
     border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 }
 
@@ -2305,9 +2305,17 @@ body.dark-theme {
 .triad-score.positive { color: var(--color-cyan); }
 .triad-score.negative { color: var(--color-red); }
 
+.triad-card-body {
+    display: flex;
+    gap: 14px;
+    align-items: stretch;
+}
+
 .triad-canvas-container {
-    width: 100%;
-    height: 125px;
+    flex: 3;
+    min-width: 0;
+    height: 155px;
+    min-height: 155px;
     background: #080B11;
     border: 1px solid rgba(255, 255, 255, 0.05);
     border-radius: 8px;
@@ -2321,19 +2329,51 @@ body.dark-theme {
     display: block;
 }
 
+.triad-info-pane {
+    flex: 1;
+    min-width: 240px;
+    max-width: 320px;
+    background: #080B11;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 8px;
+    padding: 10px 14px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    gap: 6px;
+    font-family: var(--font-mono);
+}
+
 .triad-step {
     display: flex;
     flex-direction: column;
-    gap: 2px;
-    font-size: 11px;
+    gap: 1px;
 }
 
 .triad-step-label {
-    font-size: 9.5px;
+    font-size: 9px;
     color: var(--text-muted);
     text-transform: uppercase;
     font-weight: 700;
+    letter-spacing: 0.5px;
 }
+
+.triad-step-val {
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1.35;
+}
+
+@media (max-width: 960px) {
+    .triad-card-body {
+        flex-direction: column;
+    }
+    .triad-info-pane {
+        min-width: 100%;
+        max-width: 100%;
+    }
+}
+
 
 
 

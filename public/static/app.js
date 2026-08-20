@@ -1208,18 +1208,39 @@ window.openDeepDive = function(target) {
             card.className = "triad-card";
             card.innerHTML = `
                 <div class="triad-card-header">
-                    <span class="triad-tf-title">${tf}</span>
-                    <span class="triad-score positive" style="font-size: 11px;">${baseFlag} ${base} × ${quote} ${quoteFlag}</span>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <span class="triad-tf-title">${tf}</span>
+                        <span class="tf-tab" style="font-size: 10px; padding: 2px 8px;">${baseFlag} ${base} × ${quote} ${quoteFlag}</span>
+                    </div>
+                    <span class="triad-score positive" style="font-size: 11px;">
+                        Confluência de Força Relativa (${tf})
+                    </span>
                 </div>
                 
-                <div class="triad-canvas-container" style="width: 100%; height: 125px; min-height: 125px; background: #080B11; border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 8px; position: relative; overflow: hidden; margin: 4px 0;">
-                    <canvas id="deepDiveCanvas_${tf}" style="width: 100%; height: 125px; display: block;"></canvas>
-                </div>
+                <div class="triad-card-body">
+                    <!-- 3/4 DO ESPAÇO: GRÁFICO EXPANSIVO (75%) -->
+                    <div class="triad-canvas-container" style="flex: 3; min-width: 0; height: 160px; min-height: 160px; background: #080B11; border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 8px; position: relative; overflow: hidden;">
+                        <canvas id="deepDiveCanvas_${tf}" style="width: 100%; height: 160px; display: block;"></canvas>
+                    </div>
 
-                <div class="triad-step">
-                    <div class="triad-step-label">💡 Leitura Gráfica de Confluência ${tf}</div>
-                    <div style="color: #FFF; font-size: 11px;">
-                        Curvas de força relativas de <strong>${base}</strong> (Base) e <strong>${quote}</strong> (Cotada) no timeframe ${tf}.
+                    <!-- 1/4 DO ESPAÇO: EXPLICAÇÃO INSTITUCIONAL (25%) -->
+                    <div class="triad-info-pane">
+                        <div class="triad-step">
+                            <div class="triad-step-label">📊 Timeframe</div>
+                            <div class="triad-step-val" style="color: #FFF;">${tf} Institutional Cycle</div>
+                        </div>
+                        <div class="triad-step">
+                            <div class="triad-step-label">🟢 Moeda Base</div>
+                            <div class="triad-step-val" style="color: ${CCY_COLORS[base] || '#FFF'};">${baseFlag} ${base} (Força Relativa)</div>
+                        </div>
+                        <div class="triad-step">
+                            <div class="triad-step-label">🔴 Moeda Cotada</div>
+                            <div class="triad-step-val" style="color: ${CCY_COLORS[quote] || '#FFF'};">${quoteFlag} ${quote} (Força Relativa)</div>
+                        </div>
+                        <div class="triad-step">
+                            <div class="triad-step-label">💡 Confluência</div>
+                            <div class="triad-step-val" style="color: #00E5FF; font-size: 10.5px;">Cruzamentos de score e divergência cíclica no ${tf}.</div>
+                        </div>
                     </div>
                 </div>
             `;
@@ -1269,29 +1290,40 @@ window.openDeepDive = function(target) {
         card.className = "triad-card";
         card.innerHTML = `
             <div class="triad-card-header">
-                <span class="triad-tf-title">${tf}</span>
-                <span class="triad-score ${triad.score > 0 ? 'positive' : 'negative'}">${triad.score_str} ${triad.dir}</span>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <span class="triad-tf-title">${tf}</span>
+                    <span class="tf-tab" style="font-size: 10px; padding: 2px 8px;">${ccyData.flag} ${ccy}</span>
+                </div>
+                <span class="triad-score ${triad.score > 0 ? 'positive' : 'negative'}">
+                    ${triad.score_str} ${triad.dir} — ${triad.angle}
+                </span>
             </div>
 
-            <div class="triad-canvas-container" style="width: 100%; height: 125px; min-height: 125px; background: #080B11; border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 8px; position: relative; overflow: hidden; margin: 4px 0;">
-                <canvas id="deepDiveCanvas_${tf}" style="width: 100%; height: 125px; display: block;"></canvas>
-            </div>
+            <div class="triad-card-body">
+                <!-- 3/4 DO ESPAÇO: GRÁFICO EXPANSIVO (75%) -->
+                <div class="triad-canvas-container" style="flex: 3; min-width: 0; height: 160px; min-height: 160px; background: #080B11; border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 8px; position: relative; overflow: hidden;">
+                    <canvas id="deepDiveCanvas_${tf}" style="width: 100%; height: 160px; display: block;"></canvas>
+                </div>
 
-            <div class="triad-step">
-                <div class="triad-step-label">1. Região no Box</div>
-                <div style="color: #FFF;">${triad.region}</div>
-            </div>
-            <div class="triad-step">
-                <div class="triad-step-label">2. Ciclo Atual</div>
-                <div style="color: #00E5FF;">${triad.current_cycle}</div>
-            </div>
-            <div class="triad-step">
-                <div class="triad-step-label">3. Ciclo Devendo</div>
-                <div style="color: #FFD600;">${triad.owing_cycle}</div>
-            </div>
-            <div class="triad-step">
-                <div class="triad-step-label">4. Angulação</div>
-                <div>${triad.angle}</div>
+                <!-- 1/4 DO ESPAÇO: EXPLICAÇÃO INSTITUCIONAL (25%) -->
+                <div class="triad-info-pane">
+                    <div class="triad-step">
+                        <div class="triad-step-label">1. Região no Box</div>
+                        <div class="triad-step-val" style="color: #FFF;">${triad.region}</div>
+                    </div>
+                    <div class="triad-step">
+                        <div class="triad-step-label">2. Ciclo Atual</div>
+                        <div class="triad-step-val" style="color: #00E5FF;">${triad.current_cycle}</div>
+                    </div>
+                    <div class="triad-step">
+                        <div class="triad-step-label">3. Ciclo Devendo</div>
+                        <div class="triad-step-val" style="color: #FFD600;">${triad.owing_cycle}</div>
+                    </div>
+                    <div class="triad-step">
+                        <div class="triad-step-label">4. Angulação / Veredito</div>
+                        <div class="triad-step-val" style="color: #FFFFFF;">${triad.angle}</div>
+                    </div>
+                </div>
             </div>
         `;
         triadsGrid.appendChild(card);
