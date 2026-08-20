@@ -25,16 +25,6 @@
                 </div>
             </div>
 
-            <!-- PROMINENT TIMEFRAME SELECTOR (FRONT & CENTER) -->
-            <div class="header-tf-selector" id="headerTFTabs">
-                <span class="tf-header-label">⏱️ TIMEFRAME:</span>
-                <button class="tf-header-btn" data-tf="MN1">MN1</button>
-                <button class="tf-header-btn" data-tf="W1">W1</button>
-                <button class="tf-header-btn" data-tf="D1">D1</button>
-                <button class="tf-header-btn" data-tf="H4">H4</button>
-                <button class="tf-header-btn active" data-tf="H1">H1</button>
-            </div>
-
             <!-- CURRENCY FILTER TOGGLES -->
             <div class="currency-toggles" id="currencyToggles">
                 <div class="toggles-label">Moedas:</div>
@@ -102,25 +92,24 @@
             <!-- Dynamic Chart Containers injected via JS based on view mode -->
             <div class="chart-card-wrapper" id="chartCardWrapper1">
                 <div class="chart-header">
-                    <div class="chart-title-group">
+                    <div class="chart-header-left">
                         <span class="chart-icon">📈</span>
-                        <span class="chart-title" id="chart1Title">CSS Multi-Currency Flow</span>
-                        <span class="tf-badge" id="chart1TFBadge">H1</span>
-                    </div>
-
-                    <!-- TF SELECTOR FOR CHART 1 -->
-                    <div class="tf-tabs" id="chart1TFTabs">
-                        <button class="tf-tab" data-tf="MN1">MN1</button>
-                        <button class="tf-tab" data-tf="W1">W1</button>
-                        <button class="tf-tab" data-tf="D1">D1</button>
-                        <button class="tf-tab" data-tf="H4">H4</button>
-                        <button class="tf-tab active" data-tf="H1">H1</button>
+                        <span class="chart-title" id="chart1Title">CSS Flow</span>
+                        <!-- TF SELECTOR FOR CHART 1 -->
+                        <div class="tf-tabs" id="chart1TFTabs">
+                            <span class="tf-tabs-label">TF:</span>
+                            <button class="tf-tab" data-tf="MN1">MN1</button>
+                            <button class="tf-tab" data-tf="W1">W1</button>
+                            <button class="tf-tab" data-tf="D1">D1</button>
+                            <button class="tf-tab" data-tf="H4">H4</button>
+                            <button class="tf-tab active" data-tf="H1">H1</button>
+                        </div>
                     </div>
 
                     <div class="chart-legend-hints">
-                        <span class="legend-hint green-hint"><span class="hint-line green"></span> +0.20 Parada Alta</span>
-                        <span class="legend-hint grey-hint"><span class="hint-line grey"></span> 0.00 Equilíbrio</span>
-                        <span class="legend-hint red-hint"><span class="hint-line red"></span> -0.20 Parada Baixa</span>
+                        <span class="legend-hint green-hint"><span class="hint-line green"></span> +0.20</span>
+                        <span class="legend-hint grey-hint"><span class="hint-line grey"></span> 0.00</span>
+                        <span class="legend-hint red-hint"><span class="hint-line red"></span> -0.20</span>
                     </div>
                 </div>
 
@@ -134,18 +123,17 @@
             <!-- SECOND CHART (FOR SPLIT VIEW) -->
             <div class="chart-card-wrapper hidden" id="chartCardWrapper2">
                 <div class="chart-header">
-                    <div class="chart-title-group">
+                    <div class="chart-header-left">
                         <span class="chart-icon">📈</span>
-                        <span class="chart-title" id="chart2Title">CSS Multi-Currency Flow</span>
-                        <span class="tf-badge" id="chart2TFBadge">H4</span>
-                    </div>
-
-                    <div class="tf-tabs" id="chart2TFTabs">
-                        <button class="tf-tab" data-tf="MN1">MN1</button>
-                        <button class="tf-tab" data-tf="W1">W1</button>
-                        <button class="tf-tab" data-tf="D1">D1</button>
-                        <button class="tf-tab active" data-tf="H4">H4</button>
-                        <button class="tf-tab" data-tf="H1">H1</button>
+                        <span class="chart-title" id="chart2Title">CSS Flow</span>
+                        <div class="tf-tabs" id="chart2TFTabs">
+                            <span class="tf-tabs-label">TF:</span>
+                            <button class="tf-tab" data-tf="MN1">MN1</button>
+                            <button class="tf-tab" data-tf="W1">W1</button>
+                            <button class="tf-tab" data-tf="D1">D1</button>
+                            <button class="tf-tab active" data-tf="H4">H4</button>
+                            <button class="tf-tab" data-tf="H1">H1</button>
+                        </div>
                     </div>
 
                     <div class="chart-legend-hints">
@@ -165,18 +153,23 @@
             <!-- THIRD CHART (FOR 3X SPLIT VIEW) -->
             <div class="chart-card-wrapper hidden" id="chartCardWrapper3">
                 <div class="chart-header">
-                    <div class="chart-title-group">
+                    <div class="chart-header-left">
                         <span class="chart-icon">📈</span>
-                        <span class="chart-title" id="chart3Title">CSS Multi-Currency Flow</span>
-                        <span class="tf-badge" id="chart3TFBadge">D1</span>
+                        <span class="chart-title" id="chart3Title">CSS Flow</span>
+                        <div class="tf-tabs" id="chart3TFTabs">
+                            <span class="tf-tabs-label">TF:</span>
+                            <button class="tf-tab" data-tf="MN1">MN1</button>
+                            <button class="tf-tab" data-tf="W1">W1</button>
+                            <button class="tf-tab active" data-tf="D1">D1</button>
+                            <button class="tf-tab" data-tf="H4">H4</button>
+                            <button class="tf-tab" data-tf="H1">H1</button>
+                        </div>
                     </div>
 
-                    <div class="tf-tabs" id="chart3TFTabs">
-                        <button class="tf-tab" data-tf="MN1">MN1</button>
-                        <button class="tf-tab" data-tf="W1">W1</button>
-                        <button class="tf-tab active" data-tf="D1">D1</button>
-                        <button class="tf-tab" data-tf="H4">H4</button>
-                        <button class="tf-tab" data-tf="H1">H1</button>
+                    <div class="chart-legend-hints">
+                        <span class="legend-hint green-hint"><span class="hint-line green"></span> +0.20</span>
+                        <span class="legend-hint grey-hint"><span class="hint-line grey"></span> 0.00</span>
+                        <span class="legend-hint red-hint"><span class="hint-line red"></span> -0.20</span>
                     </div>
                 </div>
 

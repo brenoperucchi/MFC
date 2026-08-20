@@ -458,59 +458,63 @@ body.dark-theme {
 }
 
 .chart-header {
-    background: var(--bg-card-header);
+    background: #111726;
     border-bottom: 1px solid var(--border-color);
-    padding: 8px 14px;
+    padding: 6px 12px;
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 12px;
-    flex-wrap: wrap;
+    gap: 8px;
+    min-height: 40px;
+    z-index: 20;
+    flex-wrap: nowrap;
 }
 
-.chart-title-group {
+.chart-header-left {
     display: flex;
     align-items: center;
     gap: 8px;
+    flex-wrap: nowrap;
 }
 
 .chart-icon {
-    font-size: 16px;
+    font-size: 14px;
 }
 
 .chart-title {
     font-family: var(--font-display);
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 700;
     color: #FFFFFF;
-}
-
-.tf-badge {
-    background: #1E293B;
-    color: #00E5FF;
-    font-family: var(--font-mono);
-    font-size: 11px;
-    font-weight: 800;
-    padding: 2px 8px;
-    border-radius: 6px;
-    border: 1px solid rgba(0, 229, 255, 0.3);
+    white-space: nowrap;
 }
 
 .tf-tabs {
-    display: flex;
-    background: #0B0F17;
-    padding: 2px;
+    display: inline-flex;
+    align-items: center;
+    background: #090D15;
+    padding: 2px 4px;
     border-radius: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
     gap: 2px;
 }
 
+.tf-tabs-label {
+    font-size: 10px;
+    font-weight: 800;
+    color: var(--color-cyan);
+    font-family: var(--font-mono);
+    margin-right: 2px;
+    margin-left: 2px;
+}
+
 .tf-tab {
-    background: transparent;
-    border: none;
+    background: #141D2E;
+    border: 1px solid rgba(255, 255, 255, 0.05);
     color: var(--text-secondary);
     font-family: var(--font-mono);
     font-size: 11px;
-    font-weight: 700;
+    font-weight: 800;
     padding: 3px 8px;
     border-radius: 4px;
     cursor: pointer;
@@ -518,13 +522,17 @@ body.dark-theme {
 }
 
 .tf-tab:hover {
+    background: #1F2D47;
     color: #FFFFFF;
+    border-color: rgba(0, 229, 255, 0.3);
 }
 
 .tf-tab.active {
-    background: #25334D;
-    color: #00E5FF;
-    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+    background: linear-gradient(135deg, #00E5FF, #0091EA);
+    color: #051329;
+    border-color: #00E5FF;
+    font-weight: 900;
+    box-shadow: 0 0 10px rgba(0, 229, 255, 0.4);
 }
 
 .chart-legend-hints {
