@@ -1172,6 +1172,7 @@ function drawTriadMiniChart(canvasId, target, tf) {
 // RAIO-X 5-TIMEFRAMES DA MOEDA OU DO PAR FOREX
 window.openDeepDive = function(target) {
     if (!state.data) return;
+    state.selectedDeepDiveTarget = target;
 
     const isPair = target.length === 6 && !state.currencies.includes(target);
     const triadsGrid = document.getElementById("deepDiveTriadsGrid");
@@ -1337,6 +1338,24 @@ window.openDeepDive = function(target) {
     requestAnimationFrame(renderCharts);
     setTimeout(renderCharts, 60);
     setTimeout(renderCharts, 200);
+};
+
+// IMPRESSÃO / EXPORTAÇÃO EM PDF DO RAIO-X INSTITUCIONAL
+window.printDeepDiveReport = function() {
+    document.body.classList.add("printing-deep-dive");
+    
+    const tfs = ["MN1", "W1", "D1", "H4", "H1"];
+    const target = state.selectedDeepDiveTarget || "USD";
+    
+    // Garantir renderização imediata dos 5 canvas antes do diálogo de impressão
+    tfs.forEach(tf => drawTriadMiniChart(`deepDiveCanvas_${tf}`, target, tf));
+
+    setTimeout(() => {
+        window.print();
+        setTimeout(() => {
+            document.body.classList.remove("printing-deep-dive");
+        }, 800);
+    }, 120);
 };
 
 // HISTÓRICO DE RELATÓRIOS

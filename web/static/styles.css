@@ -2374,6 +2374,146 @@ body.dark-theme {
     }
 }
 
+/* ==========================================================================
+   PRINT / PDF EXPORT STYLING FOR RAIO-X 5-TIMEFRAMES REPORT
+   ========================================================================== */
+
+.btn-print-pdf {
+    background: linear-gradient(135deg, rgba(0, 229, 255, 0.15), rgba(0, 114, 255, 0.25));
+    border: 1px solid rgba(0, 229, 255, 0.4);
+    color: #00E5FF;
+    border-radius: 6px;
+    padding: 6px 12px;
+    font-size: 11px;
+    font-weight: 700;
+    font-family: var(--font-display);
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.btn-print-pdf:hover {
+    background: rgba(0, 229, 255, 0.25);
+    border-color: #00E5FF;
+    color: #FFFFFF;
+    box-shadow: 0 0 12px rgba(0, 229, 255, 0.35);
+    transform: translateY(-1px);
+}
+
+@media print {
+    @page {
+        size: A4 portrait;
+        margin: 8mm;
+    }
+
+    html, body {
+        background: #080B11 !important;
+        color: #FFFFFF !important;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+        height: auto !important;
+        overflow: visible !important;
+    }
+
+    /* Ocultar elementos fora do modal */
+    .app-header,
+    .main-container,
+    #pairsModal,
+    #matrixModal,
+    #historyModal,
+    #trackRecordModal,
+    #crossoversModal {
+        display: none !important;
+    }
+
+    body.printing-deep-dive #deepDiveModal,
+    #deepDiveModal:not(.hidden) {
+        display: block !important;
+        position: static !important;
+        background: transparent !important;
+        padding: 0 !important;
+        width: 100% !important;
+        max-width: 100% !important;
+        height: auto !important;
+        overflow: visible !important;
+    }
+
+    #deepDiveModal .modal-dialog {
+        background: #080B11 !important;
+        border: none !important;
+        box-shadow: none !important;
+        width: 100% !important;
+        max-width: 100% !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        transform: none !important;
+        height: auto !important;
+        max-height: none !important;
+        overflow: visible !important;
+    }
+
+    #deepDiveModal .modal-header {
+        border-bottom: 2px solid rgba(0, 229, 255, 0.4) !important;
+        padding-bottom: 10px !important;
+        margin-bottom: 12px !important;
+    }
+
+    .btn-print-pdf,
+    .modal-close {
+        display: none !important;
+    }
+
+    #deepDiveModal .modal-body {
+        padding: 0 !important;
+        overflow: visible !important;
+        max-height: none !important;
+    }
+
+    .deep-dive-verdict-card {
+        background: #0E131E !important;
+        border: 1px solid rgba(255, 255, 255, 0.12) !important;
+        page-break-inside: avoid !important;
+        break-inside: avoid !important;
+        margin-bottom: 12px !important;
+    }
+
+    .triad-card {
+        background: #0E131E !important;
+        border: 1px solid rgba(255, 255, 255, 0.12) !important;
+        page-break-inside: avoid !important;
+        break-inside: avoid !important;
+        margin-bottom: 10px !important;
+    }
+
+    .triad-card-body {
+        display: flex !important;
+        flex-direction: row !important;
+        gap: 12px !important;
+    }
+
+    .triad-canvas-container {
+        background: #05070A !important;
+        height: 135px !important;
+        min-height: 135px !important;
+        flex: 3 !important;
+    }
+
+    .triad-canvas-container canvas {
+        width: 100% !important;
+        height: 135px !important;
+    }
+
+    .triad-info-pane {
+        background: #05070A !important;
+        border: 1px solid rgba(255, 255, 255, 0.08) !important;
+        flex: 1 !important;
+        min-width: 220px !important;
+    }
+}
+
+
 
 
 

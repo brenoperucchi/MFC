@@ -8,7 +8,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/styles.css?v=2.6">
+    <link rel="stylesheet" href="/static/styles.css?v=2.7">
 </head>
 <body class="dark-theme">
     <!-- TOP NAVIGATION BAR -->
@@ -290,7 +290,12 @@
                         <p class="modal-subtitle" id="deepDiveSubtitle">Avaliação Estruturada da Tríade Analítica nos 5 Timeframes</p>
                     </div>
                 </div>
-                <button class="modal-close" id="btnCloseDeepDiveModal">&times;</button>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <button class="btn-print-pdf" id="btnPrintDeepDivePDF" onclick="printDeepDiveReport()" title="Imprimir Relatório Institucional em PDF">
+                        <span>🖨️</span> <span>Imprimir em PDF</span>
+                    </button>
+                    <button class="modal-close" id="btnCloseDeepDiveModal">&times;</button>
+                </div>
             </div>
 
             <div class="modal-body">
@@ -739,6 +744,6 @@
     </div>
 
     <!-- SCRIPTS -->
-    <script src="/static/app.js?v=2.6"></script>
+    <script src="/static/app.js?v=2.7"></script>
 </body>
 </html>
