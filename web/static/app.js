@@ -451,17 +451,63 @@ function drawTimeAxis(ctx, width, height, times, getX, padding, tf) {
     ctx.font = "9.5px 'JetBrains Mono', monospace";
     ctx.textAlign = "center";
 
-    const isMobile = window.innerWidth <= 768;
-    const isSmall = window.innerWidth <= 480;
-    const targetLabelsCount = isSmall ? 3 : (isMobile ? 5 : 7);
-    const step = Math.max(1, Math.floor((times.length - 1) / targetLabelsCount));
+    const plotW = width - padding.left - padding.right;
+    const numPoints = times.length;
 
-    for (let i = 0; i < times.length; i += step) {
-        const tStr = times[i];
-        if (!tStr) continue;
+    // 1. Formatação adaptativa baseada na largura real do gráfico (Split 2X/3X vs Único)
+    const formatTimeLabel = (tStr) => {
+        if (!tStr) return "";
+        if (!tStr.includes(" ")) return tStr;
 
+        const [datePart, timePart] = tStr.split(" ");
+        const [year, month, day] = datePart.split("-");
+
+        if (tf === "H1" || tf === "H4") {
+            // Em telas/gráficos compactos (Split 2X, Split 3X ou telas menores), usar formato curto e limpo
+            if (plotW < 520) {
+                return `${timePart}`;
+            } else if (plotW < 800) {
+                return `${day}/${month} ${timePart.slice(0, 5)}`;
+            } else {
+                return `${timePart.slice(0, 5)} (${day}/${month})`;
+            }
+        } else if (tf === "D1" || tf === "W1") {
+            return `${day}/${month}`;
+        } else if (tf === "MN1") {
+            return `${month}/${year ? year.slice(2) : ''}`;
+        }
+        return tStr;
+    };
+
+    // 2. Determinar a densidade ideal de labels medindo a largura de texto
+    const sampleLabel = formatTimeLabel(times[Math.floor(numPoints / 2)] || "00:00 (00/00)");
+    const sampleWidth = ctx.measureText(sampleLabel).width;
+    const minGap = 28; // Espaço mínimo livre de 28px entre uma label e outra
+    const maxPossibleLabels = Math.max(2, Math.floor(plotW / (sampleWidth + minGap)));
+    const step = Math.max(1, Math.ceil((numPoints - 1) / maxPossibleLabels));
+
+    let lastDrawnRight = -9999;
+
+    for (let i = 0; i < numPoints; i += step) {
+        const rawTime = times[i];
+        if (!rawTime) continue;
+
+        const label = formatTimeLabel(rawTime);
         const x = getX(i);
-        
+        const textWidth = ctx.measureText(label).width;
+        const labelLeft = x - (textWidth / 2);
+        const labelRight = x + (textWidth / 2);
+
+        // Anti-Colisão Estrita: Não desenhar se sobrepõe a label anterior
+        if (labelLeft < lastDrawnRight + minGap) {
+            continue;
+        }
+
+        // Não desenhar cortado fora dos limites do Canvas
+        if (labelLeft < 2 || labelRight > width - 2) {
+            continue;
+        }
+
         // Linha de grade vertical sutil
         ctx.save();
         ctx.strokeStyle = "rgba(255, 255, 255, 0.05)";
@@ -473,24 +519,13 @@ function drawTimeAxis(ctx, width, height, times, getX, padding, tf) {
         ctx.stroke();
         ctx.restore();
 
-        // Formatação amigável do horário/data
-        let label = tStr;
-        if (tStr.includes(" ")) {
-            const [datePart, timePart] = tStr.split(" ");
-            const [year, month, day] = datePart.split("-");
-            if (tf === "H1" || tf === "H4") {
-                label = isSmall ? `${timePart}` : `${timePart} (${day}/${month})`;
-            } else if (tf === "D1" || tf === "W1") {
-                label = `${day}/${month}`;
-            } else if (tf === "MN1") {
-                label = `${month}/${year ? year.slice(2) : ''}`;
-            }
-        }
-
+        // Texto do Eixo Horizontal
         ctx.save();
         ctx.fillStyle = "rgba(148, 163, 184, 0.85)";
         ctx.fillText(label, x, height - 7);
         ctx.restore();
+
+        lastDrawnRight = labelRight;
     }
     ctx.restore();
 }
