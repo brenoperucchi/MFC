@@ -52,10 +52,10 @@ CURRENCIES = ["USD", "EUR", "GBP", "CHF", "JPY", "AUD", "CAD", "NZD"]
 
 CCY_COLORS = {
     "USD": "#FF3333",
-    "EUR": "#00BFFF",
+    "EUR": "#2ECC71",
     "GBP": "#4169E1",
     "CHF": "#00E5FF",
-    "JPY": "#FFD700",
+    "JPY": "#9932CC",
     "AUD": "#FF8C00",
     "CAD": "#8B0000",
     "NZD": "#D2B48C"

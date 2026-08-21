@@ -38,12 +38,12 @@ const CCY_FLAGS = {
 
 const CCY_COLORS = {
     USD: "#FF3B30",
-    EUR: "#00BFFF",
+    EUR: "#2ECC71",
     GBP: "#3872FF",
     CHF: "#00E5FF",
-    JPY: "#FFD700",
+    JPY: "#9932CC",
     AUD: "#FF8C00",
-    CAD: "#E0245E",
+    CAD: "#8B0000",
     NZD: "#D2B48C"
 };
 

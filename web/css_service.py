@@ -55,13 +55,13 @@ CCY_FLAGS = {
 
 CCY_COLORS = {
     "USD": "#FF3B30", # Red
-    "EUR": "#00BFFF", # Vivid Sky Blue
+    "EUR": "#2ECC71", # ForestGreen (Verde)
     "GBP": "#3872FF", # Royal Blue
-    "CHF": "#00E5FF", # Cyan / Bright Blue
-    "JPY": "#FFD700", # Yellow / Gold
-    "AUD": "#FF8C00", # Deep Orange
-    "CAD": "#E0245E", # Deep Pink / Crimson
-    "NZD": "#D2B48C"  # Sand / Khaki
+    "CHF": "#00E5FF", # PaleTurquoise / Cyan
+    "JPY": "#9932CC", # DarkOrchid (Roxo)
+    "AUD": "#FF8C00", # Orange
+    "CAD": "#8B0000", # Maroon
+    "NZD": "#D2B48C"  # Tan
 }
 
 def get_tf_constant(tf_name):
