@@ -1422,22 +1422,336 @@ window.openDeepDive = function(target) {
     setTimeout(renderCharts, 200);
 };
 
-// IMPRESSÃO / EXPORTAÇÃO EM PDF DO RAIO-X INSTITUCIONAL
+// IMPRESSÃO / EXPORTAÇÃO EM PDF DO RAIO-X INSTITUCIONAL (ISOLADO 100%)
 window.printDeepDiveReport = function() {
-    document.body.classList.add("printing-deep-dive");
-    
-    const tfs = ["MN1", "W1", "D1", "H4", "H1"];
     const target = state.selectedDeepDiveTarget || "USD";
+    const flag = CCY_FLAGS[target] || "";
+    const tfs = ["MN1", "W1", "D1", "H4", "H1"];
     
-    // Garantir renderização imediata dos 5 canvas antes do diálogo de impressão
+    // Garantir renderização imediata dos 5 canvas
     tfs.forEach(tf => drawTriadMiniChart(`deepDiveCanvas_${tf}`, target, tf));
 
-    setTimeout(() => {
+    // Capturar as imagens em dataURL dos 5 canvas
+    const canvasImages = {};
+    tfs.forEach(tf => {
+        const cvs = document.getElementById(`deepDiveCanvas_${tf}`);
+        if (cvs) {
+            canvasImages[tf] = cvs.toDataURL("image/png");
+        }
+    });
+
+    const verdictEl = document.getElementById("deepDiveVerdictCard");
+    const verdictHtml = verdictEl ? verdictEl.innerHTML : "";
+    
+    let triadsHtml = "";
+    const triadCards = document.querySelectorAll("#deepDiveTriadsGrid .triad-card");
+    triadCards.forEach((card, idx) => {
+        const tf = tfs[idx] || "";
+        const titleEl = card.querySelector(".triad-card-header");
+        const infoEl = card.querySelector(".triad-info-pane");
+        const imgUrl = canvasImages[tf] || "";
+
+        triadsHtml += `
+            <div class="print-triad-card">
+                <div class="print-triad-header">${titleEl ? titleEl.innerHTML : tf}</div>
+                <div class="print-triad-body">
+                    <div class="print-triad-chart">
+                        <img src="${imgUrl}" style="width: 100%; height: 130px; object-fit: contain; display: block;" />
+                    </div>
+                    <div class="print-triad-info">
+                        ${infoEl ? infoEl.innerHTML : ""}
+                    </div>
+                </div>
+            </div>
+        `;
+    });
+
+    const printWin = window.open("", "_blank", "width=900,height=1000");
+    if (!printWin) {
+        // Fallback caso popup seja bloqueado
+        document.body.classList.add("printing-deep-dive");
         window.print();
-        setTimeout(() => {
-            document.body.classList.remove("printing-deep-dive");
-        }, 800);
-    }, 120);
+        setTimeout(() => document.body.classList.remove("printing-deep-dive"), 800);
+        return;
+    }
+
+    const printDoc = printWin.document;
+    printDoc.open();
+    printDoc.write(`
+        <!DOCTYPE html>
+        <html lang="pt-BR">
+        <head>
+            <meta charset="UTF-8">
+            <title>Raio-X Institucional ${target} — CSS PRO</title>
+            <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+            <style>
+                @page { size: A4 portrait; margin: 8mm 10mm; }
+                * { box-sizing: border-box; margin: 0; padding: 0; }
+                body {
+                    background: #080B11 !important;
+                    color: #FFFFFF !important;
+                    font-family: 'Inter', sans-serif;
+                    padding: 10px;
+                    -webkit-print-color-adjust: exact !important;
+                    print-color-adjust: exact !important;
+                }
+                .print-header {
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                    border-bottom: 2px solid rgba(0, 229, 255, 0.4);
+                    padding-bottom: 8px;
+                    margin-bottom: 12px;
+                }
+                .print-title { font-size: 18px; font-weight: 800; color: #FFFFFF; }
+                .print-subtitle { font-size: 11px; color: #8899A6; margin-top: 2px; }
+                .deep-dive-verdict-card {
+                    background: #0E131E;
+                    border: 1px solid rgba(255, 255, 255, 0.12);
+                    border-radius: 8px;
+                    padding: 10px 14px;
+                    margin-bottom: 10px;
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                    page-break-inside: avoid;
+                    break-inside: avoid;
+                }
+                .signal-pill {
+                    display: inline-block;
+                    padding: 4px 12px;
+                    border-radius: 6px;
+                    font-size: 11px;
+                    font-weight: 800;
+                    text-transform: uppercase;
+                }
+                .signal-pill.buy { background: rgba(0, 230, 118, 0.2); color: #00E676; border: 1px solid #00E676; }
+                .signal-pill.sell { background: rgba(255, 23, 68, 0.2); color: #FF1744; border: 1px solid #FF1744; }
+                .signal-pill.neutral { background: rgba(255, 215, 0, 0.2); color: #FFD700; border: 1px solid #FFD700; }
+                
+                .print-triad-card {
+                    background: #0E131E;
+                    border: 1px solid rgba(255, 255, 255, 0.12);
+                    border-radius: 8px;
+                    padding: 8px 10px;
+                    margin-bottom: 8px;
+                    page-break-inside: avoid;
+                    break-inside: avoid;
+                }
+                .print-triad-header {
+                    font-size: 11.5px;
+                    font-weight: 700;
+                    color: #FFFFFF;
+                    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+                    padding-bottom: 4px;
+                    margin-bottom: 6px;
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                }
+                .triad-score.positive { color: #00E676; font-weight: 700; }
+                .triad-score.negative { color: #FF1744; font-weight: 700; }
+                .print-triad-body {
+                    display: flex;
+                    flex-direction: row;
+                    gap: 10px;
+                    align-items: stretch;
+                }
+                .print-triad-chart {
+                    flex: 3;
+                    background: #05070A;
+                    border-radius: 6px;
+                    overflow: hidden;
+                    border: 1px solid rgba(255, 255, 255, 0.06);
+                }
+                .print-triad-info {
+                    flex: 1.2;
+                    background: #05070A;
+                    border-radius: 6px;
+                    border: 1px solid rgba(255, 255, 255, 0.06);
+                    padding: 6px 8px;
+                    font-size: 9.5px;
+                    display: flex;
+                    flex-direction: column;
+                    gap: 3px;
+                    justify-content: center;
+                }
+                .triad-step { display: flex; flex-direction: column; margin-bottom: 2px; }
+                .triad-step-label { font-size: 8px; color: #7F8C8D; text-transform: uppercase; font-weight: 700; }
+                .triad-step-val { font-size: 9px; font-weight: 700; }
+            </style>
+        </head>
+        <body>
+            <div class="print-header">
+                <div>
+                    <h1 class="print-title">${flag} Raio-X Institucional: ${target}</h1>
+                    <p class="print-subtitle">Diagnóstico Cíclico e Tríade Analítica nos 5 Timeframes (MN1, W1, D1, H4, H1) — CSS PRO</p>
+                </div>
+                <div style="font-size: 11px; color: #8899A6; text-align: right;">
+                    ${state.data?.timestamp || new Date().toLocaleString()}
+                </div>
+            </div>
+
+            <div class="deep-dive-verdict-card">
+                ${verdictHtml}
+            </div>
+
+            <div class="print-triads-container">
+                ${triadsHtml}
+            </div>
+
+            <script>
+                window.onload = function() {
+                    setTimeout(function() {
+                        window.print();
+                    }, 250);
+                };
+            </script>
+        </body>
+        </html>
+    `);
+    printDoc.close();
+};
+
+// EXPORTAÇÃO DIRETA DO RAIO-X EM IMAGEM DE ALTA RESOLUÇÃO (PNG)
+window.exportDeepDiveImage = function() {
+    const target = state.selectedDeepDiveTarget || "USD";
+    const flag = CCY_FLAGS[target] || "";
+    const tfs = ["MN1", "W1", "D1", "H4", "H1"];
+    const isPair = target.length === 6 && !state.currencies.includes(target);
+
+    // Redesenhar os 5 mini canvas
+    tfs.forEach(tf => drawTriadMiniChart(`deepDiveCanvas_${tf}`, target, tf));
+
+    const exportCanvas = document.createElement("canvas");
+    const width = 1200;
+    const height = 1580;
+    exportCanvas.width = width;
+    exportCanvas.height = height;
+    const ctx = exportCanvas.getContext("2d");
+
+    // 1. Fundo Dark Premium
+    ctx.fillStyle = "#080B11";
+    ctx.fillRect(0, 0, width, height);
+
+    // 2. Cabeçalho
+    ctx.fillStyle = "#0E131E";
+    ctx.fillRect(20, 20, width - 40, 85);
+    ctx.strokeStyle = "rgba(0, 229, 255, 0.4)";
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(20, 20, width - 40, 85);
+
+    ctx.fillStyle = "#FFFFFF";
+    ctx.font = "bold 24px 'Inter', sans-serif";
+    ctx.fillText(`${flag} Raio-X Institucional: ${target}`, 40, 58);
+
+    ctx.fillStyle = "#8899A6";
+    ctx.font = "13px 'Inter', sans-serif";
+    ctx.fillText("Diagnóstico Cíclico e Tríade Analítica nos 5 Timeframes (MN1, W1, D1, H4, H1) — CSS PRO", 40, 85);
+
+    const timeStr = state.data?.timestamp || new Date().toLocaleString();
+    ctx.textAlign = "right";
+    ctx.fillText(timeStr, width - 40, 58);
+    ctx.textAlign = "left";
+
+    // 3. Card de Confluência / Veredito
+    let ccyData = null;
+    let pairItem = null;
+    if (isPair) pairItem = state.data.pairs?.find(p => p.pair === target);
+    else ccyData = state.data.currencies?.find(c => c.symbol === target);
+
+    ctx.fillStyle = "#0E131E";
+    ctx.fillRect(20, 118, width - 40, 75);
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.12)";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(20, 118, width - 40, 75);
+
+    ctx.fillStyle = "#7F8C8D";
+    ctx.font = "bold 11px 'Inter', sans-serif";
+    ctx.fillText("ESTADO DE CONFLUÊNCIA:", 40, 142);
+
+    ctx.fillStyle = "#00E5FF";
+    ctx.font = "bold 16px 'Inter', sans-serif";
+    const stateText = isPair ? (pairItem ? `${pairItem.recommendation} — Convicção: ${pairItem.conviction}` : target) : (ccyData ? ccyData.confluence_state : "");
+    ctx.fillText(stateText, 40, 168);
+
+    if (ccyData && ccyData.has_divergence) {
+        ctx.fillStyle = "#FFD600";
+        ctx.font = "12px 'Inter', sans-serif";
+        ctx.fillText(ccyData.divergence_alert, 40, 185);
+    }
+
+    // 4. Desenhar os 5 Timeframe Cards
+    let startY = 205;
+    const cardHeight = 260;
+    const cardGap = 12;
+
+    tfs.forEach((tf, i) => {
+        const y = startY + i * (cardHeight + cardGap);
+        const cardW = width - 40;
+
+        // Fundo do Card TF
+        ctx.fillStyle = "#0E131E";
+        ctx.fillRect(20, y, cardW, cardHeight);
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.1)";
+        ctx.lineWidth = 1;
+        ctx.strokeRect(20, y, cardW, cardHeight);
+
+        // Header do Card TF
+        const triad = ccyData ? ccyData.triads[tf] : null;
+        ctx.fillStyle = "#FFFFFF";
+        ctx.font = "bold 15px 'Inter', sans-serif";
+        ctx.fillText(`📊 ${tf} ${target}`, 35, y + 26);
+
+        if (triad) {
+            ctx.fillStyle = triad.score > 0 ? "#00E676" : "#FF1744";
+            ctx.font = "bold 14px 'JetBrains Mono', monospace";
+            ctx.textAlign = "right";
+            ctx.fillText(`${triad.score_str} ${triad.dir} — ${triad.angle}`, width - 35, y + 26);
+            ctx.textAlign = "left";
+        }
+
+        // Gráfico (renderizado a partir do canvas existente)
+        const srcCanvas = document.getElementById(`deepDiveCanvas_${tf}`);
+        if (srcCanvas) {
+            const chartW = cardW * 0.70;
+            const chartH = cardHeight - 45;
+            ctx.drawImage(srcCanvas, 35, y + 36, chartW, chartH);
+        }
+
+        // Painel de Texto da Tríade à direita (30% da largura)
+        const infoX = 35 + cardW * 0.70 + 15;
+        const infoW = cardW * 0.26;
+        ctx.fillStyle = "#05070A";
+        ctx.fillRect(infoX, y + 36, infoW, cardHeight - 45);
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.08)";
+        ctx.strokeRect(infoX, y + 36, infoW, cardHeight - 45);
+
+        if (triad) {
+            let lineY = y + 56;
+            const drawStep = (label, val, color) => {
+                ctx.fillStyle = "#7F8C8D";
+                ctx.font = "bold 10px 'Inter', sans-serif";
+                ctx.fillText(label.toUpperCase(), infoX + 12, lineY);
+                lineY += 16;
+                ctx.fillStyle = color || "#FFFFFF";
+                ctx.font = "bold 11.5px 'Inter', sans-serif";
+                ctx.fillText(val, infoX + 12, lineY);
+                lineY += 28;
+            };
+
+            drawStep("1. Região no Box", triad.region, "#FFFFFF");
+            drawStep("2. Ciclo Atual", triad.current_cycle, "#00E5FF");
+            drawStep("3. Ciclo Devendo", triad.owing_cycle, "#FFD600");
+            drawStep("4. Angulação / Veredito", triad.angle, "#FFFFFF");
+        }
+    });
+
+    // 5. Baixar imagem PNG
+    const link = document.createElement("a");
+    link.download = `Raio-X_${target}_${new Date().toISOString().slice(0, 10)}.png`;
+    link.href = exportCanvas.toDataURL("image/png");
+    link.click();
 };
 
 // HISTÓRICO DE RELATÓRIOS

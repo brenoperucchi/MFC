@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-08-21 15:40:34",
+  "timestamp": "2026-08-21 16:31:16",
   "mt5_connected": true,
   "engine_mode": "standard",
   "engine_mode_label": "MODO PADRÃO (TMA / LWMA)",
@@ -8,10 +8,10 @@
       "symbol": "USD",
       "flag": "🇺🇸",
       "color": "#FF3B30",
-      "h1_score": -0.33,
-      "h4_score": -1.02,
+      "h1_score": -0.21,
+      "h4_score": -1.0,
       "d1_score": -0.71,
-      "total_score": -0.51,
+      "total_score": -0.48,
       "signal_badge": "BUY",
       "trade_bias": "COMPRA FORTE",
       "confluence_state": "CONFLUÊNCIA DE ALTA (DEVENDO CICLO DE FORÇA)",
@@ -21,9 +21,9 @@
       "triads": {
         "MN1": {
           "tf": "MN1",
-          "score": -0.2763497602668479,
+          "score": -0.27523833510086804,
           "score_str": "-0.28",
-          "diff": -0.0274,
+          "diff": -0.0262,
           "dir": "▼ DN",
           "led": "red",
           "region": "Zona de Parada Vermelha (-0.28 <= -0.20)",
@@ -37,25 +37,25 @@
         },
         "W1": {
           "tf": "W1",
-          "score": 0.04130743049427031,
+          "score": 0.04386476801074312,
           "score_str": "+0.04",
-          "diff": -0.0823,
+          "diff": -0.0797,
           "dir": "▼ DN",
           "led": "red",
           "region": "Linha de Equilíbrio 0.00 (+0.04)",
           "region_type": "EQUILIBRIO_0",
           "current_cycle": "Ciclo de Baixa em Andamento (Cruzando o Box)",
           "owing_cycle": "Devendo Ciclo de Baixa rumo à Linha Vermelha (-0.20)",
-          "angle": "🎢 Montanha-Russa (Forte Aceleração de Baixa ▼▼)",
-          "angle_type": "MONTANHA_RUSSA",
+          "angle": "▼ Inclinado para Fraqueza (DN)",
+          "angle_type": "FRAQUEZA_MODERADA",
           "is_retomada_forca": false,
           "is_retomada_fraqueza": false
         },
         "D1": {
           "tf": "D1",
-          "score": -0.713554642720583,
+          "score": -0.707089720786939,
           "score_str": "-0.71",
-          "diff": -0.0455,
+          "diff": -0.0391,
           "dir": "▼ DN",
           "led": "red",
           "region": "Extremo Inferior (-0.71 <= -0.50)",
@@ -69,28 +69,28 @@
         },
         "H4": {
           "tf": "H4",
-          "score": -1.0184293967058773,
-          "score_str": "-1.02",
-          "diff": 0.0194,
+          "score": -0.9987616343930086,
+          "score_str": "-1.00",
+          "diff": 0.039,
           "dir": "▲ UP",
           "led": "green",
-          "region": "Extremo Inferior (-1.02 <= -0.50)",
+          "region": "Extremo Inferior (-1.00 <= -0.50)",
           "region_type": "EXTREMO_INFERIOR",
           "current_cycle": "Início de Ciclo de Alta (Virada no Fundo / Linha Vermelha)",
           "owing_cycle": "Devendo Ciclo de Força rumo à Linha Verde (+0.20)",
-          "angle": "▲ Sutilmente Inclinado para Força",
-          "angle_type": "FORCA_SUTIL",
+          "angle": "▲ Inclinado para Força (UP)",
+          "angle_type": "FORCA_MODERADA",
           "is_retomada_forca": false,
           "is_retomada_fraqueza": false
         },
         "H1": {
           "tf": "H1",
-          "score": -0.32529708480119085,
-          "score_str": "-0.33",
-          "diff": 0.0611,
+          "score": -0.2111531600518687,
+          "score_str": "-0.21",
+          "diff": 0.1165,
           "dir": "▲ UP",
           "led": "green",
-          "region": "Zona de Parada Vermelha (-0.33 <= -0.20)",
+          "region": "Zona de Parada Vermelha (-0.21 <= -0.20)",
           "region_type": "ZONA_PARADA_VERMELHA",
           "current_cycle": "Início de Ciclo de Alta (Virada no Fundo / Linha Vermelha)",
           "owing_cycle": "Devendo Ciclo de Força rumo à Linha Verde (+0.20)",
@@ -109,12 +109,12 @@
       },
       "active_h1_triad": {
         "tf": "H1",
-        "score": -0.32529708480119085,
-        "score_str": "-0.33",
-        "diff": 0.0611,
+        "score": -0.2111531600518687,
+        "score_str": "-0.21",
+        "diff": 0.1165,
         "dir": "▲ UP",
         "led": "green",
-        "region": "Zona de Parada Vermelha (-0.33 <= -0.20)",
+        "region": "Zona de Parada Vermelha (-0.21 <= -0.20)",
         "region_type": "ZONA_PARADA_VERMELHA",
         "current_cycle": "Início de Ciclo de Alta (Virada no Fundo / Linha Vermelha)",
         "owing_cycle": "Devendo Ciclo de Força rumo à Linha Verde (+0.20)",
@@ -125,17 +125,17 @@
       },
       "active_h4_triad": {
         "tf": "H4",
-        "score": -1.0184293967058773,
-        "score_str": "-1.02",
-        "diff": 0.0194,
+        "score": -0.9987616343930086,
+        "score_str": "-1.00",
+        "diff": 0.039,
         "dir": "▲ UP",
         "led": "green",
-        "region": "Extremo Inferior (-1.02 <= -0.50)",
+        "region": "Extremo Inferior (-1.00 <= -0.50)",
         "region_type": "EXTREMO_INFERIOR",
         "current_cycle": "Início de Ciclo de Alta (Virada no Fundo / Linha Vermelha)",
         "owing_cycle": "Devendo Ciclo de Força rumo à Linha Verde (+0.20)",
-        "angle": "▲ Sutilmente Inclinado para Força",
-        "angle_type": "FORCA_SUTIL",
+        "angle": "▲ Inclinado para Força (UP)",
+        "angle_type": "FORCA_MODERADA",
         "is_retomada_forca": false,
         "is_retomada_fraqueza": false
       }
@@ -144,20 +144,20 @@
       "symbol": "EUR",
       "flag": "🇪🇺",
       "color": "#2ECC71",
-      "h1_score": -0.59,
+      "h1_score": -0.61,
       "h4_score": 0.03,
       "d1_score": 0.13,
       "total_score": -0.05,
-      "signal_badge": "SELL",
-      "trade_bias": "VENDA FORTE",
-      "confluence_state": "CONFLUÊNCIA DE QUEDA (DEVENDO CICLO DE FRAQUEZA)",
-      "final_verdict": "VENDA FORTE (RUMO À LINHA VERMELHA -0.20)",
+      "signal_badge": "BUY",
+      "trade_bias": "COMPRA",
+      "confluence_state": "OPERACIONAL EM ALTA (CICLO DE FORÇA H4/H1)",
+      "final_verdict": "COMPRA OPERACIONAL (BUSCANDO LINHA VERDE)",
       "has_divergence": false,
       "divergence_alert": "NENHUMA (TIMEFRAMES ALINHADOS)",
       "triads": {
         "MN1": {
           "tf": "MN1",
-          "score": 0.33120405131346076,
+          "score": 0.331221003531573,
           "score_str": "+0.33",
           "diff": -0.0176,
           "dir": "▼ DN",
@@ -173,9 +173,9 @@
         },
         "W1": {
           "tf": "W1",
-          "score": -0.08547939871688608,
+          "score": -0.08539335235985024,
           "score_str": "-0.09",
-          "diff": -0.0055,
+          "diff": -0.0054,
           "dir": "▼ DN",
           "led": "yellow",
           "region": "Dentro do Box Inferior (-0.09 entre -0.20 e 0.00)",
@@ -189,9 +189,9 @@
         },
         "D1": {
           "tf": "D1",
-          "score": 0.1290610348015786,
+          "score": 0.12916438290476925,
           "score_str": "+0.13",
-          "diff": -0.0387,
+          "diff": -0.0386,
           "dir": "▼ DN",
           "led": "red",
           "region": "Dentro do Box Superior (+0.13 entre 0.00 e +0.20)",
@@ -205,9 +205,9 @@
         },
         "H4": {
           "tf": "H4",
-          "score": 0.03191989167420149,
+          "score": 0.032794452055472885,
           "score_str": "+0.03",
-          "diff": -0.084,
+          "diff": -0.0832,
           "dir": "▼ DN",
           "led": "red",
           "region": "Linha de Equilíbrio 0.00 (+0.03)",
@@ -221,17 +221,17 @@
         },
         "H1": {
           "tf": "H1",
-          "score": -0.5876108219770168,
-          "score_str": "-0.59",
-          "diff": 0.0003,
-          "dir": "▲ UP",
-          "led": "green",
-          "region": "Extremo Inferior (-0.59 <= -0.50)",
+          "score": -0.6073111493746505,
+          "score_str": "-0.61",
+          "diff": -0.0183,
+          "dir": "▼ DN",
+          "led": "yellow",
+          "region": "Extremo Inferior (-0.61 <= -0.50)",
           "region_type": "EXTREMO_INFERIOR",
-          "current_cycle": "Início de Ciclo de Alta (Virada no Fundo / Linha Vermelha)",
-          "owing_cycle": "Devendo Ciclo de Força rumo à Linha Verde (+0.20)",
-          "angle": "▲ Sutilmente Inclinado para Força",
-          "angle_type": "FORCA_SUTIL",
+          "current_cycle": "Ciclo de Baixa em Exaustão (Sobrefraqueza Abaixo de -0.20)",
+          "owing_cycle": "Devendo Exaustão e Início de Ciclo de Força",
+          "angle": "▼ Sutilmente Inclinado para Fraqueza",
+          "angle_type": "FRAQUEZA_SUTIL",
           "is_retomada_forca": false,
           "is_retomada_fraqueza": false
         }
@@ -241,29 +241,29 @@
         "W1": "yellow",
         "D1": "red",
         "H4": "red",
-        "H1": "green"
+        "H1": "yellow"
       },
       "active_h1_triad": {
         "tf": "H1",
-        "score": -0.5876108219770168,
-        "score_str": "-0.59",
-        "diff": 0.0003,
-        "dir": "▲ UP",
-        "led": "green",
-        "region": "Extremo Inferior (-0.59 <= -0.50)",
+        "score": -0.6073111493746505,
+        "score_str": "-0.61",
+        "diff": -0.0183,
+        "dir": "▼ DN",
+        "led": "yellow",
+        "region": "Extremo Inferior (-0.61 <= -0.50)",
         "region_type": "EXTREMO_INFERIOR",
-        "current_cycle": "Início de Ciclo de Alta (Virada no Fundo / Linha Vermelha)",
-        "owing_cycle": "Devendo Ciclo de Força rumo à Linha Verde (+0.20)",
-        "angle": "▲ Sutilmente Inclinado para Força",
-        "angle_type": "FORCA_SUTIL",
+        "current_cycle": "Ciclo de Baixa em Exaustão (Sobrefraqueza Abaixo de -0.20)",
+        "owing_cycle": "Devendo Exaustão e Início de Ciclo de Força",
+        "angle": "▼ Sutilmente Inclinado para Fraqueza",
+        "angle_type": "FRAQUEZA_SUTIL",
         "is_retomada_forca": false,
         "is_retomada_fraqueza": false
       },
       "active_h4_triad": {
         "tf": "H4",
-        "score": 0.03191989167420149,
+        "score": 0.032794452055472885,
         "score_str": "+0.03",
-        "diff": -0.084,
+        "diff": -0.0832,
         "dir": "▼ DN",
         "led": "red",
         "region": "Linha de Equilíbrio 0.00 (+0.03)",
@@ -280,10 +280,10 @@
       "symbol": "GBP",
       "flag": "🇬🇧",
       "color": "#3872FF",
-      "h1_score": -0.2,
+      "h1_score": -0.16,
       "h4_score": -0.07,
-      "d1_score": 0.1,
-      "total_score": 0.03,
+      "d1_score": 0.11,
+      "total_score": 0.04,
       "signal_badge": "BUY",
       "trade_bias": "COMPRA FORTE",
       "confluence_state": "CONFLUÊNCIA DE ALTA (DEVENDO CICLO DE FORÇA)",
@@ -293,9 +293,9 @@
       "triads": {
         "MN1": {
           "tf": "MN1",
-          "score": 0.07615656892501689,
+          "score": 0.07620499853700625,
           "score_str": "+0.08",
-          "diff": 0.0009,
+          "diff": 0.001,
           "dir": "▲ UP",
           "led": "yellow",
           "region": "Dentro do Box Superior (+0.08 entre 0.00 e +0.20)",
@@ -309,9 +309,9 @@
         },
         "W1": {
           "tf": "W1",
-          "score": 0.23403121124065154,
+          "score": 0.23414910472067932,
           "score_str": "+0.23",
-          "diff": -0.0079,
+          "diff": -0.0078,
           "dir": "▼ DN",
           "led": "red",
           "region": "Zona de Parada Verde (+0.23 >= +0.20)",
@@ -325,12 +325,12 @@
         },
         "D1": {
           "tf": "D1",
-          "score": 0.10490107040562639,
-          "score_str": "+0.10",
-          "diff": 0.0136,
+          "score": 0.10510965941910737,
+          "score_str": "+0.11",
+          "diff": 0.0138,
           "dir": "▲ UP",
           "led": "green",
-          "region": "Dentro do Box Superior (+0.10 entre 0.00 e +0.20)",
+          "region": "Dentro do Box Superior (+0.11 entre 0.00 e +0.20)",
           "region_type": "BOX_SUPERIOR",
           "current_cycle": "Retomada de Força no Box (Ciclo Inválido de Baixa)",
           "owing_cycle": "Devendo Expansão de Alta rumo ao Topo",
@@ -341,9 +341,9 @@
         },
         "H4": {
           "tf": "H4",
-          "score": -0.07318349495863011,
+          "score": -0.07292073981769595,
           "score_str": "-0.07",
-          "diff": 0.0332,
+          "diff": 0.0335,
           "dir": "▲ UP",
           "led": "green",
           "region": "Dentro do Box Inferior (-0.07 entre -0.20 e 0.00)",
@@ -357,12 +357,12 @@
         },
         "H1": {
           "tf": "H1",
-          "score": -0.19647336756213396,
-          "score_str": "-0.20",
-          "diff": 0.0624,
+          "score": -0.1615584363480655,
+          "score_str": "-0.16",
+          "diff": 0.044,
           "dir": "▲ UP",
           "led": "green",
-          "region": "Dentro do Box Inferior (-0.20 entre -0.20 e 0.00)",
+          "region": "Dentro do Box Inferior (-0.16 entre -0.20 e 0.00)",
           "region_type": "BOX_INFERIOR",
           "current_cycle": "Ciclo de Alta em Andamento (Cruzando o Box)",
           "owing_cycle": "Devendo Ciclo de Alta rumo à Linha Verde (+0.20)",
@@ -381,12 +381,12 @@
       },
       "active_h1_triad": {
         "tf": "H1",
-        "score": -0.19647336756213396,
-        "score_str": "-0.20",
-        "diff": 0.0624,
+        "score": -0.1615584363480655,
+        "score_str": "-0.16",
+        "diff": 0.044,
         "dir": "▲ UP",
         "led": "green",
-        "region": "Dentro do Box Inferior (-0.20 entre -0.20 e 0.00)",
+        "region": "Dentro do Box Inferior (-0.16 entre -0.20 e 0.00)",
         "region_type": "BOX_INFERIOR",
         "current_cycle": "Ciclo de Alta em Andamento (Cruzando o Box)",
         "owing_cycle": "Devendo Ciclo de Alta rumo à Linha Verde (+0.20)",
@@ -397,9 +397,9 @@
       },
       "active_h4_triad": {
         "tf": "H4",
-        "score": -0.07318349495863011,
+        "score": -0.07292073981769595,
         "score_str": "-0.07",
-        "diff": 0.0332,
+        "diff": 0.0335,
         "dir": "▲ UP",
         "led": "green",
         "region": "Dentro do Box Inferior (-0.07 entre -0.20 e 0.00)",
@@ -416,10 +416,10 @@
       "symbol": "CHF",
       "flag": "🇨🇭",
       "color": "#00E5FF",
-      "h1_score": -0.54,
-      "h4_score": 0.46,
+      "h1_score": -0.53,
+      "h4_score": 0.45,
       "d1_score": -0.15,
-      "total_score": -0.08,
+      "total_score": -0.07,
       "signal_badge": "SELL",
       "trade_bias": "VENDA FORTE",
       "confluence_state": "CONFLUÊNCIA DE QUEDA (DEVENDO CICLO DE FRAQUEZA)",
@@ -429,9 +429,9 @@
       "triads": {
         "MN1": {
           "tf": "MN1",
-          "score": 0.4182118802225227,
+          "score": 0.4179699593099859,
           "score_str": "+0.42",
-          "diff": -0.04,
+          "diff": -0.0403,
           "dir": "▼ DN",
           "led": "red",
           "region": "Zona de Parada Verde (+0.42 >= +0.20)",
@@ -445,9 +445,9 @@
         },
         "W1": {
           "tf": "W1",
-          "score": -0.3469133173188198,
+          "score": -0.34727798917024455,
           "score_str": "-0.35",
-          "diff": 0.0273,
+          "diff": 0.0269,
           "dir": "▲ UP",
           "led": "green",
           "region": "Zona de Parada Vermelha (-0.35 <= -0.20)",
@@ -461,9 +461,9 @@
         },
         "D1": {
           "tf": "D1",
-          "score": -0.15382528907234402,
+          "score": -0.1547372715541734,
           "score_str": "-0.15",
-          "diff": -0.0155,
+          "diff": -0.0165,
           "dir": "▼ DN",
           "led": "red",
           "region": "Dentro do Box Inferior (-0.15 entre -0.20 e 0.00)",
@@ -477,12 +477,12 @@
         },
         "H4": {
           "tf": "H4",
-          "score": 0.45600919469133794,
-          "score_str": "+0.46",
-          "diff": -0.0925,
+          "score": 0.4541128541244933,
+          "score_str": "+0.45",
+          "diff": -0.0944,
           "dir": "▼ DN",
           "led": "red",
-          "region": "Zona de Parada Verde (+0.46 >= +0.20)",
+          "region": "Zona de Parada Verde (+0.45 >= +0.20)",
           "region_type": "ZONA_PARADA_VERDE",
           "current_cycle": "Início de Ciclo de Baixa (Virada no Topo / Linha Verde)",
           "owing_cycle": "Devendo Ciclo de Fraqueza rumo à Linha Vermelha (-0.20)",
@@ -493,12 +493,12 @@
         },
         "H1": {
           "tf": "H1",
-          "score": -0.5446216111334852,
-          "score_str": "-0.54",
-          "diff": 0.012,
+          "score": -0.5266743521251923,
+          "score_str": "-0.53",
+          "diff": 0.0127,
           "dir": "▲ UP",
           "led": "green",
-          "region": "Extremo Inferior (-0.54 <= -0.50)",
+          "region": "Extremo Inferior (-0.53 <= -0.50)",
           "region_type": "EXTREMO_INFERIOR",
           "current_cycle": "Início de Ciclo de Alta (Virada no Fundo / Linha Vermelha)",
           "owing_cycle": "Devendo Ciclo de Força rumo à Linha Verde (+0.20)",
@@ -517,12 +517,12 @@
       },
       "active_h1_triad": {
         "tf": "H1",
-        "score": -0.5446216111334852,
-        "score_str": "-0.54",
-        "diff": 0.012,
+        "score": -0.5266743521251923,
+        "score_str": "-0.53",
+        "diff": 0.0127,
         "dir": "▲ UP",
         "led": "green",
-        "region": "Extremo Inferior (-0.54 <= -0.50)",
+        "region": "Extremo Inferior (-0.53 <= -0.50)",
         "region_type": "EXTREMO_INFERIOR",
         "current_cycle": "Início de Ciclo de Alta (Virada no Fundo / Linha Vermelha)",
         "owing_cycle": "Devendo Ciclo de Força rumo à Linha Verde (+0.20)",
@@ -533,12 +533,12 @@
       },
       "active_h4_triad": {
         "tf": "H4",
-        "score": 0.45600919469133794,
-        "score_str": "+0.46",
-        "diff": -0.0925,
+        "score": 0.4541128541244933,
+        "score_str": "+0.45",
+        "diff": -0.0944,
         "dir": "▼ DN",
         "led": "red",
-        "region": "Zona de Parada Verde (+0.46 >= +0.20)",
+        "region": "Zona de Parada Verde (+0.45 >= +0.20)",
         "region_type": "ZONA_PARADA_VERDE",
         "current_cycle": "Início de Ciclo de Baixa (Virada no Topo / Linha Verde)",
         "owing_cycle": "Devendo Ciclo de Fraqueza rumo à Linha Vermelha (-0.20)",
@@ -552,22 +552,22 @@
       "symbol": "JPY",
       "flag": "🇯🇵",
       "color": "#9932CC",
-      "h1_score": -0.32,
-      "h4_score": -0.47,
+      "h1_score": -0.29,
+      "h4_score": -0.46,
       "d1_score": 0.09,
-      "total_score": -0.23,
-      "signal_badge": "BUY",
-      "trade_bias": "COMPRA",
-      "confluence_state": "OPERACIONAL EM ALTA (CICLO DE FORÇA H4/H1)",
-      "final_verdict": "COMPRA OPERACIONAL (BUSCANDO LINHA VERDE)",
+      "total_score": -0.22,
+      "signal_badge": "SELL",
+      "trade_bias": "VENDA FORTE",
+      "confluence_state": "CONFLUÊNCIA DE QUEDA (DEVENDO CICLO DE FRAQUEZA)",
+      "final_verdict": "VENDA FORTE (RUMO À LINHA VERMELHA -0.20)",
       "has_divergence": false,
       "divergence_alert": "NENHUMA (TIMEFRAMES ALINHADOS)",
       "triads": {
         "MN1": {
           "tf": "MN1",
-          "score": -0.8028578842808668,
+          "score": -0.8018902804510685,
           "score_str": "-0.80",
-          "diff": -0.0895,
+          "diff": -0.0885,
           "dir": "▼ DN",
           "led": "red",
           "region": "Extremo Inferior (-0.80 <= -0.50)",
@@ -581,9 +581,9 @@
         },
         "W1": {
           "tf": "W1",
-          "score": -0.020679461482702225,
+          "score": -0.018942844394659115,
           "score_str": "-0.02",
-          "diff": -0.0455,
+          "diff": -0.0438,
           "dir": "▼ DN",
           "led": "red",
           "region": "Linha de Equilíbrio 0.00 (-0.02)",
@@ -597,9 +597,9 @@
         },
         "D1": {
           "tf": "D1",
-          "score": 0.08706860383536526,
+          "score": 0.09162010255031607,
           "score_str": "+0.09",
-          "diff": -0.1538,
+          "diff": -0.1492,
           "dir": "▼ DN",
           "led": "red",
           "region": "Dentro do Box Superior (+0.09 entre 0.00 e +0.20)",
@@ -613,12 +613,12 @@
         },
         "H4": {
           "tf": "H4",
-          "score": -0.47457648197866614,
-          "score_str": "-0.47",
-          "diff": -0.0645,
+          "score": -0.46448937869652035,
+          "score_str": "-0.46",
+          "diff": -0.0544,
           "dir": "▼ DN",
           "led": "red",
-          "region": "Zona de Parada Vermelha (-0.47 <= -0.20)",
+          "region": "Zona de Parada Vermelha (-0.46 <= -0.20)",
           "region_type": "ZONA_PARADA_VERMELHA",
           "current_cycle": "Ciclo de Baixa em Exaustão (Sobrefraqueza Abaixo de -0.20)",
           "owing_cycle": "Devendo Exaustão e Início de Ciclo de Força",
@@ -629,17 +629,17 @@
         },
         "H1": {
           "tf": "H1",
-          "score": -0.31879548083406517,
-          "score_str": "-0.32",
-          "diff": -0.0293,
-          "dir": "▼ DN",
-          "led": "red",
-          "region": "Zona de Parada Vermelha (-0.32 <= -0.20)",
+          "score": -0.2865601333511321,
+          "score_str": "-0.29",
+          "diff": 0.0346,
+          "dir": "▲ UP",
+          "led": "green",
+          "region": "Zona de Parada Vermelha (-0.29 <= -0.20)",
           "region_type": "ZONA_PARADA_VERMELHA",
-          "current_cycle": "Ciclo de Baixa em Exaustão (Sobrefraqueza Abaixo de -0.20)",
-          "owing_cycle": "Devendo Exaustão e Início de Ciclo de Força",
-          "angle": "▼ Inclinado para Fraqueza (DN)",
-          "angle_type": "FRAQUEZA_MODERADA",
+          "current_cycle": "Início de Ciclo de Alta (Virada no Fundo / Linha Vermelha)",
+          "owing_cycle": "Devendo Ciclo de Força rumo à Linha Verde (+0.20)",
+          "angle": "▲ Inclinado para Força (UP)",
+          "angle_type": "FORCA_MODERADA",
           "is_retomada_forca": false,
           "is_retomada_fraqueza": false
         }
@@ -649,32 +649,32 @@
         "W1": "red",
         "D1": "red",
         "H4": "red",
-        "H1": "red"
+        "H1": "green"
       },
       "active_h1_triad": {
         "tf": "H1",
-        "score": -0.31879548083406517,
-        "score_str": "-0.32",
-        "diff": -0.0293,
-        "dir": "▼ DN",
-        "led": "red",
-        "region": "Zona de Parada Vermelha (-0.32 <= -0.20)",
+        "score": -0.2865601333511321,
+        "score_str": "-0.29",
+        "diff": 0.0346,
+        "dir": "▲ UP",
+        "led": "green",
+        "region": "Zona de Parada Vermelha (-0.29 <= -0.20)",
         "region_type": "ZONA_PARADA_VERMELHA",
-        "current_cycle": "Ciclo de Baixa em Exaustão (Sobrefraqueza Abaixo de -0.20)",
-        "owing_cycle": "Devendo Exaustão e Início de Ciclo de Força",
-        "angle": "▼ Inclinado para Fraqueza (DN)",
-        "angle_type": "FRAQUEZA_MODERADA",
+        "current_cycle": "Início de Ciclo de Alta (Virada no Fundo / Linha Vermelha)",
+        "owing_cycle": "Devendo Ciclo de Força rumo à Linha Verde (+0.20)",
+        "angle": "▲ Inclinado para Força (UP)",
+        "angle_type": "FORCA_MODERADA",
         "is_retomada_forca": false,
         "is_retomada_fraqueza": false
       },
       "active_h4_triad": {
         "tf": "H4",
-        "score": -0.47457648197866614,
-        "score_str": "-0.47",
-        "diff": -0.0645,
+        "score": -0.46448937869652035,
+        "score_str": "-0.46",
+        "diff": -0.0544,
         "dir": "▼ DN",
         "led": "red",
-        "region": "Zona de Parada Vermelha (-0.47 <= -0.20)",
+        "region": "Zona de Parada Vermelha (-0.46 <= -0.20)",
         "region_type": "ZONA_PARADA_VERMELHA",
         "current_cycle": "Ciclo de Baixa em Exaustão (Sobrefraqueza Abaixo de -0.20)",
         "owing_cycle": "Devendo Exaustão e Início de Ciclo de Força",
@@ -688,10 +688,10 @@
       "symbol": "AUD",
       "flag": "🇦🇺",
       "color": "#FF8C00",
-      "h1_score": 1.42,
-      "h4_score": 0.15,
+      "h1_score": 1.34,
+      "h4_score": 0.13,
       "d1_score": 0.16,
-      "total_score": 0.45,
+      "total_score": 0.43,
       "signal_badge": "BUY",
       "trade_bias": "COMPRA FORTE",
       "confluence_state": "CONFLUÊNCIA DE ALTA (DEVENDO CICLO DE FORÇA)",
@@ -701,9 +701,9 @@
       "triads": {
         "MN1": {
           "tf": "MN1",
-          "score": 0.5984021792845982,
+          "score": 0.5973932270338015,
           "score_str": "+0.60",
-          "diff": 0.0884,
+          "diff": 0.0874,
           "dir": "▲ UP",
           "led": "green",
           "region": "Extremo Superior (+0.60 >= +0.50)",
@@ -717,9 +717,9 @@
         },
         "W1": {
           "tf": "W1",
-          "score": 0.06991735058774105,
+          "score": 0.06773908253108454,
           "score_str": "+0.07",
-          "diff": 0.0133,
+          "diff": 0.0111,
           "dir": "▲ UP",
           "led": "green",
           "region": "Dentro do Box Superior (+0.07 entre 0.00 e +0.20)",
@@ -733,9 +733,9 @@
         },
         "D1": {
           "tf": "D1",
-          "score": 0.16314691298084408,
+          "score": 0.1576822970760884,
           "score_str": "+0.16",
-          "diff": 0.1348,
+          "diff": 0.1293,
           "dir": "▲ UP",
           "led": "green",
           "region": "Dentro do Box Superior (+0.16 entre 0.00 e +0.20)",
@@ -749,12 +749,12 @@
         },
         "H4": {
           "tf": "H4",
-          "score": 0.1457903869350601,
-          "score_str": "+0.15",
-          "diff": 0.1488,
+          "score": 0.1298943189757205,
+          "score_str": "+0.13",
+          "diff": 0.1329,
           "dir": "▲ UP",
           "led": "green",
-          "region": "Dentro do Box Superior (+0.15 entre 0.00 e +0.20)",
+          "region": "Dentro do Box Superior (+0.13 entre 0.00 e +0.20)",
           "region_type": "BOX_SUPERIOR",
           "current_cycle": "Ciclo de Alta em Andamento (Cruzando o Box)",
           "owing_cycle": "Devendo Ciclo de Alta rumo à Linha Verde (+0.20)",
@@ -765,17 +765,17 @@
         },
         "H1": {
           "tf": "H1",
-          "score": 1.41728679015052,
-          "score_str": "+1.42",
-          "diff": -0.0208,
+          "score": 1.3407856301159613,
+          "score_str": "+1.34",
+          "diff": -0.0806,
           "dir": "▼ DN",
           "led": "red",
-          "region": "Extremo Superior (+1.42 >= +0.50)",
+          "region": "Extremo Superior (+1.34 >= +0.50)",
           "region_type": "EXTREMO_SUPERIOR",
           "current_cycle": "Início de Ciclo de Baixa (Virada no Topo / Linha Verde)",
           "owing_cycle": "Devendo Ciclo de Fraqueza rumo à Linha Vermelha (-0.20)",
-          "angle": "▼ Inclinado para Fraqueza (DN)",
-          "angle_type": "FRAQUEZA_MODERADA",
+          "angle": "🎢 Montanha-Russa (Forte Aceleração de Baixa ▼▼)",
+          "angle_type": "MONTANHA_RUSSA",
           "is_retomada_forca": false,
           "is_retomada_fraqueza": false
         }
@@ -789,28 +789,28 @@
       },
       "active_h1_triad": {
         "tf": "H1",
-        "score": 1.41728679015052,
-        "score_str": "+1.42",
-        "diff": -0.0208,
+        "score": 1.3407856301159613,
+        "score_str": "+1.34",
+        "diff": -0.0806,
         "dir": "▼ DN",
         "led": "red",
-        "region": "Extremo Superior (+1.42 >= +0.50)",
+        "region": "Extremo Superior (+1.34 >= +0.50)",
         "region_type": "EXTREMO_SUPERIOR",
         "current_cycle": "Início de Ciclo de Baixa (Virada no Topo / Linha Verde)",
         "owing_cycle": "Devendo Ciclo de Fraqueza rumo à Linha Vermelha (-0.20)",
-        "angle": "▼ Inclinado para Fraqueza (DN)",
-        "angle_type": "FRAQUEZA_MODERADA",
+        "angle": "🎢 Montanha-Russa (Forte Aceleração de Baixa ▼▼)",
+        "angle_type": "MONTANHA_RUSSA",
         "is_retomada_forca": false,
         "is_retomada_fraqueza": false
       },
       "active_h4_triad": {
         "tf": "H4",
-        "score": 0.1457903869350601,
-        "score_str": "+0.15",
-        "diff": 0.1488,
+        "score": 0.1298943189757205,
+        "score_str": "+0.13",
+        "diff": 0.1329,
         "dir": "▲ UP",
         "led": "green",
-        "region": "Dentro do Box Superior (+0.15 entre 0.00 e +0.20)",
+        "region": "Dentro do Box Superior (+0.13 entre 0.00 e +0.20)",
         "region_type": "BOX_SUPERIOR",
         "current_cycle": "Ciclo de Alta em Andamento (Cruzando o Box)",
         "owing_cycle": "Devendo Ciclo de Alta rumo à Linha Verde (+0.20)",
@@ -828,18 +828,18 @@
       "h4_score": 0.09,
       "d1_score": 0.19,
       "total_score": 0.02,
-      "signal_badge": "SELL",
-      "trade_bias": "VENDA",
-      "confluence_state": "OPERACIONAL EM QUEDA (CICLO DE FRAQUEZA H4/H1)",
-      "final_verdict": "VENDA OPERACIONAL (BUSCANDO LINHA VERMELHA)",
+      "signal_badge": "BUY",
+      "trade_bias": "COMPRA FORTE",
+      "confluence_state": "CONFLUÊNCIA DE ALTA (DEVENDO CICLO DE FORÇA)",
+      "final_verdict": "COMPRA FORTE (RUMO À LINHA VERDE +0.20)",
       "has_divergence": false,
       "divergence_alert": "NENHUMA (TIMEFRAMES ALINHADOS)",
       "triads": {
         "MN1": {
           "tf": "MN1",
-          "score": -0.15802715725798877,
+          "score": -0.15788640792800154,
           "score_str": "-0.16",
-          "diff": 0.0288,
+          "diff": 0.0289,
           "dir": "▲ UP",
           "led": "green",
           "region": "Dentro do Box Inferior (-0.16 entre -0.20 e 0.00)",
@@ -853,9 +853,9 @@
         },
         "W1": {
           "tf": "W1",
-          "score": -0.13393478721343688,
+          "score": -0.13358972760752744,
           "score_str": "-0.13",
-          "diff": 0.0319,
+          "diff": 0.0322,
           "dir": "▲ UP",
           "led": "green",
           "region": "Dentro do Box Inferior (-0.13 entre -0.20 e 0.00)",
@@ -869,9 +869,9 @@
         },
         "D1": {
           "tf": "D1",
-          "score": 0.18695242918917424,
+          "score": 0.18736253705036465,
           "score_str": "+0.19",
-          "diff": 0.0165,
+          "diff": 0.0169,
           "dir": "▲ UP",
           "led": "green",
           "region": "Dentro do Box Superior (+0.19 entre 0.00 e +0.20)",
@@ -885,9 +885,9 @@
         },
         "H4": {
           "tf": "H4",
-          "score": 0.0923713828909437,
+          "score": 0.09433501740053153,
           "score_str": "+0.09",
-          "diff": 0.0102,
+          "diff": 0.0122,
           "dir": "▲ UP",
           "led": "yellow",
           "region": "Dentro do Box Superior (+0.09 entre 0.00 e +0.20)",
@@ -901,19 +901,19 @@
         },
         "H1": {
           "tf": "H1",
-          "score": -0.05347958725805518,
+          "score": -0.05120749939373589,
           "score_str": "-0.05",
-          "diff": -0.049,
+          "diff": -0.0119,
           "dir": "▼ DN",
           "led": "red",
           "region": "Dentro do Box Inferior (-0.05 entre -0.20 e 0.00)",
           "region_type": "BOX_INFERIOR",
-          "current_cycle": "Retomada de Fraqueza no Box (Ciclo Inválido de Alta)",
-          "owing_cycle": "Devendo Expansão de Baixa rumo ao Fundo",
-          "angle": "▼ Inclinado para Fraqueza (DN)",
-          "angle_type": "FRAQUEZA_MODERADA",
+          "current_cycle": "Ciclo de Baixa em Andamento (Cruzando o Box)",
+          "owing_cycle": "Devendo Ciclo de Baixa rumo à Linha Vermelha (-0.20)",
+          "angle": "▼ Sutilmente Inclinado para Fraqueza",
+          "angle_type": "FRAQUEZA_SUTIL",
           "is_retomada_forca": false,
-          "is_retomada_fraqueza": true
+          "is_retomada_fraqueza": false
         }
       },
       "leds": {
@@ -925,25 +925,25 @@
       },
       "active_h1_triad": {
         "tf": "H1",
-        "score": -0.05347958725805518,
+        "score": -0.05120749939373589,
         "score_str": "-0.05",
-        "diff": -0.049,
+        "diff": -0.0119,
         "dir": "▼ DN",
         "led": "red",
         "region": "Dentro do Box Inferior (-0.05 entre -0.20 e 0.00)",
         "region_type": "BOX_INFERIOR",
-        "current_cycle": "Retomada de Fraqueza no Box (Ciclo Inválido de Alta)",
-        "owing_cycle": "Devendo Expansão de Baixa rumo ao Fundo",
-        "angle": "▼ Inclinado para Fraqueza (DN)",
-        "angle_type": "FRAQUEZA_MODERADA",
+        "current_cycle": "Ciclo de Baixa em Andamento (Cruzando o Box)",
+        "owing_cycle": "Devendo Ciclo de Baixa rumo à Linha Vermelha (-0.20)",
+        "angle": "▼ Sutilmente Inclinado para Fraqueza",
+        "angle_type": "FRAQUEZA_SUTIL",
         "is_retomada_forca": false,
-        "is_retomada_fraqueza": true
+        "is_retomada_fraqueza": false
       },
       "active_h4_triad": {
         "tf": "H4",
-        "score": 0.0923713828909437,
+        "score": 0.09433501740053153,
         "score_str": "+0.09",
-        "diff": 0.0102,
+        "diff": 0.0122,
         "dir": "▲ UP",
         "led": "yellow",
         "region": "Dentro do Box Superior (+0.09 entre 0.00 e +0.20)",
@@ -960,10 +960,10 @@
       "symbol": "NZD",
       "flag": "🇳🇿",
       "color": "#D2B48C",
-      "h1_score": 0.61,
-      "h4_score": 0.84,
-      "d1_score": 0.2,
-      "total_score": 0.37,
+      "h1_score": 0.5,
+      "h4_score": 0.83,
+      "d1_score": 0.19,
+      "total_score": 0.34,
       "signal_badge": "BUY",
       "trade_bias": "COMPRA FORTE",
       "confluence_state": "CONFLUÊNCIA DE ALTA (DEVENDO CICLO DE FORÇA)",
@@ -973,9 +973,9 @@
       "triads": {
         "MN1": {
           "tf": "MN1",
-          "score": -0.18673987793989527,
+          "score": -0.18777416493242866,
           "score_str": "-0.19",
-          "diff": 0.0564,
+          "diff": 0.0554,
           "dir": "▲ UP",
           "led": "green",
           "region": "Dentro do Box Inferior (-0.19 entre -0.20 e 0.00)",
@@ -989,9 +989,9 @@
         },
         "W1": {
           "tf": "W1",
-          "score": 0.24175097240918214,
+          "score": 0.23945095826977436,
           "score_str": "+0.24",
-          "diff": 0.0688,
+          "diff": 0.0665,
           "dir": "▲ UP",
           "led": "green",
           "region": "Zona de Parada Verde (+0.24 >= +0.20)",
@@ -1005,12 +1005,12 @@
         },
         "D1": {
           "tf": "D1",
-          "score": 0.1962498805803384,
-          "score_str": "+0.20",
-          "diff": 0.0887,
+          "score": 0.1908880133404665,
+          "score_str": "+0.19",
+          "diff": 0.0834,
           "dir": "▲ UP",
           "led": "yellow",
-          "region": "Dentro do Box Superior (+0.20 entre 0.00 e +0.20)",
+          "region": "Dentro do Box Superior (+0.19 entre 0.00 e +0.20)",
           "region_type": "BOX_SUPERIOR",
           "current_cycle": "Repique / Divergência de Alta (Devendo Baixa rumo a -0.20)",
           "owing_cycle": "Devendo Ciclo de Baixa rumo à Linha Vermelha (-0.20)",
@@ -1021,33 +1021,33 @@
         },
         "H4": {
           "tf": "H4",
-          "score": 0.8400985174516301,
-          "score_str": "+0.84",
-          "diff": 0.0294,
+          "score": 0.8250351103510069,
+          "score_str": "+0.83",
+          "diff": 0.0143,
           "dir": "▲ UP",
-          "led": "green",
-          "region": "Extremo Superior (+0.84 >= +0.50)",
+          "led": "yellow",
+          "region": "Extremo Superior (+0.83 >= +0.50)",
           "region_type": "EXTREMO_SUPERIOR",
           "current_cycle": "Ciclo de Alta em Exaustão (Sobreforça Acima de +0.20)",
           "owing_cycle": "Devendo Exaustão e Início de Ciclo de Fraqueza",
-          "angle": "▲ Inclinado para Força (UP)",
-          "angle_type": "FORCA_MODERADA",
+          "angle": "▲ Sutilmente Inclinado para Força",
+          "angle_type": "FORCA_SUTIL",
           "is_retomada_forca": false,
           "is_retomada_fraqueza": false
         },
         "H1": {
           "tf": "H1",
-          "score": 0.6089911634154269,
-          "score_str": "+0.61",
-          "diff": -0.0368,
+          "score": 0.5036791005286838,
+          "score_str": "+0.50",
+          "diff": -0.097,
           "dir": "▼ DN",
           "led": "red",
-          "region": "Extremo Superior (+0.61 >= +0.50)",
+          "region": "Extremo Superior (+0.50 >= +0.50)",
           "region_type": "EXTREMO_SUPERIOR",
           "current_cycle": "Início de Ciclo de Baixa (Virada no Topo / Linha Verde)",
           "owing_cycle": "Devendo Ciclo de Fraqueza rumo à Linha Vermelha (-0.20)",
-          "angle": "▼ Inclinado para Fraqueza (DN)",
-          "angle_type": "FRAQUEZA_MODERADA",
+          "angle": "🎢 Montanha-Russa (Forte Aceleração de Baixa ▼▼)",
+          "angle_type": "MONTANHA_RUSSA",
           "is_retomada_forca": false,
           "is_retomada_fraqueza": false
         }
@@ -1056,38 +1056,38 @@
         "MN1": "green",
         "W1": "green",
         "D1": "yellow",
-        "H4": "green",
+        "H4": "yellow",
         "H1": "red"
       },
       "active_h1_triad": {
         "tf": "H1",
-        "score": 0.6089911634154269,
-        "score_str": "+0.61",
-        "diff": -0.0368,
+        "score": 0.5036791005286838,
+        "score_str": "+0.50",
+        "diff": -0.097,
         "dir": "▼ DN",
         "led": "red",
-        "region": "Extremo Superior (+0.61 >= +0.50)",
+        "region": "Extremo Superior (+0.50 >= +0.50)",
         "region_type": "EXTREMO_SUPERIOR",
         "current_cycle": "Início de Ciclo de Baixa (Virada no Topo / Linha Verde)",
         "owing_cycle": "Devendo Ciclo de Fraqueza rumo à Linha Vermelha (-0.20)",
-        "angle": "▼ Inclinado para Fraqueza (DN)",
-        "angle_type": "FRAQUEZA_MODERADA",
+        "angle": "🎢 Montanha-Russa (Forte Aceleração de Baixa ▼▼)",
+        "angle_type": "MONTANHA_RUSSA",
         "is_retomada_forca": false,
         "is_retomada_fraqueza": false
       },
       "active_h4_triad": {
         "tf": "H4",
-        "score": 0.8400985174516301,
-        "score_str": "+0.84",
-        "diff": 0.0294,
+        "score": 0.8250351103510069,
+        "score_str": "+0.83",
+        "diff": 0.0143,
         "dir": "▲ UP",
-        "led": "green",
-        "region": "Extremo Superior (+0.84 >= +0.50)",
+        "led": "yellow",
+        "region": "Extremo Superior (+0.83 >= +0.50)",
         "region_type": "EXTREMO_SUPERIOR",
         "current_cycle": "Ciclo de Alta em Exaustão (Sobreforça Acima de +0.20)",
         "owing_cycle": "Devendo Exaustão e Início de Ciclo de Fraqueza",
-        "angle": "▲ Inclinado para Força (UP)",
-        "angle_type": "FORCA_MODERADA",
+        "angle": "▲ Sutilmente Inclinado para Força",
+        "angle_type": "FORCA_SUTIL",
         "is_retomada_forca": false,
         "is_retomada_fraqueza": false
       }
@@ -1238,7 +1238,7 @@
           -0.23,
           -0.174,
           -0.249,
-          -0.276
+          -0.275
         ],
         "EUR": [
           0.108,
@@ -1526,7 +1526,7 @@
           -0.75,
           -0.771,
           -0.713,
-          -0.803
+          -0.802
         ],
         "AUD": [
           -0.003,
@@ -1598,7 +1598,7 @@
           0.4,
           0.443,
           0.51,
-          0.598
+          0.597
         ],
         "CAD": [
           -0.185,
@@ -1742,7 +1742,7 @@
           -0.323,
           -0.361,
           -0.243,
-          -0.187
+          -0.188
         ]
       }
     },
@@ -1950,7 +1950,7 @@
           0.163,
           0.12,
           0.124,
-          0.041
+          0.044
         ],
         "EUR": [
           -0.102,
@@ -2358,7 +2358,7 @@
           0.043,
           0.056,
           0.025,
-          -0.021
+          -0.019
         ],
         "AUD": [
           -0.16,
@@ -2460,7 +2460,7 @@
           0.067,
           0.052,
           0.057,
-          0.07
+          0.068
         ],
         "CAD": [
           -0.446,
@@ -2664,7 +2664,7 @@
           0.134,
           0.167,
           0.173,
-          0.242
+          0.239
         ]
       }
     },
@@ -2912,7 +2912,7 @@
           -0.494,
           -0.658,
           -0.668,
-          -0.714
+          -0.707
         ],
         "EUR": [
           -0.437,
@@ -3278,7 +3278,7 @@
           -0.377,
           -0.144,
           -0.138,
-          -0.154
+          -0.155
         ],
         "JPY": [
           -0.322,
@@ -3400,7 +3400,7 @@
           0.457,
           0.418,
           0.241,
-          0.087
+          0.092
         ],
         "AUD": [
           0.35,
@@ -3522,7 +3522,7 @@
           0.077,
           0.037,
           0.028,
-          0.163
+          0.158
         ],
         "CAD": [
           0.455,
@@ -3766,7 +3766,7 @@
           0.005,
           0.049,
           0.108,
-          0.196
+          0.191
         ]
       }
     },
@@ -4014,7 +4014,7 @@
           -1.059,
           -1.057,
           -1.038,
-          -1.018
+          -0.999
         ],
         "EUR": [
           0.141,
@@ -4136,7 +4136,7 @@
           0.306,
           0.202,
           0.116,
-          0.032
+          0.033
         ],
         "GBP": [
           -0.114,
@@ -4380,7 +4380,7 @@
           0.737,
           0.668,
           0.548,
-          0.456
+          0.454
         ],
         "JPY": [
           -0.251,
@@ -4502,7 +4502,7 @@
           -0.289,
           -0.35,
           -0.41,
-          -0.475
+          -0.464
         ],
         "AUD": [
           0.059,
@@ -4624,7 +4624,7 @@
           -0.314,
           -0.185,
           -0.003,
-          0.146
+          0.13
         ],
         "CAD": [
           0.471,
@@ -4746,7 +4746,7 @@
           0.077,
           0.126,
           0.082,
-          0.092
+          0.094
         ],
         "NZD": [
           -0.377,
@@ -4868,13 +4868,12 @@
           0.588,
           0.72,
           0.811,
-          0.84
+          0.825
         ]
       }
     },
     "H1": {
       "times": [
-        "2026-08-11 14:00",
         "2026-08-11 15:00",
         "2026-08-11 16:00",
         "2026-08-11 17:00",
@@ -5073,11 +5072,11 @@
         "2026-08-21 18:00",
         "2026-08-21 19:00",
         "2026-08-21 20:00",
-        "2026-08-21 21:00"
+        "2026-08-21 21:00",
+        "2026-08-21 22:00"
       ],
       "series": {
         "USD": [
-          0.208,
           0.136,
           0.053,
           0.009,
@@ -5276,10 +5275,10 @@
           -0.528,
           -0.445,
           -0.386,
-          -0.325
+          -0.328,
+          -0.211
         ],
         "EUR": [
-          -0.042,
           -0.023,
           -0.03,
           -0.057,
@@ -5478,10 +5477,10 @@
           -0.54,
           -0.547,
           -0.588,
-          -0.588
+          -0.589,
+          -0.607
         ],
         "GBP": [
-          -0.148,
           -0.16,
           -0.177,
           -0.105,
@@ -5680,10 +5679,10 @@
           -0.392,
           -0.348,
           -0.259,
-          -0.196
+          -0.206,
+          -0.162
         ],
         "CHF": [
-          -0.243,
           -0.218,
           -0.158,
           -0.218,
@@ -5882,10 +5881,10 @@
           -0.482,
           -0.523,
           -0.557,
-          -0.545
+          -0.539,
+          -0.527
         ],
         "JPY": [
-          -0.063,
           -0.08,
           -0.051,
           -0.034,
@@ -6084,10 +6083,10 @@
           -0.176,
           -0.213,
           -0.29,
-          -0.319
+          -0.321,
+          -0.287
         ],
         "AUD": [
-          0.188,
           0.249,
           0.335,
           0.333,
@@ -6286,10 +6285,10 @@
           1.383,
           1.37,
           1.438,
-          1.417
+          1.421,
+          1.341
         ],
         "CAD": [
-          0.282,
           0.216,
           0.131,
           0.199,
@@ -6488,10 +6487,10 @@
           0.015,
           0.017,
           -0.005,
-          -0.053
+          -0.039,
+          -0.051
         ],
         "NZD": [
-          -0.182,
           -0.119,
           -0.103,
           -0.128,
@@ -6690,7 +6689,8 @@
           0.72,
           0.689,
           0.646,
-          0.609
+          0.601,
+          0.504
         ]
       }
     }
@@ -6767,7 +6767,7 @@
         0.585,
         0.518,
         0.543,
-        0.557
+        0.556
       ],
       "GBPUSD": [
         0.129,
@@ -6839,7 +6839,7 @@
         0.251,
         0.219,
         0.284,
-        0.312
+        0.311
       ],
       "AUDUSD": [
         0.133,
@@ -6911,7 +6911,7 @@
         0.411,
         0.396,
         0.499,
-        0.589
+        0.588
       ],
       "NZDUSD": [
         0.089,
@@ -6983,7 +6983,7 @@
         -0.025,
         -0.077,
         0.05,
-        0.114
+        0.112
       ],
       "USDCAD": [
         -0.025,
@@ -7055,7 +7055,7 @@
         -0.12,
         -0.058,
         -0.132,
-        -0.201
+        -0.2
       ],
       "USDCHF": [
         -0.529,
@@ -7127,7 +7127,7 @@
         -0.68,
         -0.599,
         -0.596,
-        -0.581
+        -0.58
       ],
       "USDJPY": [
         -0.255,
@@ -7199,7 +7199,7 @@
         0.414,
         0.491,
         0.361,
-        0.42
+        0.421
       ],
       "EURGBP": [
         0.187,
@@ -7343,7 +7343,7 @@
         -0.004,
         -0.051,
         -0.175,
-        -0.277
+        -0.276
       ],
       "EURCAD": [
         0.323,
@@ -7559,7 +7559,7 @@
         1.081,
         1.102,
         0.999,
-        1.078
+        1.077
       ],
       "EURNZD": [
         0.174,
@@ -7631,7 +7631,7 @@
         0.623,
         0.653,
         0.472,
-        0.39
+        0.391
       ],
       "GBPAUD": [
         -0.029,
@@ -7703,7 +7703,7 @@
         -0.269,
         -0.292,
         -0.366,
-        -0.448
+        -0.447
       ],
       "GBPCAD": [
         0.12,
@@ -7919,7 +7919,7 @@
         0.641,
         0.679,
         0.644,
-        0.728
+        0.727
       ],
       "GBPNZD": [
         0.019,
@@ -7991,7 +7991,7 @@
         0.325,
         0.378,
         0.256,
-        0.195
+        0.196
       ],
       "AUDCAD": [
         0.171,
@@ -8063,7 +8063,7 @@
         0.535,
         0.577,
         0.678,
-        0.749
+        0.747
       ],
       "AUDCHF": [
         -0.248,
@@ -8135,7 +8135,7 @@
         -0.128,
         -0.074,
         0.039,
-        0.134
+        0.133
       ],
       "AUDJPY": [
         -0.048,
@@ -8207,7 +8207,7 @@
         0.787,
         0.829,
         0.853,
-        0.994
+        0.992
       ],
       "AUDNZD": [
         0.067,
@@ -8423,7 +8423,7 @@
         0.444,
         0.462,
         0.413,
-        0.515
+        0.514
       ],
       "CHFJPY": [
         0.256,
@@ -8495,7 +8495,7 @@
         1.588,
         1.554,
         1.375,
-        1.419
+        1.418
       ],
       "NZDCAD": [
         0.097,
@@ -8567,7 +8567,7 @@
         -0.127,
         -0.156,
         -0.028,
-        0.009
+        0.007
       ],
       "NZDCHF": [
         -0.307,
@@ -8639,7 +8639,7 @@
         -0.534,
         -0.523,
         -0.385,
-        -0.313
+        -0.314
       ],
       "NZDJPY": [
         -0.086,
@@ -8711,7 +8711,7 @@
         0.294,
         0.284,
         0.348,
-        0.466
+        0.464
       ]
     },
     "W1": {
@@ -8815,7 +8815,7 @@
         -0.179,
         -0.151,
         -0.179,
-        -0.104
+        -0.107
       ],
       "GBPUSD": [
         0.611,
@@ -8917,7 +8917,7 @@
         0.048,
         0.074,
         0.077,
-        0.15
+        0.148
       ],
       "AUDUSD": [
         0.267,
@@ -9019,7 +9019,7 @@
         -0.065,
         -0.035,
         -0.035,
-        0.046
+        0.042
       ],
       "NZDUSD": [
         0.276,
@@ -9121,7 +9121,7 @@
         -0.007,
         0.045,
         0.046,
-        0.151
+        0.147
       ],
       "USDCAD": [
         -0.163,
@@ -9223,7 +9223,7 @@
         0.518,
         0.405,
         0.318,
-        0.182
+        0.185
       ],
       "USDCHF": [
         -0.883,
@@ -9325,7 +9325,7 @@
         0.35,
         0.331,
         0.385,
-        0.301
+        0.303
       ],
       "USDJPY": [
         -1.052,
@@ -9631,7 +9631,7 @@
         -0.096,
         -0.097,
         -0.122,
-        -0.141
+        -0.139
       ],
       "EURCAD": [
         0.401,
@@ -9835,7 +9835,7 @@
         0.325,
         0.327,
         0.382,
-        0.345
+        0.346
       ],
       "EURJPY": [
         -0.77,
@@ -9937,7 +9937,7 @@
         -0.064,
         -0.089,
         -0.076,
-        -0.034
+        -0.035
       ],
       "EURNZD": [
         0.067,
@@ -10039,7 +10039,7 @@
         -0.168,
         -0.214,
         -0.239,
-        -0.308
+        -0.306
       ],
       "GBPAUD": [
         0.306,
@@ -10141,7 +10141,7 @@
         0.111,
         0.111,
         0.114,
-        0.09
+        0.092
       ],
       "GBPCAD": [
         0.611,
@@ -10345,7 +10345,7 @@
         0.488,
         0.488,
         0.564,
-        0.534
+        0.535
       ],
       "GBPJPY": [
         -0.557,
@@ -10447,7 +10447,7 @@
         0.134,
         0.11,
         0.152,
-        0.19
+        0.188
       ],
       "GBPNZD": [
         0.288,
@@ -10549,7 +10549,7 @@
         0.061,
         0.011,
         0.015,
-        -0.059
+        -0.056
       ],
       "AUDCAD": [
         0.257,
@@ -10651,7 +10651,7 @@
         0.35,
         0.288,
         0.215,
-        0.208
+        0.205
       ],
       "AUDCHF": [
         -0.5,
@@ -10753,7 +10753,7 @@
         0.264,
         0.269,
         0.323,
-        0.32
+        0.318
       ],
       "AUDJPY": [
         -0.732,
@@ -10855,7 +10855,7 @@
         0.023,
         0.006,
         0.036,
-        0.084
+        0.081
       ],
       "AUDNZD": [
         -0.019,
@@ -11161,7 +11161,7 @@
         -0.219,
         -0.196,
         -0.11,
-        -0.053
+        -0.054
       ],
       "CHFJPY": [
         -0.338,
@@ -11263,7 +11263,7 @@
         -0.311,
         -0.338,
         -0.356,
-        -0.285
+        -0.287
       ],
       "NZDCAD": [
         0.24,
@@ -11365,7 +11365,7 @@
         0.367,
         0.347,
         0.277,
-        0.327
+        0.324
       ],
       "NZDCHF": [
         -0.475,
@@ -11467,7 +11467,7 @@
         0.316,
         0.345,
         0.401,
-        0.434
+        0.432
       ],
       "NZDJPY": [
         -0.728,
@@ -11569,7 +11569,7 @@
         0.069,
         0.081,
         0.111,
-        0.194
+        0.191
       ]
     },
     "D1": {
@@ -11693,7 +11693,7 @@
         0.583,
         0.761,
         0.797,
-        0.821
+        0.814
       ],
       "GBPUSD": [
         -0.606,
@@ -11815,7 +11815,7 @@
         0.439,
         0.57,
         0.638,
-        0.701
+        0.695
       ],
       "AUDUSD": [
         -0.038,
@@ -11937,7 +11937,7 @@
         0.375,
         0.464,
         0.471,
-        0.612
+        0.603
       ],
       "NZDUSD": [
         -0.555,
@@ -12059,7 +12059,7 @@
         0.291,
         0.422,
         0.471,
-        0.575
+        0.566
       ],
       "USDCAD": [
         0.018,
@@ -12181,7 +12181,7 @@
         -0.79,
         -0.982,
         -1.041,
-        -1.113
+        -1.106
       ],
       "USDCHF": [
         0.314,
@@ -12303,7 +12303,7 @@
         -0.082,
         -0.396,
         -0.41,
-        -0.435
+        -0.429
       ],
       "USDJPY": [
         0.614,
@@ -12425,7 +12425,7 @@
         -0.897,
         -1.012,
         -0.849,
-        -0.739
+        -0.738
       ],
       "EURGBP": [
         -0.181,
@@ -12547,7 +12547,7 @@
         0.111,
         0.146,
         0.068,
-        0.006
+        0.007
       ],
       "EURAUD": [
         -0.574,
@@ -12669,7 +12669,7 @@
         0.023,
         0.067,
         0.084,
-        -0.091
+        -0.085
       ],
       "EURCAD": [
         -0.943,
@@ -12791,7 +12791,7 @@
         0.022,
         0.054,
         0.023,
-        -0.027
+        -0.028
       ],
       "EURCHF": [
         -0.509,
@@ -12913,7 +12913,7 @@
         0.569,
         0.302,
         0.31,
-        0.294
+        0.295
       ],
       "EURJPY": [
         0.035,
@@ -13035,7 +13035,7 @@
         -0.351,
         -0.3,
         -0.102,
-        0.03
+        0.025
       ],
       "EURNZD": [
         -0.03,
@@ -13157,7 +13157,7 @@
         0.085,
         0.043,
         -0.005,
-        -0.13
+        -0.124
       ],
       "GBPAUD": [
         -0.486,
@@ -13279,7 +13279,7 @@
         -0.04,
         -0.018,
         0.037,
-        -0.092
+        -0.086
       ],
       "GBPCAD": [
         -0.654,
@@ -13401,7 +13401,7 @@
         -0.052,
         -0.047,
         -0.027,
-        -0.026
+        -0.027
       ],
       "GBPCHF": [
         -0.233,
@@ -13523,7 +13523,7 @@
         0.439,
         0.172,
         0.229,
-        0.26
+        0.262
       ],
       "GBPJPY": [
         0.139,
@@ -13645,7 +13645,7 @@
         -0.382,
         -0.353,
         -0.13,
-        0.023
+        0.019
       ],
       "GBPNZD": [
         0.092,
@@ -13767,7 +13767,7 @@
         0.022,
         -0.036,
         -0.04,
-        -0.125
+        -0.12
       ],
       "AUDCAD": [
         -0.038,
@@ -13889,7 +13889,7 @@
         -0.002,
         -0.018,
         -0.055,
-        0.058
+        0.052
       ],
       "AUDCHF": [
         0.219,
@@ -14011,7 +14011,7 @@
         0.339,
         0.138,
         0.13,
-        0.256
+        0.252
       ],
       "AUDJPY": [
         0.472,
@@ -14133,7 +14133,7 @@
         -0.264,
         -0.261,
         -0.133,
-        0.086
+        0.079
       ],
       "AUDNZD": [
         0.773,
@@ -14255,7 +14255,7 @@
         0.076,
         -0.019,
         -0.094,
-        -0.053
+        -0.054
       ],
       "CADCHF": [
         0.331,
@@ -14377,7 +14377,7 @@
         0.418,
         0.189,
         0.22,
-        0.245
+        0.247
       ],
       "CADJPY": [
         0.602,
@@ -14499,7 +14499,7 @@
         -0.339,
         -0.315,
         -0.111,
-        0.047
+        0.044
       ],
       "CHFJPY": [
         0.343,
@@ -14621,7 +14621,7 @@
         -0.681,
         -0.459,
         -0.301,
-        -0.174
+        -0.179
       ],
       "NZDCAD": [
         -0.638,
@@ -14743,7 +14743,7 @@
         -0.057,
         -0.004,
         0.016,
-        0.092
+        0.086
       ],
       "NZDCHF": [
         -0.234,
@@ -14865,7 +14865,7 @@
         0.272,
         0.142,
         0.187,
-        0.281
+        0.277
       ],
       "NZDJPY": [
         0.047,
@@ -14987,7 +14987,7 @@
         -0.286,
         -0.227,
         -0.06,
-        0.117
+        0.109
       ]
     },
     "H4": {
@@ -15111,7 +15111,7 @@
         1.48,
         1.385,
         1.299,
-        1.212
+        1.188
       ],
       "GBPUSD": [
         -0.409,
@@ -15233,7 +15233,7 @@
         1.101,
         1.027,
         1.021,
-        1.029
+        1.008
       ],
       "AUDUSD": [
         -0.237,
@@ -15355,7 +15355,7 @@
         0.599,
         0.719,
         0.856,
-        0.958
+        0.93
       ],
       "NZDUSD": [
         -0.486,
@@ -15477,7 +15477,7 @@
         1.138,
         1.239,
         1.304,
-        1.314
+        1.288
       ],
       "USDCAD": [
         -0.108,
@@ -15599,7 +15599,7 @@
         -1.395,
         -1.449,
         -1.378,
-        -1.367
+        -1.346
       ],
       "USDCHF": [
         0.48,
@@ -15721,7 +15721,7 @@
         -1.326,
         -1.262,
         -1.148,
-        -1.059
+        -1.044
       ],
       "USDJPY": [
         0.601,
@@ -15843,7 +15843,7 @@
         -0.374,
         -0.321,
         -0.258,
-        -0.19
+        -0.188
       ],
       "EURGBP": [
         0.273,
@@ -15965,7 +15965,7 @@
         0.471,
         0.444,
         0.31,
-        0.156
+        0.158
       ],
       "EURAUD": [
         0.06,
@@ -16087,7 +16087,7 @@
         0.58,
         0.335,
         0.048,
-        -0.197
+        -0.177
       ],
       "EURCAD": [
         -0.404,
@@ -16209,7 +16209,7 @@
         0.264,
         0.112,
         0.084,
-        -0.007
+        -0.009
       ],
       "EURCHF": [
         0.466,
@@ -16331,7 +16331,7 @@
         -0.665,
         -0.658,
         -0.575,
-        -0.521
+        -0.518
       ],
       "EURJPY": [
         0.379,
@@ -16453,7 +16453,7 @@
         0.437,
         0.444,
         0.465,
-        0.492
+        0.481
       ],
       "EURNZD": [
         0.488,
@@ -16575,7 +16575,7 @@
         -0.425,
         -0.648,
         -0.819,
-        -0.911
+        -0.894
       ],
       "GBPAUD": [
         -0.124,
@@ -16697,7 +16697,7 @@
         0.253,
         0.055,
         -0.119,
-        -0.245
+        -0.228
       ],
       "GBPCAD": [
         -0.545,
@@ -16819,7 +16819,7 @@
         -0.05,
         -0.187,
         -0.125,
-        -0.112
+        -0.114
       ],
       "GBPCHF": [
         0.164,
@@ -16941,7 +16941,7 @@
         -0.811,
         -0.792,
         -0.656,
-        -0.537
+        -0.533
       ],
       "GBPJPY": [
         0.112,
@@ -17063,7 +17063,7 @@
         0.257,
         0.271,
         0.338,
-        0.418
+        0.409
       ],
       "GBPNZD": [
         0.276,
@@ -17185,7 +17185,7 @@
         -0.605,
         -0.801,
         -0.893,
-        -0.911
+        -0.894
       ],
       "AUDCAD": [
         -0.352,
@@ -17307,7 +17307,7 @@
         -0.276,
         -0.186,
         0.021,
-        0.15
+        0.132
       ],
       "AUDCHF": [
         0.215,
@@ -17429,7 +17429,7 @@
         -0.776,
         -0.631,
         -0.406,
-        -0.226
+        -0.236
       ],
       "AUDJPY": [
         0.221,
@@ -17551,7 +17551,7 @@
         0.064,
         0.199,
         0.361,
-        0.504
+        0.487
       ],
       "AUDNZD": [
         0.5,
@@ -17795,7 +17795,7 @@
         -0.671,
         -0.573,
         -0.492,
-        -0.397
+        -0.394
       ],
       "CADJPY": [
         0.654,
@@ -17917,7 +17917,7 @@
         0.258,
         0.334,
         0.366,
-        0.431
+        0.424
       ],
       "CHFJPY": [
         -0.056,
@@ -18039,7 +18039,7 @@
         0.785,
         0.789,
         0.759,
-        0.754
+        0.743
       ],
       "NZDCAD": [
         -0.625,
@@ -18161,7 +18161,7 @@
         0.503,
         0.588,
         0.697,
-        0.723
+        0.707
       ],
       "NZDCHF": [
         -0.111,
@@ -18283,7 +18283,7 @@
         -0.126,
         0.028,
         0.197,
-        0.302
+        0.29
       ],
       "NZDJPY": [
         -0.157,
@@ -18405,12 +18405,11 @@
         0.599,
         0.731,
         0.839,
-        0.913
+        0.895
       ]
     },
     "H1": {
       "EURUSD": [
-        -0.299,
         -0.193,
         -0.095,
         -0.074,
@@ -18609,10 +18608,10 @@
         0.137,
         0.038,
         -0.062,
-        -0.12
+        -0.119,
+        -0.25
       ],
       "GBPUSD": [
-        -0.351,
         -0.281,
         -0.205,
         -0.107,
@@ -18811,10 +18810,10 @@
         0.19,
         0.138,
         0.142,
-        0.127
+        0.12,
+        0.043
       ],
       "AUDUSD": [
-        -0.031,
         0.074,
         0.223,
         0.241,
@@ -19013,10 +19012,10 @@
         1.507,
         1.437,
         1.451,
-        1.381
+        1.387,
+        1.226
       ],
       "NZDUSD": [
-        -0.264,
         -0.162,
         -0.082,
         -0.082,
@@ -19215,10 +19214,10 @@
         0.942,
         0.867,
         0.799,
-        0.73
+        0.724,
+        0.564
       ],
       "USDCAD": [
-        -0.053,
         -0.067,
         -0.061,
         -0.194,
@@ -19417,10 +19416,10 @@
         -0.647,
         -0.547,
         -0.459,
-        -0.338
+        -0.355,
+        -0.208
       ],
       "USDCHF": [
-        0.355,
         0.283,
         0.185,
         0.193,
@@ -19619,10 +19618,10 @@
         0.038,
         0.12,
         0.185,
-        0.204
+        0.199,
+        0.266
       ],
       "USDJPY": [
-        0.211,
         0.172,
         0.085,
         0.043,
@@ -19821,10 +19820,10 @@
         -0.311,
         -0.211,
         -0.1,
-        -0.026
+        -0.025,
+        0.047
       ],
       "EURGBP": [
-        0.17,
         0.215,
         0.233,
         0.103,
@@ -20023,10 +20022,10 @@
         -0.085,
         -0.151,
         -0.323,
-        -0.422
+        -0.411,
+        -0.499
       ],
       "EURAUD": [
-        -0.239,
         -0.295,
         -0.417,
         -0.415,
@@ -20225,10 +20224,10 @@
         -2.047,
         -2.031,
         -2.123,
-        -2.094
+        -2.101,
+        -2.037
       ],
       "EURCAD": [
-        -0.36,
         -0.272,
         -0.168,
         -0.277,
@@ -20427,10 +20426,10 @@
         -0.485,
         -0.497,
         -0.514,
-        -0.459
+        -0.474,
+        -0.476
       ],
       "EURCHF": [
-        0.236,
         0.222,
         0.158,
         0.196,
@@ -20629,10 +20628,10 @@
         0.181,
         0.226,
         0.245,
-        0.234
+        0.226,
+        0.201
       ],
       "EURJPY": [
-        0.033,
         0.059,
         0.021,
         -0.013,
@@ -20831,10 +20830,10 @@
         -0.304,
         -0.268,
         -0.211,
-        -0.173
+        -0.172,
+        -0.199
       ],
       "EURNZD": [
-        0.165,
         0.103,
         0.06,
         0.084,
@@ -21033,10 +21032,10 @@
         -1.179,
         -1.148,
         -1.125,
-        -1.079
+        -1.072,
+        -0.991
       ],
       "GBPAUD": [
-        -0.262,
         -0.339,
         -0.447,
         -0.369,
@@ -21235,10 +21234,10 @@
         -1.494,
         -1.43,
         -1.418,
-        -1.364
+        -1.371,
+        -1.296
       ],
       "GBPCAD": [
-        -0.486,
         -0.42,
         -0.322,
         -0.342,
@@ -21437,10 +21436,10 @@
         -0.416,
         -0.386,
         -0.285,
-        -0.177
+        -0.202,
+        -0.144
       ],
       "GBPCHF": [
-        0.155,
         0.117,
         0.043,
         0.161,
@@ -21639,10 +21638,10 @@
         0.2,
         0.269,
         0.362,
-        0.385
+        0.375,
+        0.4
       ],
       "GBPJPY": [
-        -0.024,
         -0.019,
         -0.065,
         -0.043,
@@ -21841,10 +21840,10 @@
         -0.211,
         -0.14,
         0.003,
-        0.092
+        0.085,
+        0.108
       ],
       "GBPNZD": [
-        0.103,
         0.034,
         -0.014,
         0.071,
@@ -22043,10 +22042,10 @@
         -1.097,
         -1.04,
         -0.939,
-        -0.86
+        -0.858,
+        -0.741
       ],
       "AUDCAD": [
-        -0.08,
         0.036,
         0.161,
         0.129,
@@ -22245,10 +22244,10 @@
         1.333,
         1.318,
         1.393,
-        1.404
+        1.398,
+        1.315
       ],
       "AUDCHF": [
-        0.327,
         0.347,
         0.33,
         0.389,
@@ -22447,10 +22446,10 @@
         1.288,
         1.316,
         1.378,
-        1.358
+        1.357,
+        1.279
       ],
       "AUDJPY": [
-        0.182,
         0.235,
         0.281,
         0.259,
@@ -22649,10 +22648,10 @@
         1.383,
         1.402,
         1.531,
-        1.533
+        1.539,
+        1.442
       ],
       "AUDNZD": [
-        0.415,
         0.415,
         0.489,
         0.526,
@@ -22851,10 +22850,10 @@
         0.631,
         0.659,
         0.772,
-        0.787
+        0.798,
+        0.792
       ],
       "CADCHF": [
-        0.452,
         0.382,
         0.269,
         0.367,
@@ -23053,10 +23052,10 @@
         0.443,
         0.484,
         0.508,
-        0.466
+        0.473,
+        0.438
       ],
       "CADJPY": [
-        0.24,
         0.213,
         0.12,
         0.159,
@@ -23255,10 +23254,10 @@
         0.15,
         0.19,
         0.245,
-        0.234
+        0.248,
+        0.2
       ],
       "CHFJPY": [
-        -0.128,
         -0.09,
         -0.085,
         -0.129,
@@ -23457,10 +23456,10 @@
         -0.294,
         -0.3,
         -0.272,
-        -0.248
+        -0.241,
+        -0.294
       ],
       "NZDCAD": [
-        -0.302,
         -0.196,
         -0.138,
         -0.18,
@@ -23659,10 +23658,10 @@
         0.699,
         0.668,
         0.65,
-        0.645
+        0.629,
+        0.51
       ],
       "NZDCHF": [
-        0.048,
         0.088,
         0.038,
         0.089,
@@ -23861,10 +23860,10 @@
         0.933,
         0.945,
         0.947,
-        0.916
+        0.905,
+        0.809
       ],
       "NZDJPY": [
-        -0.076,
         -0.008,
         -0.003,
         -0.041,
@@ -24063,26 +24062,27 @@
         0.819,
         0.815,
         0.832,
-        0.82
+        0.814,
+        0.702
       ]
     }
   },
   "pairs": [
     {
-      "pair": "EURUSD",
-      "base": "EUR",
-      "quote": "USD",
-      "base_flag": "🇪🇺",
-      "quote_flag": "🇺🇸",
-      "total_score": -1.4,
-      "macro_diff": 0.5,
-      "op_diff": 0.39,
-      "recommendation": "VENDA FORTE (STRONG SELL)",
-      "badge_type": "STRONG_SELL",
+      "pair": "USDJPY",
+      "base": "USD",
+      "quote": "JPY",
+      "base_flag": "🇺🇸",
+      "quote_flag": "🇯🇵",
+      "total_score": 1.4,
+      "macro_diff": -0.28,
+      "op_diff": -0.23,
+      "recommendation": "COMPRA FORTE (STRONG BUY)",
+      "badge_type": "STRONG_BUY",
       "conviction": "MÁXIMA (CONFLUÊNCIA DUPLA)",
-      "thesis": "Base (EUR) ABERTO SOBRE O 0 (PERMISSÃO VÁLIDA PARA CAIR) vs Cotada (USD) CUMPRIU CICLO DE BAIXA (ALERTA DE FUNDO / LINHA VERMELHA).",
-      "signal_time": "2026-08-21 18:00",
-      "bars_ago": 3
+      "thesis": "Base (USD) CUMPRIU CICLO DE BAIXA (ALERTA DE FUNDO / LINHA VERMELHA) vs Cotada (JPY) ABERTO SOBRE O 0 (PERMISSÃO VÁLIDA PARA CAIR).",
+      "signal_time": "2026-08-21 22:00",
+      "bars_ago": 0
     },
     {
       "pair": "USDCHF",
@@ -24092,29 +24092,29 @@
       "quote_flag": "🇨🇭",
       "total_score": 1.25,
       "macro_diff": -0.3,
-      "op_diff": -0.63,
+      "op_diff": -0.57,
       "recommendation": "COMPRA FORTE (STRONG BUY)",
       "badge_type": "STRONG_BUY",
       "conviction": "MÁXIMA (CONFLUÊNCIA DUPLA)",
       "thesis": "Base (USD) CUMPRIU CICLO DE BAIXA (ALERTA DE FUNDO / LINHA VERMELHA) vs Cotada (CHF) CICLO DE FRAQUEZA EM ANDAMENTO (BUSCANDO -0.20).",
       "signal_time": "2026-08-21 19:00",
-      "bars_ago": 2
+      "bars_ago": 3
     },
     {
-      "pair": "EURGBP",
-      "base": "EUR",
-      "quote": "GBP",
-      "base_flag": "🇪🇺",
-      "quote_flag": "🇬🇧",
-      "total_score": -1.25,
-      "macro_diff": -0.03,
-      "op_diff": -0.14,
-      "recommendation": "VENDA FORTE (STRONG SELL)",
-      "badge_type": "STRONG_SELL",
+      "pair": "GBPJPY",
+      "base": "GBP",
+      "quote": "JPY",
+      "base_flag": "🇬🇧",
+      "quote_flag": "🇯🇵",
+      "total_score": 1.25,
+      "macro_diff": 0.26,
+      "op_diff": 0.26,
+      "recommendation": "COMPRA FORTE (STRONG BUY)",
+      "badge_type": "STRONG_BUY",
       "conviction": "MÁXIMA (CONFLUÊNCIA DUPLA)",
-      "thesis": "Base (EUR) ABERTO SOBRE O 0 (PERMISSÃO VÁLIDA PARA CAIR) vs Cotada (GBP) CICLO DE FORÇA EM ANDAMENTO (BUSCANDO +0.20).",
-      "signal_time": "2026-08-21 16:00",
-      "bars_ago": 5
+      "thesis": "Base (GBP) CICLO DE FORÇA EM ANDAMENTO (BUSCANDO +0.20) vs Cotada (JPY) ABERTO SOBRE O 0 (PERMISSÃO VÁLIDA PARA CAIR).",
+      "signal_time": "2026-08-21 20:00",
+      "bars_ago": 2
     },
     {
       "pair": "GBPCHF",
@@ -24124,109 +24124,93 @@
       "quote_flag": "🇨🇭",
       "total_score": 1.1,
       "macro_diff": 0.24,
-      "op_diff": -0.09,
+      "op_diff": -0.08,
       "recommendation": "COMPRA FORTE (STRONG BUY)",
       "badge_type": "STRONG_BUY",
       "conviction": "MÁXIMA (CONFLUÊNCIA DUPLA)",
       "thesis": "Base (GBP) CICLO DE FORÇA EM ANDAMENTO (BUSCANDO +0.20) vs Cotada (CHF) CICLO DE FRAQUEZA EM ANDAMENTO (BUSCANDO -0.20).",
       "signal_time": "2026-08-21 18:00",
-      "bars_ago": 3
+      "bars_ago": 4
     },
     {
-      "pair": "USDCAD",
-      "base": "USD",
-      "quote": "CAD",
-      "base_flag": "🇺🇸",
-      "quote_flag": "🇨🇦",
-      "total_score": 1.05,
-      "macro_diff": -0.42,
-      "op_diff": -0.69,
+      "pair": "EURUSD",
+      "base": "EUR",
+      "quote": "USD",
+      "base_flag": "🇪🇺",
+      "quote_flag": "🇺🇸",
+      "total_score": -1.0,
+      "macro_diff": 0.5,
+      "op_diff": 0.32,
+      "recommendation": "VENDA (SELL)",
+      "badge_type": "SELL",
+      "conviction": "ALTA",
+      "thesis": "Pressão cíclica vendedora em EUR frente ao USD (Exaustão de Topo/Fundo).",
+      "signal_time": "2026-08-21 18:00",
+      "bars_ago": 4
+    },
+    {
+      "pair": "AUDJPY",
+      "base": "AUD",
+      "quote": "JPY",
+      "base_flag": "🇦🇺",
+      "quote_flag": "🇯🇵",
+      "total_score": 0.95,
+      "macro_diff": 0.34,
+      "op_diff": 1.11,
       "recommendation": "COMPRA FORTE (STRONG BUY)",
       "badge_type": "STRONG_BUY",
       "conviction": "MÁXIMA (CONFLUÊNCIA DUPLA)",
-      "thesis": "Base (USD) CUMPRIU CICLO DE BAIXA (ALERTA DE FUNDO / LINHA VERMELHA) vs Cotada (CAD) CICLO DE FORÇA EM ANDAMENTO (BUSCANDO +0.20).",
-      "signal_time": "2026-08-21 21:00",
+      "thesis": "Base (AUD) CICLO DE FORÇA EM ANDAMENTO (BUSCANDO +0.20) vs Cotada (JPY) ABERTO SOBRE O 0 (PERMISSÃO VÁLIDA PARA CAIR).",
+      "signal_time": "2026-08-21 22:00",
       "bars_ago": 0
     },
     {
-      "pair": "USDJPY",
-      "base": "USD",
+      "pair": "CADJPY",
+      "base": "CAD",
       "quote": "JPY",
-      "base_flag": "🇺🇸",
+      "base_flag": "🇨🇦",
       "quote_flag": "🇯🇵",
-      "total_score": 1.0,
-      "macro_diff": -0.28,
-      "op_diff": -0.28,
-      "recommendation": "COMPRA (BUY)",
-      "badge_type": "BUY",
-      "conviction": "ALTA",
-      "thesis": "Potencial cíclico de fluxo comprador para USD frente a JPY.",
-      "signal_time": "2026-08-21 21:00",
-      "bars_ago": 0
-    },
-    {
-      "pair": "EURAUD",
-      "base": "EUR",
-      "quote": "AUD",
-      "base_flag": "🇪🇺",
-      "quote_flag": "🇦🇺",
-      "total_score": -0.95,
-      "macro_diff": -0.12,
-      "op_diff": -1.06,
-      "recommendation": "VENDA FORTE (STRONG SELL)",
-      "badge_type": "STRONG_SELL",
+      "total_score": 0.95,
+      "macro_diff": 0.14,
+      "op_diff": 0.4,
+      "recommendation": "COMPRA FORTE (STRONG BUY)",
+      "badge_type": "STRONG_BUY",
       "conviction": "MÁXIMA (CONFLUÊNCIA DUPLA)",
-      "thesis": "Base (EUR) ABERTO SOBRE O 0 (PERMISSÃO VÁLIDA PARA CAIR) vs Cotada (AUD) CICLO DE FORÇA EM ANDAMENTO (BUSCANDO +0.20).",
-      "signal_time": "2026-08-21 21:00",
+      "thesis": "Base (CAD) CICLO DE FORÇA EM ANDAMENTO (BUSCANDO +0.20) vs Cotada (JPY) ABERTO SOBRE O 0 (PERMISSÃO VÁLIDA PARA CAIR).",
+      "signal_time": "2026-08-21 22:00",
       "bars_ago": 0
     },
     {
-      "pair": "EURNZD",
+      "pair": "NZDJPY",
+      "base": "NZD",
+      "quote": "JPY",
+      "base_flag": "🇳🇿",
+      "quote_flag": "🇯🇵",
+      "total_score": 0.95,
+      "macro_diff": 0.25,
+      "op_diff": 1.04,
+      "recommendation": "COMPRA FORTE (STRONG BUY)",
+      "badge_type": "STRONG_BUY",
+      "conviction": "MÁXIMA (CONFLUÊNCIA DUPLA)",
+      "thesis": "Base (NZD) CICLO DE FORÇA EM ANDAMENTO (BUSCANDO +0.20) vs Cotada (JPY) ABERTO SOBRE O 0 (PERMISSÃO VÁLIDA PARA CAIR).",
+      "signal_time": "2026-08-21 22:00",
+      "bars_ago": 0
+    },
+    {
+      "pair": "EURGBP",
       "base": "EUR",
-      "quote": "NZD",
+      "quote": "GBP",
       "base_flag": "🇪🇺",
-      "quote_flag": "🇳🇿",
-      "total_score": -0.95,
+      "quote_flag": "🇬🇧",
+      "total_score": -0.85,
       "macro_diff": -0.03,
-      "op_diff": -1.0,
-      "recommendation": "VENDA FORTE (STRONG SELL)",
-      "badge_type": "STRONG_SELL",
-      "conviction": "MÁXIMA (CONFLUÊNCIA DUPLA)",
-      "thesis": "Base (EUR) ABERTO SOBRE O 0 (PERMISSÃO VÁLIDA PARA CAIR) vs Cotada (NZD) CICLO DE FORÇA EM ANDAMENTO (BUSCANDO +0.20).",
-      "signal_time": "2026-08-21 21:00",
-      "bars_ago": 0
-    },
-    {
-      "pair": "GBPCAD",
-      "base": "GBP",
-      "quote": "CAD",
-      "base_flag": "🇬🇧",
-      "quote_flag": "🇨🇦",
-      "total_score": 0.9,
-      "macro_diff": 0.12,
-      "op_diff": -0.15,
-      "recommendation": "COMPRA FORTE (STRONG BUY)",
-      "badge_type": "STRONG_BUY",
-      "conviction": "MÁXIMA (CONFLUÊNCIA DUPLA)",
-      "thesis": "Base (GBP) CICLO DE FORÇA EM ANDAMENTO (BUSCANDO +0.20) vs Cotada (CAD) CICLO DE FORÇA EM ANDAMENTO (BUSCANDO +0.20).",
-      "signal_time": "2026-08-21 21:00",
-      "bars_ago": 0
-    },
-    {
-      "pair": "GBPJPY",
-      "base": "GBP",
-      "quote": "JPY",
-      "base_flag": "🇬🇧",
-      "quote_flag": "🇯🇵",
-      "total_score": 0.85,
-      "macro_diff": 0.26,
-      "op_diff": 0.26,
-      "recommendation": "COMPRA (BUY)",
-      "badge_type": "BUY",
+      "op_diff": -0.17,
+      "recommendation": "VENDA (SELL)",
+      "badge_type": "SELL",
       "conviction": "ALTA",
-      "thesis": "Potencial cíclico de fluxo comprador para GBP frente a JPY.",
-      "signal_time": "2026-08-21 20:00",
-      "bars_ago": 1
+      "thesis": "Pressão cíclica vendedora em EUR frente ao GBP (Exaustão de Topo/Fundo).",
+      "signal_time": "2026-08-21 16:00",
+      "bars_ago": 6
     },
     {
       "pair": "AUDCHF",
@@ -24236,12 +24220,28 @@
       "quote_flag": "🇨🇭",
       "total_score": 0.8,
       "macro_diff": 0.32,
-      "op_diff": 0.83,
+      "op_diff": 0.77,
       "recommendation": "COMPRA FORTE (STRONG BUY)",
       "badge_type": "STRONG_BUY",
       "conviction": "MÁXIMA (CONFLUÊNCIA DUPLA)",
       "thesis": "Base (AUD) CICLO DE FORÇA EM ANDAMENTO (BUSCANDO +0.20) vs Cotada (CHF) CICLO DE FRAQUEZA EM ANDAMENTO (BUSCANDO -0.20).",
-      "signal_time": "2026-08-21 21:00",
+      "signal_time": "2026-08-21 22:00",
+      "bars_ago": 0
+    },
+    {
+      "pair": "CADCHF",
+      "base": "CAD",
+      "quote": "CHF",
+      "base_flag": "🇨🇦",
+      "quote_flag": "🇨🇭",
+      "total_score": 0.8,
+      "macro_diff": 0.12,
+      "op_diff": 0.06,
+      "recommendation": "COMPRA FORTE (STRONG BUY)",
+      "badge_type": "STRONG_BUY",
+      "conviction": "MÁXIMA (CONFLUÊNCIA DUPLA)",
+      "thesis": "Base (CAD) CICLO DE FORÇA EM ANDAMENTO (BUSCANDO +0.20) vs Cotada (CHF) CICLO DE FRAQUEZA EM ANDAMENTO (BUSCANDO -0.20).",
+      "signal_time": "2026-08-21 22:00",
       "bars_ago": 0
     },
     {
@@ -24252,76 +24252,60 @@
       "quote_flag": "🇨🇭",
       "total_score": 0.8,
       "macro_diff": 0.23,
-      "op_diff": 0.77,
+      "op_diff": 0.7,
       "recommendation": "COMPRA FORTE (STRONG BUY)",
       "badge_type": "STRONG_BUY",
       "conviction": "MÁXIMA (CONFLUÊNCIA DUPLA)",
       "thesis": "Base (NZD) CICLO DE FORÇA EM ANDAMENTO (BUSCANDO +0.20) vs Cotada (CHF) CICLO DE FRAQUEZA EM ANDAMENTO (BUSCANDO -0.20).",
-      "signal_time": "2026-08-21 21:00",
+      "signal_time": "2026-08-21 22:00",
       "bars_ago": 0
     },
     {
-      "pair": "AUDCAD",
-      "base": "AUD",
-      "quote": "CAD",
-      "base_flag": "🇦🇺",
-      "quote_flag": "🇨🇦",
-      "total_score": 0.6,
-      "macro_diff": 0.2,
-      "op_diff": 0.76,
-      "recommendation": "COMPRA FORTE (STRONG BUY)",
-      "badge_type": "STRONG_BUY",
-      "conviction": "MÁXIMA (CONFLUÊNCIA DUPLA)",
-      "thesis": "Base (AUD) CICLO DE FORÇA EM ANDAMENTO (BUSCANDO +0.20) vs Cotada (CAD) CICLO DE FORÇA EM ANDAMENTO (BUSCANDO +0.20).",
-      "signal_time": "2026-08-21 21:00",
-      "bars_ago": 0
-    },
-    {
-      "pair": "NZDCAD",
-      "base": "NZD",
-      "quote": "CAD",
-      "base_flag": "🇳🇿",
-      "quote_flag": "🇨🇦",
-      "total_score": 0.6,
-      "macro_diff": 0.11,
-      "op_diff": 0.71,
-      "recommendation": "COMPRA FORTE (STRONG BUY)",
-      "badge_type": "STRONG_BUY",
-      "conviction": "MÁXIMA (CONFLUÊNCIA DUPLA)",
-      "thesis": "Base (NZD) CICLO DE FORÇA EM ANDAMENTO (BUSCANDO +0.20) vs Cotada (CAD) CICLO DE FORÇA EM ANDAMENTO (BUSCANDO +0.20).",
-      "signal_time": "2026-08-21 21:00",
-      "bars_ago": 0
-    },
-    {
-      "pair": "AUDJPY",
-      "base": "AUD",
-      "quote": "JPY",
-      "base_flag": "🇦🇺",
-      "quote_flag": "🇯🇵",
-      "total_score": 0.55,
-      "macro_diff": 0.35,
-      "op_diff": 1.18,
-      "recommendation": "COMPRA (BUY)",
-      "badge_type": "BUY",
+      "pair": "EURAUD",
+      "base": "EUR",
+      "quote": "AUD",
+      "base_flag": "🇪🇺",
+      "quote_flag": "🇦🇺",
+      "total_score": -0.55,
+      "macro_diff": -0.11,
+      "op_diff": -1.02,
+      "recommendation": "VENDA (SELL)",
+      "badge_type": "SELL",
       "conviction": "ALTA",
-      "thesis": "Potencial cíclico de fluxo comprador para AUD frente a JPY.",
-      "signal_time": "2026-08-21 21:00",
+      "thesis": "Pressão cíclica vendedora em EUR frente ao AUD (Exaustão de Topo/Fundo).",
+      "signal_time": "2026-08-21 22:00",
       "bars_ago": 0
     },
     {
-      "pair": "NZDJPY",
-      "base": "NZD",
-      "quote": "JPY",
-      "base_flag": "🇳🇿",
-      "quote_flag": "🇯🇵",
-      "total_score": 0.55,
-      "macro_diff": 0.26,
-      "op_diff": 1.12,
-      "recommendation": "COMPRA (BUY)",
-      "badge_type": "BUY",
+      "pair": "EURCAD",
+      "base": "EUR",
+      "quote": "CAD",
+      "base_flag": "🇪🇺",
+      "quote_flag": "🇨🇦",
+      "total_score": -0.55,
+      "macro_diff": 0.08,
+      "op_diff": -0.31,
+      "recommendation": "VENDA (SELL)",
+      "badge_type": "SELL",
       "conviction": "ALTA",
-      "thesis": "Potencial cíclico de fluxo comprador para NZD frente a JPY.",
-      "signal_time": "2026-08-21 21:00",
+      "thesis": "Pressão cíclica vendedora em EUR frente ao CAD (Exaustão de Topo/Fundo).",
+      "signal_time": "2026-08-21 22:00",
+      "bars_ago": 0
+    },
+    {
+      "pair": "EURNZD",
+      "base": "EUR",
+      "quote": "NZD",
+      "base_flag": "🇪🇺",
+      "quote_flag": "🇳🇿",
+      "total_score": -0.55,
+      "macro_diff": -0.02,
+      "op_diff": -0.95,
+      "recommendation": "VENDA (SELL)",
+      "badge_type": "SELL",
+      "conviction": "ALTA",
+      "thesis": "Pressão cíclica vendedora em EUR frente ao NZD (Exaustão de Topo/Fundo).",
+      "signal_time": "2026-08-21 22:00",
       "bars_ago": 0
     },
     {
@@ -24331,13 +24315,13 @@
       "base_flag": "🇦🇺",
       "quote_flag": "🇺🇸",
       "total_score": -0.45,
-      "macro_diff": 0.62,
-      "op_diff": 1.45,
+      "macro_diff": 0.61,
+      "op_diff": 1.34,
       "recommendation": "VENDA (SELL)",
       "badge_type": "SELL",
       "conviction": "ALTA",
       "thesis": "Pressão cíclica vendedora em AUD frente ao USD (Exaustão de Topo/Fundo).",
-      "signal_time": "2026-08-21 21:00",
+      "signal_time": "2026-08-21 22:00",
       "bars_ago": 0
     },
     {
@@ -24348,12 +24332,28 @@
       "quote_flag": "🇺🇸",
       "total_score": -0.45,
       "macro_diff": 0.53,
-      "op_diff": 1.4,
+      "op_diff": 1.27,
       "recommendation": "VENDA (SELL)",
       "badge_type": "SELL",
       "conviction": "ALTA",
       "thesis": "Pressão cíclica vendedora em NZD frente ao USD (Exaustão de Topo/Fundo).",
-      "signal_time": "2026-08-21 21:00",
+      "signal_time": "2026-08-21 22:00",
+      "bars_ago": 0
+    },
+    {
+      "pair": "USDCAD",
+      "base": "USD",
+      "quote": "CAD",
+      "base_flag": "🇺🇸",
+      "quote_flag": "🇨🇦",
+      "total_score": 0.45,
+      "macro_diff": -0.42,
+      "op_diff": -0.63,
+      "recommendation": "COMPRA (BUY)",
+      "badge_type": "BUY",
+      "conviction": "ALTA",
+      "thesis": "Potencial cíclico de fluxo comprador para USD frente a CAD.",
+      "signal_time": "2026-08-21 22:00",
       "bars_ago": 0
     },
     {
@@ -24362,31 +24362,15 @@
       "quote": "JPY",
       "base_flag": "🇪🇺",
       "quote_flag": "🇯🇵",
-      "total_score": -0.4,
+      "total_score": 0.4,
       "macro_diff": 0.23,
-      "op_diff": 0.12,
-      "recommendation": "VENDA FORTE (STRONG SELL)",
-      "badge_type": "STRONG_SELL",
+      "op_diff": 0.09,
+      "recommendation": "COMPRA FORTE (STRONG BUY)",
+      "badge_type": "STRONG_BUY",
       "conviction": "MÁXIMA (CONFLUÊNCIA DUPLA)",
       "thesis": "Base (EUR) ABERTO SOBRE O 0 (PERMISSÃO VÁLIDA PARA CAIR) vs Cotada (JPY) ABERTO SOBRE O 0 (PERMISSÃO VÁLIDA PARA CAIR).",
       "signal_time": "2026-08-21 15:00",
-      "bars_ago": 6
-    },
-    {
-      "pair": "EURCAD",
-      "base": "EUR",
-      "quote": "CAD",
-      "base_flag": "🇪🇺",
-      "quote_flag": "🇨🇦",
-      "total_score": -0.35,
-      "macro_diff": 0.08,
-      "op_diff": -0.3,
-      "recommendation": "VENDA MODERADA",
-      "badge_type": "NEUTRAL",
-      "conviction": "MODERADA",
-      "thesis": "Leve predominância vendedora em EUR.",
-      "signal_time": "2026-08-21 21:00",
-      "bars_ago": 0
+      "bars_ago": 7
     },
     {
       "pair": "GBPAUD",
@@ -24396,12 +24380,28 @@
       "quote_flag": "🇦🇺",
       "total_score": 0.3,
       "macro_diff": -0.08,
-      "op_diff": -0.92,
+      "op_diff": -0.85,
       "recommendation": "COMPRA MODERADA",
       "badge_type": "NEUTRAL",
       "conviction": "MODERADA",
       "thesis": "Leve predominância compradora para GBP.",
-      "signal_time": "2026-08-21 21:00",
+      "signal_time": "2026-08-21 22:00",
+      "bars_ago": 0
+    },
+    {
+      "pair": "GBPCAD",
+      "base": "GBP",
+      "quote": "CAD",
+      "base_flag": "🇬🇧",
+      "quote_flag": "🇨🇦",
+      "total_score": 0.3,
+      "macro_diff": 0.12,
+      "op_diff": -0.14,
+      "recommendation": "COMPRA MODERADA",
+      "badge_type": "NEUTRAL",
+      "conviction": "MODERADA",
+      "thesis": "Leve predominância compradora para GBP.",
+      "signal_time": "2026-08-21 22:00",
       "bars_ago": 0
     },
     {
@@ -24411,61 +24411,13 @@
       "base_flag": "🇬🇧",
       "quote_flag": "🇳🇿",
       "total_score": 0.3,
-      "macro_diff": 0.0,
-      "op_diff": -0.86,
+      "macro_diff": 0.01,
+      "op_diff": -0.78,
       "recommendation": "COMPRA MODERADA",
       "badge_type": "NEUTRAL",
       "conviction": "MODERADA",
       "thesis": "Leve predominância compradora para GBP.",
-      "signal_time": "2026-08-21 21:00",
-      "bars_ago": 0
-    },
-    {
-      "pair": "CHFJPY",
-      "base": "CHF",
-      "quote": "JPY",
-      "base_flag": "🇨🇭",
-      "quote_flag": "🇯🇵",
-      "total_score": -0.25,
-      "macro_diff": 0.03,
-      "op_diff": 0.35,
-      "recommendation": "VENDA MODERADA",
-      "badge_type": "NEUTRAL",
-      "conviction": "MODERADA",
-      "thesis": "Leve predominância vendedora em CHF.",
-      "signal_time": "2026-08-21 21:00",
-      "bars_ago": 0
-    },
-    {
-      "pair": "CADCHF",
-      "base": "CAD",
-      "quote": "CHF",
-      "base_flag": "🇨🇦",
-      "quote_flag": "🇨🇭",
-      "total_score": 0.2,
-      "macro_diff": 0.12,
-      "op_diff": 0.06,
-      "recommendation": "COMPRA MODERADA",
-      "badge_type": "NEUTRAL",
-      "conviction": "MODERADA",
-      "thesis": "Leve predominância compradora para CAD.",
-      "signal_time": "2026-08-21 21:00",
-      "bars_ago": 0
-    },
-    {
-      "pair": "GBPUSD",
-      "base": "GBP",
-      "quote": "USD",
-      "base_flag": "🇬🇧",
-      "quote_flag": "🇺🇸",
-      "total_score": -0.15,
-      "macro_diff": 0.54,
-      "op_diff": 0.54,
-      "recommendation": "VENDA MODERADA",
-      "badge_type": "NEUTRAL",
-      "conviction": "MODERADA",
-      "thesis": "Leve predominância vendedora em GBP.",
-      "signal_time": "2026-08-21 21:00",
+      "signal_time": "2026-08-21 22:00",
       "bars_ago": 0
     },
     {
@@ -24474,30 +24426,62 @@
       "quote": "CHF",
       "base_flag": "🇪🇺",
       "quote_flag": "🇨🇭",
-      "total_score": -0.15,
+      "total_score": 0.25,
       "macro_diff": 0.2,
-      "op_diff": -0.23,
-      "recommendation": "NEUTRO / LATERAL (BOX)",
+      "op_diff": -0.25,
+      "recommendation": "COMPRA MODERADA",
       "badge_type": "NEUTRAL",
-      "conviction": "NEUTRA",
-      "thesis": "Forças equilibradas ou ambas no Box. Evitar operar.",
+      "conviction": "MODERADA",
+      "thesis": "Leve predominância compradora para EUR.",
       "signal_time": "2026-08-21 16:00",
-      "bars_ago": 5
+      "bars_ago": 6
     },
     {
-      "pair": "CADJPY",
-      "base": "CAD",
+      "pair": "GBPUSD",
+      "base": "GBP",
+      "quote": "USD",
+      "base_flag": "🇬🇧",
+      "quote_flag": "🇺🇸",
+      "total_score": -0.15,
+      "macro_diff": 0.53,
+      "op_diff": 0.49,
+      "recommendation": "VENDA MODERADA",
+      "badge_type": "NEUTRAL",
+      "conviction": "MODERADA",
+      "thesis": "Leve predominância vendedora em GBP.",
+      "signal_time": "2026-08-21 22:00",
+      "bars_ago": 0
+    },
+    {
+      "pair": "CHFJPY",
+      "base": "CHF",
       "quote": "JPY",
-      "base_flag": "🇨🇦",
+      "base_flag": "🇨🇭",
       "quote_flag": "🇯🇵",
-      "total_score": -0.05,
-      "macro_diff": 0.14,
-      "op_diff": 0.42,
+      "total_score": 0.15,
+      "macro_diff": 0.02,
+      "op_diff": 0.34,
       "recommendation": "NEUTRO / LATERAL (BOX)",
       "badge_type": "NEUTRAL",
       "conviction": "NEUTRA",
       "thesis": "Forças equilibradas ou ambas no Box. Evitar operar.",
-      "signal_time": "2026-08-21 21:00",
+      "signal_time": "2026-08-21 22:00",
+      "bars_ago": 0
+    },
+    {
+      "pair": "AUDCAD",
+      "base": "AUD",
+      "quote": "CAD",
+      "base_flag": "🇦🇺",
+      "quote_flag": "🇨🇦",
+      "total_score": 0.0,
+      "macro_diff": 0.2,
+      "op_diff": 0.71,
+      "recommendation": "NEUTRO / LATERAL (BOX)",
+      "badge_type": "NEUTRAL",
+      "conviction": "NEUTRA",
+      "thesis": "Forças equilibradas ou ambas no Box. Evitar operar.",
+      "signal_time": "2026-08-21 22:00",
       "bars_ago": 0
     },
     {
@@ -24508,12 +24492,28 @@
       "quote_flag": "🇳🇿",
       "total_score": 0.0,
       "macro_diff": 0.09,
-      "op_diff": 0.06,
+      "op_diff": 0.07,
       "recommendation": "NEUTRO / LATERAL (BOX)",
       "badge_type": "NEUTRAL",
       "conviction": "NEUTRA",
       "thesis": "Forças equilibradas ou ambas no Box. Evitar operar.",
-      "signal_time": "2026-08-21 21:00",
+      "signal_time": "2026-08-21 22:00",
+      "bars_ago": 0
+    },
+    {
+      "pair": "NZDCAD",
+      "base": "NZD",
+      "quote": "CAD",
+      "base_flag": "🇳🇿",
+      "quote_flag": "🇨🇦",
+      "total_score": 0.0,
+      "macro_diff": 0.11,
+      "op_diff": 0.64,
+      "recommendation": "NEUTRO / LATERAL (BOX)",
+      "badge_type": "NEUTRAL",
+      "conviction": "NEUTRA",
+      "thesis": "Forças equilibradas ou ambas no Box. Evitar operar.",
+      "signal_time": "2026-08-21 22:00",
       "bars_ago": 0
     }
   ],
@@ -24521,6 +24521,27 @@
     "timeframes": {
       "H1": {
         "crossovers": [
+          {
+            "pair": "USDJPY",
+            "base": "USD",
+            "quote": "JPY",
+            "base_flag": "🇺🇸",
+            "quote_flag": "🇯🇵",
+            "timeframe": "H1",
+            "direction": "BUY",
+            "direction_label": "🟢 COMPRA",
+            "action_thesis": "USD superou JPY em força relativa (USD > JPY)",
+            "timestamp": "2026-08-21 22:00",
+            "bars_ago": 0,
+            "is_fresh": true,
+            "base_score_cross": -0.21,
+            "quote_score_cross": -0.29,
+            "current_base_score": -0.21,
+            "current_quote_score": -0.29,
+            "current_spread": 0.076,
+            "abs_spread": 0.076,
+            "region": "Zona de Sobrefraqueza (-0.20)"
+          },
           {
             "pair": "GBPJPY",
             "base": "GBP",
@@ -24532,14 +24553,14 @@
             "direction_label": "🟢 COMPRA",
             "action_thesis": "GBP superou JPY em força relativa (GBP > JPY)",
             "timestamp": "2026-08-21 20:00",
-            "bars_ago": 1,
+            "bars_ago": 2,
             "is_fresh": true,
             "base_score_cross": -0.26,
             "quote_score_cross": -0.29,
-            "current_base_score": -0.2,
-            "current_quote_score": -0.32,
-            "current_spread": 0.123,
-            "abs_spread": 0.123,
+            "current_base_score": -0.16,
+            "current_quote_score": -0.29,
+            "current_spread": 0.125,
+            "abs_spread": 0.125,
             "region": "Zona de Sobrefraqueza (-0.20)"
           },
           {
@@ -24553,14 +24574,14 @@
             "direction_label": "🟢 COMPRA",
             "action_thesis": "USD superou CHF em força relativa (USD > CHF)",
             "timestamp": "2026-08-21 19:00",
-            "bars_ago": 2,
+            "bars_ago": 3,
             "is_fresh": true,
             "base_score_cross": -0.45,
             "quote_score_cross": -0.52,
-            "current_base_score": -0.33,
-            "current_quote_score": -0.55,
-            "current_spread": 0.22,
-            "abs_spread": 0.22,
+            "current_base_score": -0.21,
+            "current_quote_score": -0.53,
+            "current_spread": 0.316,
+            "abs_spread": 0.316,
             "region": "Zona de Sobrefraqueza (-0.20)"
           },
           {
@@ -24574,14 +24595,14 @@
             "direction_label": "🔴 VENDA",
             "action_thesis": "USD superou EUR em força relativa (USD > EUR)",
             "timestamp": "2026-08-21 18:00",
-            "bars_ago": 3,
-            "is_fresh": true,
+            "bars_ago": 4,
+            "is_fresh": false,
             "base_score_cross": -0.54,
             "quote_score_cross": -0.53,
-            "current_base_score": -0.59,
-            "current_quote_score": -0.33,
-            "current_spread": -0.263,
-            "abs_spread": 0.263,
+            "current_base_score": -0.61,
+            "current_quote_score": -0.21,
+            "current_spread": -0.396,
+            "abs_spread": 0.396,
             "region": "Zona de Sobrefraqueza (-0.20)"
           },
           {
@@ -24595,14 +24616,14 @@
             "direction_label": "🟢 COMPRA",
             "action_thesis": "GBP superou CHF em força relativa (GBP > CHF)",
             "timestamp": "2026-08-21 18:00",
-            "bars_ago": 3,
-            "is_fresh": true,
+            "bars_ago": 4,
+            "is_fresh": false,
             "base_score_cross": -0.39,
             "quote_score_cross": -0.48,
-            "current_base_score": -0.2,
-            "current_quote_score": -0.55,
-            "current_spread": 0.349,
-            "abs_spread": 0.349,
+            "current_base_score": -0.16,
+            "current_quote_score": -0.53,
+            "current_spread": 0.365,
+            "abs_spread": 0.365,
             "region": "Zona de Sobrefraqueza (-0.20)"
           },
           {
@@ -24616,14 +24637,14 @@
             "direction_label": "🔴 VENDA",
             "action_thesis": "GBP superou EUR em força relativa (GBP > EUR)",
             "timestamp": "2026-08-21 16:00",
-            "bars_ago": 5,
+            "bars_ago": 6,
             "is_fresh": false,
             "base_score_cross": -0.47,
             "quote_score_cross": -0.39,
-            "current_base_score": -0.59,
-            "current_quote_score": -0.2,
-            "current_spread": -0.392,
-            "abs_spread": 0.392,
+            "current_base_score": -0.61,
+            "current_quote_score": -0.16,
+            "current_spread": -0.445,
+            "abs_spread": 0.445,
             "region": "Zona de Sobrefraqueza (-0.20)"
           },
           {
@@ -24637,14 +24658,14 @@
             "direction_label": "🔴 VENDA",
             "action_thesis": "CHF superou EUR em força relativa (CHF > EUR)",
             "timestamp": "2026-08-21 16:00",
-            "bars_ago": 5,
+            "bars_ago": 6,
             "is_fresh": false,
             "base_score_cross": -0.47,
             "quote_score_cross": -0.4,
-            "current_base_score": -0.59,
-            "current_quote_score": -0.55,
-            "current_spread": -0.043,
-            "abs_spread": 0.043,
+            "current_base_score": -0.61,
+            "current_quote_score": -0.53,
+            "current_spread": -0.08,
+            "abs_spread": 0.08,
             "region": "Zona de Sobrefraqueza (-0.20)"
           },
           {
@@ -24658,14 +24679,14 @@
             "direction_label": "🔴 VENDA",
             "action_thesis": "JPY superou EUR em força relativa (JPY > EUR)",
             "timestamp": "2026-08-21 15:00",
-            "bars_ago": 6,
+            "bars_ago": 7,
             "is_fresh": false,
             "base_score_cross": -0.32,
             "quote_score_cross": -0.18,
-            "current_base_score": -0.59,
-            "current_quote_score": -0.32,
-            "current_spread": -0.269,
-            "abs_spread": 0.269,
+            "current_base_score": -0.61,
+            "current_quote_score": -0.29,
+            "current_spread": -0.32,
+            "abs_spread": 0.32,
             "region": "Zona de Equilíbrio (0.00)"
           }
         ],
@@ -24677,10 +24698,10 @@
             "base_flag": "🇪🇺",
             "quote_flag": "🇦🇺",
             "timeframe": "H1",
-            "current_base_score": -0.59,
-            "current_quote_score": 1.42,
-            "spread": -2.005,
-            "abs_spread": 2.005,
+            "current_base_score": -0.61,
+            "current_quote_score": 1.34,
+            "spread": -1.948,
+            "abs_spread": 1.948,
             "leader": "AUD",
             "bias": "SELL"
           },
@@ -24691,24 +24712,10 @@
             "base_flag": "🇦🇺",
             "quote_flag": "🇨🇭",
             "timeframe": "H1",
-            "current_base_score": 1.42,
-            "current_quote_score": -0.55,
-            "spread": 1.962,
-            "abs_spread": 1.962,
-            "leader": "AUD",
-            "bias": "BUY"
-          },
-          {
-            "pair": "AUDUSD",
-            "base": "AUD",
-            "quote": "USD",
-            "base_flag": "🇦🇺",
-            "quote_flag": "🇺🇸",
-            "timeframe": "H1",
-            "current_base_score": 1.42,
-            "current_quote_score": -0.33,
-            "spread": 1.742,
-            "abs_spread": 1.742,
+            "current_base_score": 1.34,
+            "current_quote_score": -0.53,
+            "spread": 1.868,
+            "abs_spread": 1.868,
             "leader": "AUD",
             "bias": "BUY"
           },
@@ -24719,10 +24726,24 @@
             "base_flag": "🇦🇺",
             "quote_flag": "🇯🇵",
             "timeframe": "H1",
-            "current_base_score": 1.42,
-            "current_quote_score": -0.32,
-            "spread": 1.736,
-            "abs_spread": 1.736,
+            "current_base_score": 1.34,
+            "current_quote_score": -0.29,
+            "spread": 1.628,
+            "abs_spread": 1.628,
+            "leader": "AUD",
+            "bias": "BUY"
+          },
+          {
+            "pair": "AUDUSD",
+            "base": "AUD",
+            "quote": "USD",
+            "base_flag": "🇦🇺",
+            "quote_flag": "🇺🇸",
+            "timeframe": "H1",
+            "current_base_score": 1.34,
+            "current_quote_score": -0.21,
+            "spread": 1.552,
+            "abs_spread": 1.552,
             "leader": "AUD",
             "bias": "BUY"
           },
@@ -24733,10 +24754,10 @@
             "base_flag": "🇬🇧",
             "quote_flag": "🇦🇺",
             "timeframe": "H1",
-            "current_base_score": -0.2,
-            "current_quote_score": 1.42,
-            "spread": -1.613,
-            "abs_spread": 1.613,
+            "current_base_score": -0.16,
+            "current_quote_score": 1.34,
+            "spread": -1.503,
+            "abs_spread": 1.503,
             "leader": "AUD",
             "bias": "SELL"
           },
@@ -24747,10 +24768,10 @@
             "base_flag": "🇦🇺",
             "quote_flag": "🇨🇦",
             "timeframe": "H1",
-            "current_base_score": 1.42,
+            "current_base_score": 1.34,
             "current_quote_score": -0.05,
-            "spread": 1.47,
-            "abs_spread": 1.47,
+            "spread": 1.392,
+            "abs_spread": 1.392,
             "leader": "AUD",
             "bias": "BUY"
           },
@@ -24761,10 +24782,10 @@
             "base_flag": "🇪🇺",
             "quote_flag": "🇳🇿",
             "timeframe": "H1",
-            "current_base_score": -0.59,
-            "current_quote_score": 0.61,
-            "spread": -1.197,
-            "abs_spread": 1.197,
+            "current_base_score": -0.61,
+            "current_quote_score": 0.5,
+            "spread": -1.111,
+            "abs_spread": 1.111,
             "leader": "NZD",
             "bias": "SELL"
           },
@@ -24775,38 +24796,10 @@
             "base_flag": "🇳🇿",
             "quote_flag": "🇨🇭",
             "timeframe": "H1",
-            "current_base_score": 0.61,
-            "current_quote_score": -0.55,
-            "spread": 1.154,
-            "abs_spread": 1.154,
-            "leader": "NZD",
-            "bias": "BUY"
-          },
-          {
-            "pair": "NZDUSD",
-            "base": "NZD",
-            "quote": "USD",
-            "base_flag": "🇳🇿",
-            "quote_flag": "🇺🇸",
-            "timeframe": "H1",
-            "current_base_score": 0.61,
-            "current_quote_score": -0.33,
-            "spread": 0.934,
-            "abs_spread": 0.934,
-            "leader": "NZD",
-            "bias": "BUY"
-          },
-          {
-            "pair": "NZDJPY",
-            "base": "NZD",
-            "quote": "JPY",
-            "base_flag": "🇳🇿",
-            "quote_flag": "🇯🇵",
-            "timeframe": "H1",
-            "current_base_score": 0.61,
-            "current_quote_score": -0.32,
-            "spread": 0.928,
-            "abs_spread": 0.928,
+            "current_base_score": 0.5,
+            "current_quote_score": -0.53,
+            "spread": 1.031,
+            "abs_spread": 1.031,
             "leader": "NZD",
             "bias": "BUY"
           },
@@ -24817,11 +24810,39 @@
             "base_flag": "🇦🇺",
             "quote_flag": "🇳🇿",
             "timeframe": "H1",
-            "current_base_score": 1.42,
-            "current_quote_score": 0.61,
-            "spread": 0.808,
-            "abs_spread": 0.808,
+            "current_base_score": 1.34,
+            "current_quote_score": 0.5,
+            "spread": 0.837,
+            "abs_spread": 0.837,
             "leader": "AUD",
+            "bias": "BUY"
+          },
+          {
+            "pair": "NZDJPY",
+            "base": "NZD",
+            "quote": "JPY",
+            "base_flag": "🇳🇿",
+            "quote_flag": "🇯🇵",
+            "timeframe": "H1",
+            "current_base_score": 0.5,
+            "current_quote_score": -0.29,
+            "spread": 0.791,
+            "abs_spread": 0.791,
+            "leader": "NZD",
+            "bias": "BUY"
+          },
+          {
+            "pair": "NZDUSD",
+            "base": "NZD",
+            "quote": "USD",
+            "base_flag": "🇳🇿",
+            "quote_flag": "🇺🇸",
+            "timeframe": "H1",
+            "current_base_score": 0.5,
+            "current_quote_score": -0.21,
+            "spread": 0.715,
+            "abs_spread": 0.715,
+            "leader": "NZD",
             "bias": "BUY"
           },
           {
@@ -24831,11 +24852,25 @@
             "base_flag": "🇬🇧",
             "quote_flag": "🇳🇿",
             "timeframe": "H1",
-            "current_base_score": -0.2,
-            "current_quote_score": 0.61,
-            "spread": -0.805,
-            "abs_spread": 0.805,
+            "current_base_score": -0.16,
+            "current_quote_score": 0.5,
+            "spread": -0.666,
+            "abs_spread": 0.666,
             "leader": "NZD",
+            "bias": "SELL"
+          },
+          {
+            "pair": "EURCAD",
+            "base": "EUR",
+            "quote": "CAD",
+            "base_flag": "🇪🇺",
+            "quote_flag": "🇨🇦",
+            "timeframe": "H1",
+            "current_base_score": -0.61,
+            "current_quote_score": -0.05,
+            "spread": -0.556,
+            "abs_spread": 0.556,
+            "leader": "CAD",
             "bias": "SELL"
           },
           {
@@ -24845,26 +24880,12 @@
             "base_flag": "🇳🇿",
             "quote_flag": "🇨🇦",
             "timeframe": "H1",
-            "current_base_score": 0.61,
+            "current_base_score": 0.5,
             "current_quote_score": -0.05,
-            "spread": 0.662,
-            "abs_spread": 0.662,
+            "spread": 0.555,
+            "abs_spread": 0.555,
             "leader": "NZD",
             "bias": "BUY"
-          },
-          {
-            "pair": "EURCAD",
-            "base": "EUR",
-            "quote": "CAD",
-            "base_flag": "🇪🇺",
-            "quote_flag": "🇨🇦",
-            "timeframe": "H1",
-            "current_base_score": -0.59,
-            "current_quote_score": -0.05,
-            "spread": -0.535,
-            "abs_spread": 0.535,
-            "leader": "CAD",
-            "bias": "SELL"
           },
           {
             "pair": "CADCHF",
@@ -24874,9 +24895,9 @@
             "quote_flag": "🇨🇭",
             "timeframe": "H1",
             "current_base_score": -0.05,
-            "current_quote_score": -0.55,
-            "spread": 0.492,
-            "abs_spread": 0.492,
+            "current_quote_score": -0.53,
+            "spread": 0.476,
+            "abs_spread": 0.476,
             "leader": "CAD",
             "bias": "BUY"
           },
@@ -24887,11 +24908,25 @@
             "base_flag": "🇪🇺",
             "quote_flag": "🇬🇧",
             "timeframe": "H1",
-            "current_base_score": -0.59,
-            "current_quote_score": -0.2,
-            "spread": -0.392,
-            "abs_spread": 0.392,
+            "current_base_score": -0.61,
+            "current_quote_score": -0.16,
+            "spread": -0.445,
+            "abs_spread": 0.445,
             "leader": "GBP",
+            "bias": "SELL"
+          },
+          {
+            "pair": "EURUSD",
+            "base": "EUR",
+            "quote": "USD",
+            "base_flag": "🇪🇺",
+            "quote_flag": "🇺🇸",
+            "timeframe": "H1",
+            "current_base_score": -0.61,
+            "current_quote_score": -0.21,
+            "spread": -0.396,
+            "abs_spread": 0.396,
+            "leader": "USD",
             "bias": "SELL"
           },
           {
@@ -24901,26 +24936,12 @@
             "base_flag": "🇬🇧",
             "quote_flag": "🇨🇭",
             "timeframe": "H1",
-            "current_base_score": -0.2,
-            "current_quote_score": -0.55,
-            "spread": 0.349,
-            "abs_spread": 0.349,
+            "current_base_score": -0.16,
+            "current_quote_score": -0.53,
+            "spread": 0.365,
+            "abs_spread": 0.365,
             "leader": "GBP",
             "bias": "BUY"
-          },
-          {
-            "pair": "USDCAD",
-            "base": "USD",
-            "quote": "CAD",
-            "base_flag": "🇺🇸",
-            "quote_flag": "🇨🇦",
-            "timeframe": "H1",
-            "current_base_score": -0.33,
-            "current_quote_score": -0.05,
-            "spread": -0.272,
-            "abs_spread": 0.272,
-            "leader": "CAD",
-            "bias": "SELL"
           },
           {
             "pair": "EURJPY",
@@ -24929,10 +24950,38 @@
             "base_flag": "🇪🇺",
             "quote_flag": "🇯🇵",
             "timeframe": "H1",
-            "current_base_score": -0.59,
-            "current_quote_score": -0.32,
-            "spread": -0.269,
-            "abs_spread": 0.269,
+            "current_base_score": -0.61,
+            "current_quote_score": -0.29,
+            "spread": -0.32,
+            "abs_spread": 0.32,
+            "leader": "JPY",
+            "bias": "SELL"
+          },
+          {
+            "pair": "USDCHF",
+            "base": "USD",
+            "quote": "CHF",
+            "base_flag": "🇺🇸",
+            "quote_flag": "🇨🇭",
+            "timeframe": "H1",
+            "current_base_score": -0.21,
+            "current_quote_score": -0.53,
+            "spread": 0.316,
+            "abs_spread": 0.316,
+            "leader": "USD",
+            "bias": "BUY"
+          },
+          {
+            "pair": "CHFJPY",
+            "base": "CHF",
+            "quote": "JPY",
+            "base_flag": "🇨🇭",
+            "quote_flag": "🇯🇵",
+            "timeframe": "H1",
+            "current_base_score": -0.53,
+            "current_quote_score": -0.29,
+            "spread": -0.24,
+            "abs_spread": 0.24,
             "leader": "JPY",
             "bias": "SELL"
           },
@@ -24944,52 +24993,38 @@
             "quote_flag": "🇯🇵",
             "timeframe": "H1",
             "current_base_score": -0.05,
-            "current_quote_score": -0.32,
-            "spread": 0.266,
-            "abs_spread": 0.266,
+            "current_quote_score": -0.29,
+            "spread": 0.236,
+            "abs_spread": 0.236,
             "leader": "CAD",
             "bias": "BUY"
           },
           {
-            "pair": "EURUSD",
-            "base": "EUR",
-            "quote": "USD",
-            "base_flag": "🇪🇺",
-            "quote_flag": "🇺🇸",
+            "pair": "USDCAD",
+            "base": "USD",
+            "quote": "CAD",
+            "base_flag": "🇺🇸",
+            "quote_flag": "🇨🇦",
             "timeframe": "H1",
-            "current_base_score": -0.59,
-            "current_quote_score": -0.33,
-            "spread": -0.263,
-            "abs_spread": 0.263,
-            "leader": "USD",
+            "current_base_score": -0.21,
+            "current_quote_score": -0.05,
+            "spread": -0.16,
+            "abs_spread": 0.16,
+            "leader": "CAD",
             "bias": "SELL"
           },
           {
-            "pair": "CHFJPY",
-            "base": "CHF",
+            "pair": "GBPJPY",
+            "base": "GBP",
             "quote": "JPY",
-            "base_flag": "🇨🇭",
+            "base_flag": "🇬🇧",
             "quote_flag": "🇯🇵",
             "timeframe": "H1",
-            "current_base_score": -0.55,
-            "current_quote_score": -0.32,
-            "spread": -0.226,
-            "abs_spread": 0.226,
-            "leader": "JPY",
-            "bias": "SELL"
-          },
-          {
-            "pair": "USDCHF",
-            "base": "USD",
-            "quote": "CHF",
-            "base_flag": "🇺🇸",
-            "quote_flag": "🇨🇭",
-            "timeframe": "H1",
-            "current_base_score": -0.33,
-            "current_quote_score": -0.55,
-            "spread": 0.22,
-            "abs_spread": 0.22,
-            "leader": "USD",
+            "current_base_score": -0.16,
+            "current_quote_score": -0.29,
+            "spread": 0.125,
+            "abs_spread": 0.125,
+            "leader": "GBP",
             "bias": "BUY"
           },
           {
@@ -24999,40 +25034,12 @@
             "base_flag": "🇬🇧",
             "quote_flag": "🇨🇦",
             "timeframe": "H1",
-            "current_base_score": -0.2,
+            "current_base_score": -0.16,
             "current_quote_score": -0.05,
-            "spread": -0.143,
-            "abs_spread": 0.143,
+            "spread": -0.111,
+            "abs_spread": 0.111,
             "leader": "CAD",
             "bias": "SELL"
-          },
-          {
-            "pair": "GBPUSD",
-            "base": "GBP",
-            "quote": "USD",
-            "base_flag": "🇬🇧",
-            "quote_flag": "🇺🇸",
-            "timeframe": "H1",
-            "current_base_score": -0.2,
-            "current_quote_score": -0.33,
-            "spread": 0.129,
-            "abs_spread": 0.129,
-            "leader": "GBP",
-            "bias": "BUY"
-          },
-          {
-            "pair": "GBPJPY",
-            "base": "GBP",
-            "quote": "JPY",
-            "base_flag": "🇬🇧",
-            "quote_flag": "🇯🇵",
-            "timeframe": "H1",
-            "current_base_score": -0.2,
-            "current_quote_score": -0.32,
-            "spread": 0.123,
-            "abs_spread": 0.123,
-            "leader": "GBP",
-            "bias": "BUY"
           },
           {
             "pair": "EURCHF",
@@ -25041,10 +25048,10 @@
             "base_flag": "🇪🇺",
             "quote_flag": "🇨🇭",
             "timeframe": "H1",
-            "current_base_score": -0.59,
-            "current_quote_score": -0.55,
-            "spread": -0.043,
-            "abs_spread": 0.043,
+            "current_base_score": -0.61,
+            "current_quote_score": -0.53,
+            "spread": -0.08,
+            "abs_spread": 0.08,
             "leader": "CHF",
             "bias": "SELL"
           },
@@ -25055,12 +25062,26 @@
             "base_flag": "🇺🇸",
             "quote_flag": "🇯🇵",
             "timeframe": "H1",
-            "current_base_score": -0.33,
-            "current_quote_score": -0.32,
-            "spread": -0.006,
-            "abs_spread": 0.006,
-            "leader": "JPY",
-            "bias": "SELL"
+            "current_base_score": -0.21,
+            "current_quote_score": -0.29,
+            "spread": 0.076,
+            "abs_spread": 0.076,
+            "leader": "USD",
+            "bias": "BUY"
+          },
+          {
+            "pair": "GBPUSD",
+            "base": "GBP",
+            "quote": "USD",
+            "base_flag": "🇬🇧",
+            "quote_flag": "🇺🇸",
+            "timeframe": "H1",
+            "current_base_score": -0.16,
+            "current_quote_score": -0.21,
+            "spread": 0.049,
+            "abs_spread": 0.049,
+            "leader": "GBP",
+            "bias": "BUY"
           }
         ]
       },
@@ -25080,11 +25101,11 @@
             "bars_ago": 0,
             "is_fresh": true,
             "base_score_cross": 0.03,
-            "quote_score_cross": 0.15,
+            "quote_score_cross": 0.13,
             "current_base_score": 0.03,
-            "current_quote_score": 0.15,
-            "current_spread": -0.114,
-            "abs_spread": 0.114,
+            "current_quote_score": 0.13,
+            "current_spread": -0.097,
+            "abs_spread": 0.097,
             "region": "Zona de Equilíbrio (0.00)"
           },
           {
@@ -25104,8 +25125,8 @@
             "quote_score_cross": 0.09,
             "current_base_score": 0.03,
             "current_quote_score": 0.09,
-            "current_spread": -0.06,
-            "abs_spread": 0.06,
+            "current_spread": -0.061,
+            "abs_spread": 0.061,
             "region": "Zona de Equilíbrio (0.00)"
           },
           {
@@ -25121,12 +25142,12 @@
             "timestamp": "2026-08-21 20:00",
             "bars_ago": 0,
             "is_fresh": true,
-            "base_score_cross": 0.15,
+            "base_score_cross": 0.13,
             "quote_score_cross": 0.09,
-            "current_base_score": 0.15,
+            "current_base_score": 0.13,
             "current_quote_score": 0.09,
-            "current_spread": 0.054,
-            "abs_spread": 0.054,
+            "current_spread": 0.036,
+            "abs_spread": 0.036,
             "region": "Zona de Equilíbrio (0.00)"
           },
           {
@@ -25145,9 +25166,9 @@
             "base_score_cross": -0.11,
             "quote_score_cross": -0.0,
             "current_base_score": -0.07,
-            "current_quote_score": 0.15,
-            "current_spread": -0.219,
-            "abs_spread": 0.219,
+            "current_quote_score": 0.13,
+            "current_spread": -0.203,
+            "abs_spread": 0.203,
             "region": "Zona de Equilíbrio (0.00)"
           },
           {
@@ -25165,10 +25186,10 @@
             "is_fresh": true,
             "base_score_cross": -0.18,
             "quote_score_cross": -0.35,
-            "current_base_score": 0.15,
-            "current_quote_score": -0.47,
-            "current_spread": 0.621,
-            "abs_spread": 0.621,
+            "current_base_score": 0.13,
+            "current_quote_score": -0.46,
+            "current_spread": 0.594,
+            "abs_spread": 0.594,
             "region": "Zona de Equilíbrio (0.00)"
           },
           {
@@ -25186,10 +25207,10 @@
             "is_fresh": true,
             "base_score_cross": 0.72,
             "quote_score_cross": 0.67,
-            "current_base_score": 0.84,
-            "current_quote_score": 0.46,
-            "current_spread": 0.384,
-            "abs_spread": 0.384,
+            "current_base_score": 0.82,
+            "current_quote_score": 0.45,
+            "current_spread": 0.371,
+            "abs_spread": 0.371,
             "region": "Zona de Sobreforça (+0.20)"
           },
           {
@@ -25208,9 +25229,9 @@
             "base_score_cross": 0.37,
             "quote_score_cross": 0.49,
             "current_base_score": 0.03,
-            "current_quote_score": 0.84,
-            "current_spread": -0.808,
-            "abs_spread": 0.808,
+            "current_quote_score": 0.82,
+            "current_spread": -0.792,
+            "abs_spread": 0.792,
             "region": "Zona de Sobreforça (+0.20)"
           },
           {
@@ -25229,9 +25250,9 @@
             "base_score_cross": -0.07,
             "quote_score_cross": -0.1,
             "current_base_score": -0.07,
-            "current_quote_score": -0.47,
-            "current_spread": 0.402,
-            "abs_spread": 0.402,
+            "current_quote_score": -0.46,
+            "current_spread": 0.391,
+            "abs_spread": 0.391,
             "region": "Zona de Equilíbrio (0.00)"
           }
         ],
@@ -25243,10 +25264,10 @@
             "base_flag": "🇳🇿",
             "quote_flag": "🇺🇸",
             "timeframe": "H4",
-            "current_base_score": 0.84,
-            "current_quote_score": -1.02,
-            "spread": 1.858,
-            "abs_spread": 1.858,
+            "current_base_score": 0.82,
+            "current_quote_score": -1.0,
+            "spread": 1.824,
+            "abs_spread": 1.824,
             "leader": "NZD",
             "bias": "BUY"
           },
@@ -25257,10 +25278,10 @@
             "base_flag": "🇺🇸",
             "quote_flag": "🇨🇭",
             "timeframe": "H4",
-            "current_base_score": -1.02,
-            "current_quote_score": 0.46,
-            "spread": -1.474,
-            "abs_spread": 1.474,
+            "current_base_score": -1.0,
+            "current_quote_score": 0.45,
+            "spread": -1.453,
+            "abs_spread": 1.453,
             "leader": "CHF",
             "bias": "SELL"
           },
@@ -25271,10 +25292,10 @@
             "base_flag": "🇳🇿",
             "quote_flag": "🇯🇵",
             "timeframe": "H4",
-            "current_base_score": 0.84,
-            "current_quote_score": -0.47,
-            "spread": 1.315,
-            "abs_spread": 1.315,
+            "current_base_score": 0.82,
+            "current_quote_score": -0.46,
+            "spread": 1.289,
+            "abs_spread": 1.289,
             "leader": "NZD",
             "bias": "BUY"
           },
@@ -25285,10 +25306,10 @@
             "base_flag": "🇦🇺",
             "quote_flag": "🇺🇸",
             "timeframe": "H4",
-            "current_base_score": 0.15,
-            "current_quote_score": -1.02,
-            "spread": 1.164,
-            "abs_spread": 1.164,
+            "current_base_score": 0.13,
+            "current_quote_score": -1.0,
+            "spread": 1.129,
+            "abs_spread": 1.129,
             "leader": "AUD",
             "bias": "BUY"
           },
@@ -25299,10 +25320,10 @@
             "base_flag": "🇺🇸",
             "quote_flag": "🇨🇦",
             "timeframe": "H4",
-            "current_base_score": -1.02,
+            "current_base_score": -1.0,
             "current_quote_score": 0.09,
-            "spread": -1.11,
-            "abs_spread": 1.11,
+            "spread": -1.093,
+            "abs_spread": 1.093,
             "leader": "CAD",
             "bias": "SELL"
           },
@@ -25314,9 +25335,9 @@
             "quote_flag": "🇺🇸",
             "timeframe": "H4",
             "current_base_score": 0.03,
-            "current_quote_score": -1.02,
-            "spread": 1.05,
-            "abs_spread": 1.05,
+            "current_quote_score": -1.0,
+            "spread": 1.032,
+            "abs_spread": 1.032,
             "leader": "EUR",
             "bias": "BUY"
           },
@@ -25328,9 +25349,9 @@
             "quote_flag": "🇺🇸",
             "timeframe": "H4",
             "current_base_score": -0.07,
-            "current_quote_score": -1.02,
-            "spread": 0.945,
-            "abs_spread": 0.945,
+            "current_quote_score": -1.0,
+            "spread": 0.926,
+            "abs_spread": 0.926,
             "leader": "GBP",
             "bias": "BUY"
           },
@@ -25341,10 +25362,10 @@
             "base_flag": "🇨🇭",
             "quote_flag": "🇯🇵",
             "timeframe": "H4",
-            "current_base_score": 0.46,
-            "current_quote_score": -0.47,
-            "spread": 0.931,
-            "abs_spread": 0.931,
+            "current_base_score": 0.45,
+            "current_quote_score": -0.46,
+            "spread": 0.918,
+            "abs_spread": 0.918,
             "leader": "CHF",
             "bias": "BUY"
           },
@@ -25356,9 +25377,9 @@
             "quote_flag": "🇳🇿",
             "timeframe": "H4",
             "current_base_score": -0.07,
-            "current_quote_score": 0.84,
-            "spread": -0.913,
-            "abs_spread": 0.913,
+            "current_quote_score": 0.82,
+            "spread": -0.898,
+            "abs_spread": 0.898,
             "leader": "NZD",
             "bias": "SELL"
           },
@@ -25370,9 +25391,9 @@
             "quote_flag": "🇳🇿",
             "timeframe": "H4",
             "current_base_score": 0.03,
-            "current_quote_score": 0.84,
-            "spread": -0.808,
-            "abs_spread": 0.808,
+            "current_quote_score": 0.82,
+            "spread": -0.792,
+            "abs_spread": 0.792,
             "leader": "NZD",
             "bias": "SELL"
           },
@@ -25383,10 +25404,10 @@
             "base_flag": "🇳🇿",
             "quote_flag": "🇨🇦",
             "timeframe": "H4",
-            "current_base_score": 0.84,
+            "current_base_score": 0.82,
             "current_quote_score": 0.09,
-            "spread": 0.748,
-            "abs_spread": 0.748,
+            "spread": 0.731,
+            "abs_spread": 0.731,
             "leader": "NZD",
             "bias": "BUY"
           },
@@ -25397,10 +25418,10 @@
             "base_flag": "🇦🇺",
             "quote_flag": "🇳🇿",
             "timeframe": "H4",
-            "current_base_score": 0.15,
-            "current_quote_score": 0.84,
-            "spread": -0.694,
-            "abs_spread": 0.694,
+            "current_base_score": 0.13,
+            "current_quote_score": 0.82,
+            "spread": -0.695,
+            "abs_spread": 0.695,
             "leader": "NZD",
             "bias": "SELL"
           },
@@ -25411,10 +25432,10 @@
             "base_flag": "🇦🇺",
             "quote_flag": "🇯🇵",
             "timeframe": "H4",
-            "current_base_score": 0.15,
-            "current_quote_score": -0.47,
-            "spread": 0.621,
-            "abs_spread": 0.621,
+            "current_base_score": 0.13,
+            "current_quote_score": -0.46,
+            "spread": 0.594,
+            "abs_spread": 0.594,
             "leader": "AUD",
             "bias": "BUY"
           },
@@ -25426,9 +25447,9 @@
             "quote_flag": "🇯🇵",
             "timeframe": "H4",
             "current_base_score": 0.09,
-            "current_quote_score": -0.47,
-            "spread": 0.567,
-            "abs_spread": 0.567,
+            "current_quote_score": -0.46,
+            "spread": 0.558,
+            "abs_spread": 0.558,
             "leader": "CAD",
             "bias": "BUY"
           },
@@ -25439,10 +25460,10 @@
             "base_flag": "🇺🇸",
             "quote_flag": "🇯🇵",
             "timeframe": "H4",
-            "current_base_score": -1.02,
-            "current_quote_score": -0.47,
-            "spread": -0.543,
-            "abs_spread": 0.543,
+            "current_base_score": -1.0,
+            "current_quote_score": -0.46,
+            "spread": -0.535,
+            "abs_spread": 0.535,
             "leader": "JPY",
             "bias": "SELL"
           },
@@ -25454,9 +25475,9 @@
             "quote_flag": "🇨🇭",
             "timeframe": "H4",
             "current_base_score": -0.07,
-            "current_quote_score": 0.46,
-            "spread": -0.529,
-            "abs_spread": 0.529,
+            "current_quote_score": 0.45,
+            "spread": -0.527,
+            "abs_spread": 0.527,
             "leader": "CHF",
             "bias": "SELL"
           },
@@ -25468,9 +25489,9 @@
             "quote_flag": "🇯🇵",
             "timeframe": "H4",
             "current_base_score": 0.03,
-            "current_quote_score": -0.47,
-            "spread": 0.507,
-            "abs_spread": 0.507,
+            "current_quote_score": -0.46,
+            "spread": 0.497,
+            "abs_spread": 0.497,
             "leader": "EUR",
             "bias": "BUY"
           },
@@ -25482,9 +25503,9 @@
             "quote_flag": "🇨🇭",
             "timeframe": "H4",
             "current_base_score": 0.03,
-            "current_quote_score": 0.46,
-            "spread": -0.424,
-            "abs_spread": 0.424,
+            "current_quote_score": 0.45,
+            "spread": -0.421,
+            "abs_spread": 0.421,
             "leader": "CHF",
             "bias": "SELL"
           },
@@ -25496,9 +25517,9 @@
             "quote_flag": "🇯🇵",
             "timeframe": "H4",
             "current_base_score": -0.07,
-            "current_quote_score": -0.47,
-            "spread": 0.402,
-            "abs_spread": 0.402,
+            "current_quote_score": -0.46,
+            "spread": 0.391,
+            "abs_spread": 0.391,
             "leader": "GBP",
             "bias": "BUY"
           },
@@ -25509,10 +25530,10 @@
             "base_flag": "🇳🇿",
             "quote_flag": "🇨🇭",
             "timeframe": "H4",
-            "current_base_score": 0.84,
-            "current_quote_score": 0.46,
-            "spread": 0.384,
-            "abs_spread": 0.384,
+            "current_base_score": 0.82,
+            "current_quote_score": 0.45,
+            "spread": 0.371,
+            "abs_spread": 0.371,
             "leader": "NZD",
             "bias": "BUY"
           },
@@ -25524,9 +25545,9 @@
             "quote_flag": "🇨🇭",
             "timeframe": "H4",
             "current_base_score": 0.09,
-            "current_quote_score": 0.46,
-            "spread": -0.364,
-            "abs_spread": 0.364,
+            "current_quote_score": 0.45,
+            "spread": -0.36,
+            "abs_spread": 0.36,
             "leader": "CHF",
             "bias": "SELL"
           },
@@ -25537,10 +25558,10 @@
             "base_flag": "🇦🇺",
             "quote_flag": "🇨🇭",
             "timeframe": "H4",
-            "current_base_score": 0.15,
-            "current_quote_score": 0.46,
-            "spread": -0.31,
-            "abs_spread": 0.31,
+            "current_base_score": 0.13,
+            "current_quote_score": 0.45,
+            "spread": -0.324,
+            "abs_spread": 0.324,
             "leader": "CHF",
             "bias": "SELL"
           },
@@ -25552,9 +25573,9 @@
             "quote_flag": "🇦🇺",
             "timeframe": "H4",
             "current_base_score": -0.07,
-            "current_quote_score": 0.15,
-            "spread": -0.219,
-            "abs_spread": 0.219,
+            "current_quote_score": 0.13,
+            "spread": -0.203,
+            "abs_spread": 0.203,
             "leader": "AUD",
             "bias": "SELL"
           },
@@ -25567,23 +25588,9 @@
             "timeframe": "H4",
             "current_base_score": -0.07,
             "current_quote_score": 0.09,
-            "spread": -0.165,
-            "abs_spread": 0.165,
+            "spread": -0.167,
+            "abs_spread": 0.167,
             "leader": "CAD",
-            "bias": "SELL"
-          },
-          {
-            "pair": "EURAUD",
-            "base": "EUR",
-            "quote": "AUD",
-            "base_flag": "🇪🇺",
-            "quote_flag": "🇦🇺",
-            "timeframe": "H4",
-            "current_base_score": 0.03,
-            "current_quote_score": 0.15,
-            "spread": -0.114,
-            "abs_spread": 0.114,
-            "leader": "AUD",
             "bias": "SELL"
           },
           {
@@ -25595,10 +25602,24 @@
             "timeframe": "H4",
             "current_base_score": 0.03,
             "current_quote_score": -0.07,
-            "spread": 0.105,
-            "abs_spread": 0.105,
+            "spread": 0.106,
+            "abs_spread": 0.106,
             "leader": "EUR",
             "bias": "BUY"
+          },
+          {
+            "pair": "EURAUD",
+            "base": "EUR",
+            "quote": "AUD",
+            "base_flag": "🇪🇺",
+            "quote_flag": "🇦🇺",
+            "timeframe": "H4",
+            "current_base_score": 0.03,
+            "current_quote_score": 0.13,
+            "spread": -0.097,
+            "abs_spread": 0.097,
+            "leader": "AUD",
+            "bias": "SELL"
           },
           {
             "pair": "EURCAD",
@@ -25609,8 +25630,8 @@
             "timeframe": "H4",
             "current_base_score": 0.03,
             "current_quote_score": 0.09,
-            "spread": -0.06,
-            "abs_spread": 0.06,
+            "spread": -0.061,
+            "abs_spread": 0.061,
             "leader": "CAD",
             "bias": "SELL"
           },
@@ -25621,10 +25642,10 @@
             "base_flag": "🇦🇺",
             "quote_flag": "🇨🇦",
             "timeframe": "H4",
-            "current_base_score": 0.15,
+            "current_base_score": 0.13,
             "current_quote_score": 0.09,
-            "spread": 0.054,
-            "abs_spread": 0.054,
+            "spread": 0.036,
+            "abs_spread": 0.036,
             "leader": "AUD",
             "bias": "BUY"
           }
@@ -25649,8 +25670,8 @@
             "quote_score_cross": 0.16,
             "current_base_score": 0.13,
             "current_quote_score": 0.16,
-            "current_spread": -0.034,
-            "abs_spread": 0.034,
+            "current_spread": -0.029,
+            "abs_spread": 0.029,
             "region": "Zona de Equilíbrio (0.00)"
           },
           {
@@ -25670,8 +25691,8 @@
             "quote_score_cross": 0.09,
             "current_base_score": 0.13,
             "current_quote_score": 0.09,
-            "current_spread": 0.042,
-            "abs_spread": 0.042,
+            "current_spread": 0.037,
+            "abs_spread": 0.037,
             "region": "Zona de Equilíbrio (0.00)"
           },
           {
@@ -25688,11 +25709,11 @@
             "bars_ago": 0,
             "is_fresh": true,
             "base_score_cross": 0.13,
-            "quote_score_cross": 0.2,
+            "quote_score_cross": 0.19,
             "current_base_score": 0.13,
-            "current_quote_score": 0.2,
-            "current_spread": -0.067,
-            "abs_spread": 0.067,
+            "current_quote_score": 0.19,
+            "current_spread": -0.062,
+            "abs_spread": 0.062,
             "region": "Zona de Equilíbrio (0.00)"
           },
           {
@@ -25712,8 +25733,8 @@
             "quote_score_cross": 0.16,
             "current_base_score": 0.1,
             "current_quote_score": 0.16,
-            "current_spread": -0.058,
-            "abs_spread": 0.058,
+            "current_spread": -0.053,
+            "abs_spread": 0.053,
             "region": "Zona de Equilíbrio (0.00)"
           },
           {
@@ -25733,8 +25754,8 @@
             "quote_score_cross": 0.09,
             "current_base_score": 0.1,
             "current_quote_score": 0.09,
-            "current_spread": 0.018,
-            "abs_spread": 0.018,
+            "current_spread": 0.013,
+            "abs_spread": 0.013,
             "region": "Zona de Equilíbrio (0.00)"
           },
           {
@@ -25754,8 +25775,8 @@
             "quote_score_cross": 0.09,
             "current_base_score": 0.16,
             "current_quote_score": 0.09,
-            "current_spread": 0.076,
-            "abs_spread": 0.076,
+            "current_spread": 0.066,
+            "abs_spread": 0.066,
             "region": "Zona de Equilíbrio (0.00)"
           },
           {
@@ -25775,8 +25796,8 @@
             "quote_score_cross": 0.09,
             "current_base_score": 0.19,
             "current_quote_score": 0.09,
-            "current_spread": 0.1,
-            "abs_spread": 0.1,
+            "current_spread": 0.095,
+            "abs_spread": 0.095,
             "region": "Zona de Equilíbrio (0.00)"
           },
           {
@@ -25792,12 +25813,12 @@
             "timestamp": "2026-08-21 00:00",
             "bars_ago": 0,
             "is_fresh": true,
-            "base_score_cross": 0.2,
+            "base_score_cross": 0.19,
             "quote_score_cross": 0.19,
-            "current_base_score": 0.2,
+            "current_base_score": 0.19,
             "current_quote_score": 0.19,
-            "current_spread": 0.009,
-            "abs_spread": 0.009,
+            "current_spread": 0.004,
+            "abs_spread": 0.004,
             "region": "Zona de Equilíbrio (0.00)"
           },
           {
@@ -25813,12 +25834,12 @@
             "timestamp": "2026-08-21 00:00",
             "bars_ago": 0,
             "is_fresh": true,
-            "base_score_cross": 0.2,
+            "base_score_cross": 0.19,
             "quote_score_cross": 0.09,
-            "current_base_score": 0.2,
+            "current_base_score": 0.19,
             "current_quote_score": 0.09,
-            "current_spread": 0.109,
-            "abs_spread": 0.109,
+            "current_spread": 0.099,
+            "abs_spread": 0.099,
             "region": "Zona de Equilíbrio (0.00)"
           },
           {
@@ -25858,9 +25879,9 @@
             "base_score_cross": 0.02,
             "quote_score_cross": 0.05,
             "current_base_score": 0.1,
-            "current_quote_score": 0.2,
-            "current_spread": -0.091,
-            "abs_spread": 0.091,
+            "current_quote_score": 0.19,
+            "current_spread": -0.086,
+            "abs_spread": 0.086,
             "region": "Zona de Equilíbrio (0.00)"
           },
           {
@@ -25879,7 +25900,7 @@
             "base_score_cross": 0.04,
             "quote_score_cross": 0.05,
             "current_base_score": 0.16,
-            "current_quote_score": 0.2,
+            "current_quote_score": 0.19,
             "current_spread": -0.033,
             "abs_spread": 0.033,
             "region": "Zona de Equilíbrio (0.00)"
@@ -25901,8 +25922,8 @@
             "quote_score_cross": -0.43,
             "current_base_score": -0.71,
             "current_quote_score": -0.15,
-            "current_spread": -0.56,
-            "abs_spread": 0.56,
+            "current_spread": -0.552,
+            "abs_spread": 0.552,
             "region": "Zona de Sobrefraqueza (-0.20)"
           },
           {
@@ -25922,8 +25943,8 @@
             "quote_score_cross": 0.1,
             "current_base_score": 0.16,
             "current_quote_score": 0.19,
-            "current_spread": -0.024,
-            "abs_spread": 0.024,
+            "current_spread": -0.029,
+            "abs_spread": 0.029,
             "region": "Zona de Equilíbrio (0.00)"
           }
         ],
@@ -25935,10 +25956,10 @@
             "base_flag": "🇳🇿",
             "quote_flag": "🇺🇸",
             "timeframe": "D1",
-            "current_base_score": 0.2,
+            "current_base_score": 0.19,
             "current_quote_score": -0.71,
-            "spread": 0.91,
-            "abs_spread": 0.91,
+            "spread": 0.898,
+            "abs_spread": 0.898,
             "leader": "NZD",
             "bias": "BUY"
           },
@@ -25951,8 +25972,8 @@
             "timeframe": "D1",
             "current_base_score": -0.71,
             "current_quote_score": 0.19,
-            "spread": -0.901,
-            "abs_spread": 0.901,
+            "spread": -0.894,
+            "abs_spread": 0.894,
             "leader": "CAD",
             "bias": "SELL"
           },
@@ -25965,8 +25986,8 @@
             "timeframe": "D1",
             "current_base_score": 0.16,
             "current_quote_score": -0.71,
-            "spread": 0.877,
-            "abs_spread": 0.877,
+            "spread": 0.865,
+            "abs_spread": 0.865,
             "leader": "AUD",
             "bias": "BUY"
           },
@@ -25979,8 +26000,8 @@
             "timeframe": "D1",
             "current_base_score": 0.13,
             "current_quote_score": -0.71,
-            "spread": 0.843,
-            "abs_spread": 0.843,
+            "spread": 0.836,
+            "abs_spread": 0.836,
             "leader": "EUR",
             "bias": "BUY"
           },
@@ -25993,8 +26014,8 @@
             "timeframe": "D1",
             "current_base_score": 0.1,
             "current_quote_score": -0.71,
-            "spread": 0.819,
-            "abs_spread": 0.819,
+            "spread": 0.812,
+            "abs_spread": 0.812,
             "leader": "GBP",
             "bias": "BUY"
           },
@@ -26007,8 +26028,8 @@
             "timeframe": "D1",
             "current_base_score": -0.71,
             "current_quote_score": 0.09,
-            "spread": -0.801,
-            "abs_spread": 0.801,
+            "spread": -0.799,
+            "abs_spread": 0.799,
             "leader": "JPY",
             "bias": "SELL"
           },
@@ -26021,8 +26042,8 @@
             "timeframe": "D1",
             "current_base_score": -0.71,
             "current_quote_score": -0.15,
-            "spread": -0.56,
-            "abs_spread": 0.56,
+            "spread": -0.552,
+            "abs_spread": 0.552,
             "leader": "CHF",
             "bias": "SELL"
           },
@@ -26033,10 +26054,10 @@
             "base_flag": "🇳🇿",
             "quote_flag": "🇨🇭",
             "timeframe": "D1",
-            "current_base_score": 0.2,
+            "current_base_score": 0.19,
             "current_quote_score": -0.15,
-            "spread": 0.35,
-            "abs_spread": 0.35,
+            "spread": 0.346,
+            "abs_spread": 0.346,
             "leader": "NZD",
             "bias": "BUY"
           },
@@ -26049,8 +26070,8 @@
             "timeframe": "D1",
             "current_base_score": 0.19,
             "current_quote_score": -0.15,
-            "spread": 0.341,
-            "abs_spread": 0.341,
+            "spread": 0.342,
+            "abs_spread": 0.342,
             "leader": "CAD",
             "bias": "BUY"
           },
@@ -26063,8 +26084,8 @@
             "timeframe": "D1",
             "current_base_score": 0.16,
             "current_quote_score": -0.15,
-            "spread": 0.317,
-            "abs_spread": 0.317,
+            "spread": 0.313,
+            "abs_spread": 0.313,
             "leader": "AUD",
             "bias": "BUY"
           },
@@ -26077,8 +26098,8 @@
             "timeframe": "D1",
             "current_base_score": 0.13,
             "current_quote_score": -0.15,
-            "spread": 0.283,
-            "abs_spread": 0.283,
+            "spread": 0.284,
+            "abs_spread": 0.284,
             "leader": "EUR",
             "bias": "BUY"
           },
@@ -26091,8 +26112,8 @@
             "timeframe": "D1",
             "current_base_score": 0.1,
             "current_quote_score": -0.15,
-            "spread": 0.259,
-            "abs_spread": 0.259,
+            "spread": 0.26,
+            "abs_spread": 0.26,
             "leader": "GBP",
             "bias": "BUY"
           },
@@ -26105,8 +26126,8 @@
             "timeframe": "D1",
             "current_base_score": -0.15,
             "current_quote_score": 0.09,
-            "spread": -0.241,
-            "abs_spread": 0.241,
+            "spread": -0.247,
+            "abs_spread": 0.247,
             "leader": "JPY",
             "bias": "SELL"
           },
@@ -26117,10 +26138,10 @@
             "base_flag": "🇳🇿",
             "quote_flag": "🇯🇵",
             "timeframe": "D1",
-            "current_base_score": 0.2,
+            "current_base_score": 0.19,
             "current_quote_score": 0.09,
-            "spread": 0.109,
-            "abs_spread": 0.109,
+            "spread": 0.099,
+            "abs_spread": 0.099,
             "leader": "NZD",
             "bias": "BUY"
           },
@@ -26133,8 +26154,8 @@
             "timeframe": "D1",
             "current_base_score": 0.19,
             "current_quote_score": 0.09,
-            "spread": 0.1,
-            "abs_spread": 0.1,
+            "spread": 0.095,
+            "abs_spread": 0.095,
             "leader": "CAD",
             "bias": "BUY"
           },
@@ -26146,9 +26167,9 @@
             "quote_flag": "🇳🇿",
             "timeframe": "D1",
             "current_base_score": 0.1,
-            "current_quote_score": 0.2,
-            "spread": -0.091,
-            "abs_spread": 0.091,
+            "current_quote_score": 0.19,
+            "spread": -0.086,
+            "abs_spread": 0.086,
             "leader": "NZD",
             "bias": "SELL"
           },
@@ -26175,8 +26196,8 @@
             "timeframe": "D1",
             "current_base_score": 0.16,
             "current_quote_score": 0.09,
-            "spread": 0.076,
-            "abs_spread": 0.076,
+            "spread": 0.066,
+            "abs_spread": 0.066,
             "leader": "AUD",
             "bias": "BUY"
           },
@@ -26188,9 +26209,9 @@
             "quote_flag": "🇳🇿",
             "timeframe": "D1",
             "current_base_score": 0.13,
-            "current_quote_score": 0.2,
-            "spread": -0.067,
-            "abs_spread": 0.067,
+            "current_quote_score": 0.19,
+            "spread": -0.062,
+            "abs_spread": 0.062,
             "leader": "NZD",
             "bias": "SELL"
           },
@@ -26217,8 +26238,8 @@
             "timeframe": "D1",
             "current_base_score": 0.1,
             "current_quote_score": 0.16,
-            "spread": -0.058,
-            "abs_spread": 0.058,
+            "spread": -0.053,
+            "abs_spread": 0.053,
             "leader": "AUD",
             "bias": "SELL"
           },
@@ -26231,10 +26252,24 @@
             "timeframe": "D1",
             "current_base_score": 0.13,
             "current_quote_score": 0.09,
-            "spread": 0.042,
-            "abs_spread": 0.042,
+            "spread": 0.037,
+            "abs_spread": 0.037,
             "leader": "EUR",
             "bias": "BUY"
+          },
+          {
+            "pair": "AUDNZD",
+            "base": "AUD",
+            "quote": "NZD",
+            "base_flag": "🇦🇺",
+            "quote_flag": "🇳🇿",
+            "timeframe": "D1",
+            "current_base_score": 0.16,
+            "current_quote_score": 0.19,
+            "spread": -0.033,
+            "abs_spread": 0.033,
+            "leader": "NZD",
+            "bias": "SELL"
           },
           {
             "pair": "EURAUD",
@@ -26245,23 +26280,23 @@
             "timeframe": "D1",
             "current_base_score": 0.13,
             "current_quote_score": 0.16,
-            "spread": -0.034,
-            "abs_spread": 0.034,
+            "spread": -0.029,
+            "abs_spread": 0.029,
             "leader": "AUD",
             "bias": "SELL"
           },
           {
-            "pair": "AUDNZD",
+            "pair": "AUDCAD",
             "base": "AUD",
-            "quote": "NZD",
+            "quote": "CAD",
             "base_flag": "🇦🇺",
-            "quote_flag": "🇳🇿",
+            "quote_flag": "🇨🇦",
             "timeframe": "D1",
             "current_base_score": 0.16,
-            "current_quote_score": 0.2,
-            "spread": -0.033,
-            "abs_spread": 0.033,
-            "leader": "NZD",
+            "current_quote_score": 0.19,
+            "spread": -0.029,
+            "abs_spread": 0.029,
+            "leader": "CAD",
             "bias": "SELL"
           },
           {
@@ -26279,20 +26314,6 @@
             "bias": "BUY"
           },
           {
-            "pair": "AUDCAD",
-            "base": "AUD",
-            "quote": "CAD",
-            "base_flag": "🇦🇺",
-            "quote_flag": "🇨🇦",
-            "timeframe": "D1",
-            "current_base_score": 0.16,
-            "current_quote_score": 0.19,
-            "spread": -0.024,
-            "abs_spread": 0.024,
-            "leader": "CAD",
-            "bias": "SELL"
-          },
-          {
             "pair": "GBPJPY",
             "base": "GBP",
             "quote": "JPY",
@@ -26301,8 +26322,8 @@
             "timeframe": "D1",
             "current_base_score": 0.1,
             "current_quote_score": 0.09,
-            "spread": 0.018,
-            "abs_spread": 0.018,
+            "spread": 0.013,
+            "abs_spread": 0.013,
             "leader": "GBP",
             "bias": "BUY"
           },
@@ -26313,10 +26334,10 @@
             "base_flag": "🇳🇿",
             "quote_flag": "🇨🇦",
             "timeframe": "D1",
-            "current_base_score": 0.2,
+            "current_base_score": 0.19,
             "current_quote_score": 0.19,
-            "spread": 0.009,
-            "abs_spread": 0.009,
+            "spread": 0.004,
+            "abs_spread": 0.004,
             "leader": "NZD",
             "bias": "BUY"
           }
@@ -26341,8 +26362,8 @@
             "quote_score_cross": 0.04,
             "current_base_score": 0.07,
             "current_quote_score": 0.04,
-            "current_spread": 0.029,
-            "abs_spread": 0.029,
+            "current_spread": 0.024,
+            "abs_spread": 0.024,
             "region": "Zona de Equilíbrio (0.00)"
           },
           {
@@ -26362,8 +26383,8 @@
             "quote_score_cross": 0.24,
             "current_base_score": 0.23,
             "current_quote_score": 0.24,
-            "current_spread": -0.008,
-            "abs_spread": 0.008,
+            "current_spread": -0.005,
+            "abs_spread": 0.005,
             "region": "Zona de Sobreforça (+0.20)"
           },
           {
@@ -26383,8 +26404,8 @@
             "quote_score_cross": 0.03,
             "current_base_score": 0.07,
             "current_quote_score": -0.02,
-            "current_spread": 0.091,
-            "abs_spread": 0.091,
+            "current_spread": 0.087,
+            "abs_spread": 0.087,
             "region": "Zona de Equilíbrio (0.00)"
           },
           {
@@ -26404,8 +26425,8 @@
             "quote_score_cross": 0.12,
             "current_base_score": 0.24,
             "current_quote_score": 0.04,
-            "current_spread": 0.201,
-            "abs_spread": 0.201,
+            "current_spread": 0.195,
+            "abs_spread": 0.195,
             "region": "Zona de Equilíbrio (0.00)"
           },
           {
@@ -26446,8 +26467,8 @@
             "quote_score_cross": 0.16,
             "current_base_score": 0.23,
             "current_quote_score": 0.04,
-            "current_spread": 0.193,
-            "abs_spread": 0.193,
+            "current_spread": 0.19,
+            "abs_spread": 0.19,
             "region": "Zona de Sobreforça (+0.20)"
           },
           {
@@ -26467,8 +26488,8 @@
             "quote_score_cross": 0.04,
             "current_base_score": -0.09,
             "current_quote_score": -0.02,
-            "current_spread": -0.064,
-            "abs_spread": 0.064,
+            "current_spread": -0.066,
+            "abs_spread": 0.066,
             "region": "Zona de Equilíbrio (0.00)"
           },
           {
@@ -26488,8 +26509,8 @@
             "quote_score_cross": 0.13,
             "current_base_score": 0.07,
             "current_quote_score": 0.24,
-            "current_spread": -0.172,
-            "abs_spread": 0.172,
+            "current_spread": -0.171,
+            "abs_spread": 0.171,
             "region": "Zona de Equilíbrio (0.00)"
           },
           {
@@ -26509,8 +26530,8 @@
             "quote_score_cross": 0.01,
             "current_base_score": -0.09,
             "current_quote_score": 0.24,
-            "current_spread": -0.327,
-            "abs_spread": 0.327,
+            "current_spread": -0.324,
+            "abs_spread": 0.324,
             "region": "Zona de Equilíbrio (0.00)"
           },
           {
@@ -26530,8 +26551,8 @@
             "quote_score_cross": 0.18,
             "current_base_score": 0.23,
             "current_quote_score": 0.07,
-            "current_spread": 0.164,
-            "abs_spread": 0.164,
+            "current_spread": 0.166,
+            "abs_spread": 0.166,
             "region": "Zona de Sobreforça (+0.20)"
           },
           {
@@ -26551,8 +26572,8 @@
             "quote_score_cross": -0.2,
             "current_base_score": 0.24,
             "current_quote_score": -0.35,
-            "current_spread": 0.589,
-            "abs_spread": 0.589,
+            "current_spread": 0.586,
+            "abs_spread": 0.586,
             "region": "Zona de Equilíbrio (0.00)"
           },
           {
@@ -26572,8 +26593,8 @@
             "quote_score_cross": -0.12,
             "current_base_score": 0.24,
             "current_quote_score": -0.02,
-            "current_spread": 0.263,
-            "abs_spread": 0.263,
+            "current_spread": 0.258,
+            "abs_spread": 0.258,
             "region": "Zona de Equilíbrio (0.00)"
           },
           {
@@ -26593,8 +26614,8 @@
             "quote_score_cross": -0.24,
             "current_base_score": 0.24,
             "current_quote_score": -0.13,
-            "current_spread": 0.376,
-            "abs_spread": 0.376,
+            "current_spread": 0.373,
+            "abs_spread": 0.373,
             "region": "Zona de Sobrefraqueza (-0.20)"
           }
         ],
@@ -26608,8 +26629,8 @@
             "timeframe": "W1",
             "current_base_score": 0.24,
             "current_quote_score": -0.35,
-            "spread": 0.589,
-            "abs_spread": 0.589,
+            "spread": 0.586,
+            "abs_spread": 0.586,
             "leader": "NZD",
             "bias": "BUY"
           },
@@ -26636,8 +26657,8 @@
             "timeframe": "W1",
             "current_base_score": 0.07,
             "current_quote_score": -0.35,
-            "spread": 0.417,
-            "abs_spread": 0.417,
+            "spread": 0.415,
+            "abs_spread": 0.415,
             "leader": "AUD",
             "bias": "BUY"
           },
@@ -26650,8 +26671,8 @@
             "timeframe": "W1",
             "current_base_score": 0.04,
             "current_quote_score": -0.35,
-            "spread": 0.388,
-            "abs_spread": 0.388,
+            "spread": 0.391,
+            "abs_spread": 0.391,
             "leader": "USD",
             "bias": "BUY"
           },
@@ -26664,8 +26685,8 @@
             "timeframe": "W1",
             "current_base_score": 0.24,
             "current_quote_score": -0.13,
-            "spread": 0.376,
-            "abs_spread": 0.376,
+            "spread": 0.373,
+            "abs_spread": 0.373,
             "leader": "NZD",
             "bias": "BUY"
           },
@@ -26684,20 +26705,6 @@
             "bias": "BUY"
           },
           {
-            "pair": "EURNZD",
-            "base": "EUR",
-            "quote": "NZD",
-            "base_flag": "🇪🇺",
-            "quote_flag": "🇳🇿",
-            "timeframe": "W1",
-            "current_base_score": -0.09,
-            "current_quote_score": 0.24,
-            "spread": -0.327,
-            "abs_spread": 0.327,
-            "leader": "NZD",
-            "bias": "SELL"
-          },
-          {
             "pair": "CHFJPY",
             "base": "CHF",
             "quote": "JPY",
@@ -26706,9 +26713,23 @@
             "timeframe": "W1",
             "current_base_score": -0.35,
             "current_quote_score": -0.02,
-            "spread": -0.326,
-            "abs_spread": 0.326,
+            "spread": -0.328,
+            "abs_spread": 0.328,
             "leader": "JPY",
+            "bias": "SELL"
+          },
+          {
+            "pair": "EURNZD",
+            "base": "EUR",
+            "quote": "NZD",
+            "base_flag": "🇪🇺",
+            "quote_flag": "🇳🇿",
+            "timeframe": "W1",
+            "current_base_score": -0.09,
+            "current_quote_score": 0.24,
+            "spread": -0.324,
+            "abs_spread": 0.324,
+            "leader": "NZD",
             "bias": "SELL"
           },
           {
@@ -26726,20 +26747,6 @@
             "bias": "SELL"
           },
           {
-            "pair": "NZDJPY",
-            "base": "NZD",
-            "quote": "JPY",
-            "base_flag": "🇳🇿",
-            "quote_flag": "🇯🇵",
-            "timeframe": "W1",
-            "current_base_score": 0.24,
-            "current_quote_score": -0.02,
-            "spread": 0.263,
-            "abs_spread": 0.263,
-            "leader": "NZD",
-            "bias": "BUY"
-          },
-          {
             "pair": "EURCHF",
             "base": "EUR",
             "quote": "CHF",
@@ -26754,6 +26761,20 @@
             "bias": "BUY"
           },
           {
+            "pair": "NZDJPY",
+            "base": "NZD",
+            "quote": "JPY",
+            "base_flag": "🇳🇿",
+            "quote_flag": "🇯🇵",
+            "timeframe": "W1",
+            "current_base_score": 0.24,
+            "current_quote_score": -0.02,
+            "spread": 0.258,
+            "abs_spread": 0.258,
+            "leader": "NZD",
+            "bias": "BUY"
+          },
+          {
             "pair": "GBPJPY",
             "base": "GBP",
             "quote": "JPY",
@@ -26762,8 +26783,8 @@
             "timeframe": "W1",
             "current_base_score": 0.23,
             "current_quote_score": -0.02,
-            "spread": 0.255,
-            "abs_spread": 0.255,
+            "spread": 0.253,
+            "abs_spread": 0.253,
             "leader": "GBP",
             "bias": "BUY"
           },
@@ -26790,8 +26811,8 @@
             "timeframe": "W1",
             "current_base_score": 0.07,
             "current_quote_score": -0.13,
-            "spread": 0.204,
-            "abs_spread": 0.204,
+            "spread": 0.202,
+            "abs_spread": 0.202,
             "leader": "AUD",
             "bias": "BUY"
           },
@@ -26804,8 +26825,8 @@
             "timeframe": "W1",
             "current_base_score": 0.24,
             "current_quote_score": 0.04,
-            "spread": 0.201,
-            "abs_spread": 0.201,
+            "spread": 0.195,
+            "abs_spread": 0.195,
             "leader": "NZD",
             "bias": "BUY"
           },
@@ -26818,8 +26839,8 @@
             "timeframe": "W1",
             "current_base_score": 0.23,
             "current_quote_score": 0.04,
-            "spread": 0.193,
-            "abs_spread": 0.193,
+            "spread": 0.19,
+            "abs_spread": 0.19,
             "leader": "GBP",
             "bias": "BUY"
           },
@@ -26832,8 +26853,8 @@
             "timeframe": "W1",
             "current_base_score": 0.04,
             "current_quote_score": -0.13,
-            "spread": 0.175,
-            "abs_spread": 0.175,
+            "spread": 0.178,
+            "abs_spread": 0.178,
             "leader": "USD",
             "bias": "BUY"
           },
@@ -26846,8 +26867,8 @@
             "timeframe": "W1",
             "current_base_score": 0.07,
             "current_quote_score": 0.24,
-            "spread": -0.172,
-            "abs_spread": 0.172,
+            "spread": -0.171,
+            "abs_spread": 0.171,
             "leader": "NZD",
             "bias": "SELL"
           },
@@ -26860,8 +26881,8 @@
             "timeframe": "W1",
             "current_base_score": 0.23,
             "current_quote_score": 0.07,
-            "spread": 0.164,
-            "abs_spread": 0.164,
+            "spread": 0.166,
+            "abs_spread": 0.166,
             "leader": "GBP",
             "bias": "BUY"
           },
@@ -26874,8 +26895,8 @@
             "timeframe": "W1",
             "current_base_score": -0.09,
             "current_quote_score": 0.07,
-            "spread": -0.155,
-            "abs_spread": 0.155,
+            "spread": -0.153,
+            "abs_spread": 0.153,
             "leader": "AUD",
             "bias": "SELL"
           },
@@ -26888,8 +26909,8 @@
             "timeframe": "W1",
             "current_base_score": -0.09,
             "current_quote_score": 0.04,
-            "spread": -0.126,
-            "abs_spread": 0.126,
+            "spread": -0.129,
+            "abs_spread": 0.129,
             "leader": "USD",
             "bias": "SELL"
           },
@@ -26902,8 +26923,8 @@
             "timeframe": "W1",
             "current_base_score": -0.13,
             "current_quote_score": -0.02,
-            "spread": -0.113,
-            "abs_spread": 0.113,
+            "spread": -0.115,
+            "abs_spread": 0.115,
             "leader": "JPY",
             "bias": "SELL"
           },
@@ -26916,8 +26937,8 @@
             "timeframe": "W1",
             "current_base_score": 0.07,
             "current_quote_score": -0.02,
-            "spread": 0.091,
-            "abs_spread": 0.091,
+            "spread": 0.087,
+            "abs_spread": 0.087,
             "leader": "AUD",
             "bias": "BUY"
           },
@@ -26930,8 +26951,8 @@
             "timeframe": "W1",
             "current_base_score": -0.09,
             "current_quote_score": -0.02,
-            "spread": -0.064,
-            "abs_spread": 0.064,
+            "spread": -0.066,
+            "abs_spread": 0.066,
             "leader": "JPY",
             "bias": "SELL"
           },
@@ -26944,8 +26965,8 @@
             "timeframe": "W1",
             "current_base_score": 0.04,
             "current_quote_score": -0.02,
-            "spread": 0.062,
-            "abs_spread": 0.062,
+            "spread": 0.063,
+            "abs_spread": 0.063,
             "leader": "USD",
             "bias": "BUY"
           },
@@ -26972,8 +26993,8 @@
             "timeframe": "W1",
             "current_base_score": 0.07,
             "current_quote_score": 0.04,
-            "spread": 0.029,
-            "abs_spread": 0.029,
+            "spread": 0.024,
+            "abs_spread": 0.024,
             "leader": "AUD",
             "bias": "BUY"
           },
@@ -26986,8 +27007,8 @@
             "timeframe": "W1",
             "current_base_score": 0.23,
             "current_quote_score": 0.24,
-            "spread": -0.008,
-            "abs_spread": 0.008,
+            "spread": -0.005,
+            "abs_spread": 0.005,
             "leader": "NZD",
             "bias": "SELL"
           }
@@ -27012,8 +27033,8 @@
             "quote_score_cross": -0.25,
             "current_base_score": -0.19,
             "current_quote_score": -0.28,
-            "current_spread": 0.089,
-            "abs_spread": 0.089,
+            "current_spread": 0.087,
+            "abs_spread": 0.087,
             "region": "Zona de Sobrefraqueza (-0.20)"
           },
           {
@@ -27033,8 +27054,8 @@
             "quote_score_cross": 0.46,
             "current_base_score": 0.6,
             "current_quote_score": 0.42,
-            "current_spread": 0.18,
-            "abs_spread": 0.18,
+            "current_spread": 0.179,
+            "abs_spread": 0.179,
             "region": "Zona de Sobreforça (+0.20)"
           },
           {
@@ -27054,8 +27075,8 @@
             "quote_score_cross": 0.44,
             "current_base_score": 0.33,
             "current_quote_score": 0.6,
-            "current_spread": -0.267,
-            "abs_spread": 0.267,
+            "current_spread": -0.266,
+            "abs_spread": 0.266,
             "region": "Zona de Sobreforça (+0.20)"
           },
           {
@@ -27075,8 +27096,8 @@
             "quote_score_cross": 0.16,
             "current_base_score": 0.08,
             "current_quote_score": 0.6,
-            "current_spread": -0.522,
-            "abs_spread": 0.522,
+            "current_spread": -0.521,
+            "abs_spread": 0.521,
             "region": "Zona de Equilíbrio (0.00)"
           },
           {
@@ -27096,8 +27117,8 @@
             "quote_score_cross": -0.44,
             "current_base_score": -0.19,
             "current_quote_score": -0.8,
-            "current_spread": 0.616,
-            "abs_spread": 0.616,
+            "current_spread": 0.614,
+            "abs_spread": 0.614,
             "region": "Zona de Sobrefraqueza (-0.20)"
           },
           {
@@ -27117,8 +27138,8 @@
             "quote_score_cross": -0.26,
             "current_base_score": -0.28,
             "current_quote_score": -0.16,
-            "current_spread": -0.118,
-            "abs_spread": 0.118,
+            "current_spread": -0.117,
+            "abs_spread": 0.117,
             "region": "Zona de Sobrefraqueza (-0.20)"
           },
           {
@@ -27138,8 +27159,8 @@
             "quote_score_cross": -0.2,
             "current_base_score": 0.6,
             "current_quote_score": -0.28,
-            "current_spread": 0.874,
-            "abs_spread": 0.874,
+            "current_spread": 0.872,
+            "abs_spread": 0.872,
             "region": "Zona de Equilíbrio (0.00)"
           },
           {
@@ -27159,8 +27180,8 @@
             "quote_score_cross": -0.26,
             "current_base_score": -0.16,
             "current_quote_score": -0.8,
-            "current_spread": 0.645,
-            "abs_spread": 0.645,
+            "current_spread": 0.644,
+            "abs_spread": 0.644,
             "region": "Zona de Sobrefraqueza (-0.20)"
           }
         ],
@@ -27174,8 +27195,8 @@
             "timeframe": "MN1",
             "current_base_score": 0.6,
             "current_quote_score": -0.8,
-            "spread": 1.401,
-            "abs_spread": 1.401,
+            "spread": 1.399,
+            "abs_spread": 1.399,
             "leader": "AUD",
             "bias": "BUY"
           },
@@ -27188,8 +27209,8 @@
             "timeframe": "MN1",
             "current_base_score": 0.42,
             "current_quote_score": -0.8,
-            "spread": 1.221,
-            "abs_spread": 1.221,
+            "spread": 1.22,
+            "abs_spread": 1.22,
             "leader": "CHF",
             "bias": "BUY"
           },
@@ -27202,8 +27223,8 @@
             "timeframe": "MN1",
             "current_base_score": 0.33,
             "current_quote_score": -0.8,
-            "spread": 1.134,
-            "abs_spread": 1.134,
+            "spread": 1.133,
+            "abs_spread": 1.133,
             "leader": "EUR",
             "bias": "BUY"
           },
@@ -27216,8 +27237,8 @@
             "timeframe": "MN1",
             "current_base_score": 0.08,
             "current_quote_score": -0.8,
-            "spread": 0.879,
-            "abs_spread": 0.879,
+            "spread": 0.878,
+            "abs_spread": 0.878,
             "leader": "GBP",
             "bias": "BUY"
           },
@@ -27230,8 +27251,8 @@
             "timeframe": "MN1",
             "current_base_score": 0.6,
             "current_quote_score": -0.28,
-            "spread": 0.874,
-            "abs_spread": 0.874,
+            "spread": 0.872,
+            "abs_spread": 0.872,
             "leader": "AUD",
             "bias": "BUY"
           },
@@ -27258,8 +27279,8 @@
             "timeframe": "MN1",
             "current_base_score": 0.6,
             "current_quote_score": -0.16,
-            "spread": 0.756,
-            "abs_spread": 0.756,
+            "spread": 0.755,
+            "abs_spread": 0.755,
             "leader": "AUD",
             "bias": "BUY"
           },
@@ -27272,8 +27293,8 @@
             "timeframe": "MN1",
             "current_base_score": -0.28,
             "current_quote_score": 0.42,
-            "spread": -0.694,
-            "abs_spread": 0.694,
+            "spread": -0.693,
+            "abs_spread": 0.693,
             "leader": "CHF",
             "bias": "SELL"
           },
@@ -27286,8 +27307,8 @@
             "timeframe": "MN1",
             "current_base_score": -0.16,
             "current_quote_score": -0.8,
-            "spread": 0.645,
-            "abs_spread": 0.645,
+            "spread": 0.644,
+            "abs_spread": 0.644,
             "leader": "CAD",
             "bias": "BUY"
           },
@@ -27300,8 +27321,8 @@
             "timeframe": "MN1",
             "current_base_score": -0.19,
             "current_quote_score": -0.8,
-            "spread": 0.616,
-            "abs_spread": 0.616,
+            "spread": 0.614,
+            "abs_spread": 0.614,
             "leader": "NZD",
             "bias": "BUY"
           },
@@ -27314,8 +27335,8 @@
             "timeframe": "MN1",
             "current_base_score": 0.33,
             "current_quote_score": -0.28,
-            "spread": 0.607,
-            "abs_spread": 0.607,
+            "spread": 0.606,
+            "abs_spread": 0.606,
             "leader": "EUR",
             "bias": "BUY"
           },
@@ -27328,8 +27349,8 @@
             "timeframe": "MN1",
             "current_base_score": -0.19,
             "current_quote_score": 0.42,
-            "spread": -0.605,
-            "abs_spread": 0.605,
+            "spread": -0.606,
+            "abs_spread": 0.606,
             "leader": "CHF",
             "bias": "SELL"
           },
@@ -27370,8 +27391,8 @@
             "timeframe": "MN1",
             "current_base_score": 0.08,
             "current_quote_score": 0.6,
-            "spread": -0.522,
-            "abs_spread": 0.522,
+            "spread": -0.521,
+            "abs_spread": 0.521,
             "leader": "AUD",
             "bias": "SELL"
           },
@@ -27384,8 +27405,8 @@
             "timeframe": "MN1",
             "current_base_score": 0.33,
             "current_quote_score": -0.19,
-            "spread": 0.518,
-            "abs_spread": 0.518,
+            "spread": 0.519,
+            "abs_spread": 0.519,
             "leader": "EUR",
             "bias": "BUY"
           },
@@ -27412,8 +27433,8 @@
             "timeframe": "MN1",
             "current_base_score": 0.08,
             "current_quote_score": -0.28,
-            "spread": 0.352,
-            "abs_spread": 0.352,
+            "spread": 0.351,
+            "abs_spread": 0.351,
             "leader": "GBP",
             "bias": "BUY"
           },
@@ -27440,8 +27461,8 @@
             "timeframe": "MN1",
             "current_base_score": 0.33,
             "current_quote_score": 0.6,
-            "spread": -0.267,
-            "abs_spread": 0.267,
+            "spread": -0.266,
+            "abs_spread": 0.266,
             "leader": "AUD",
             "bias": "SELL"
           },
@@ -27454,8 +27475,8 @@
             "timeframe": "MN1",
             "current_base_score": 0.08,
             "current_quote_score": -0.19,
-            "spread": 0.263,
-            "abs_spread": 0.263,
+            "spread": 0.264,
+            "abs_spread": 0.264,
             "leader": "GBP",
             "bias": "BUY"
           },
@@ -27496,8 +27517,8 @@
             "timeframe": "MN1",
             "current_base_score": 0.6,
             "current_quote_score": 0.42,
-            "spread": 0.18,
-            "abs_spread": 0.18,
+            "spread": 0.179,
+            "abs_spread": 0.179,
             "leader": "AUD",
             "bias": "BUY"
           },
@@ -27510,8 +27531,8 @@
             "timeframe": "MN1",
             "current_base_score": -0.28,
             "current_quote_score": -0.16,
-            "spread": -0.118,
-            "abs_spread": 0.118,
+            "spread": -0.117,
+            "abs_spread": 0.117,
             "leader": "CAD",
             "bias": "SELL"
           },
@@ -27524,8 +27545,8 @@
             "timeframe": "MN1",
             "current_base_score": -0.19,
             "current_quote_score": -0.28,
-            "spread": 0.089,
-            "abs_spread": 0.089,
+            "spread": 0.087,
+            "abs_spread": 0.087,
             "leader": "NZD",
             "bias": "BUY"
           },
@@ -27552,8 +27573,8 @@
             "timeframe": "MN1",
             "current_base_score": -0.19,
             "current_quote_score": -0.16,
-            "spread": -0.029,
-            "abs_spread": 0.029,
+            "spread": -0.03,
+            "abs_spread": 0.03,
             "leader": "CAD",
             "bias": "SELL"
           }
@@ -27561,27 +27582,6 @@
       }
     },
     "fresh_crossovers": [
-      {
-        "pair": "EURUSD",
-        "base": "EUR",
-        "quote": "USD",
-        "base_flag": "🇪🇺",
-        "quote_flag": "🇺🇸",
-        "timeframe": "H1",
-        "direction": "SELL",
-        "direction_label": "🔴 VENDA",
-        "action_thesis": "USD superou EUR em força relativa (USD > EUR)",
-        "timestamp": "2026-08-21 18:00",
-        "bars_ago": 3,
-        "is_fresh": true,
-        "base_score_cross": -0.54,
-        "quote_score_cross": -0.53,
-        "current_base_score": -0.59,
-        "current_quote_score": -0.33,
-        "current_spread": -0.263,
-        "abs_spread": 0.263,
-        "region": "Zona de Sobrefraqueza (-0.20)"
-      },
       {
         "pair": "USDCHF",
         "base": "USD",
@@ -27593,35 +27593,35 @@
         "direction_label": "🟢 COMPRA",
         "action_thesis": "USD superou CHF em força relativa (USD > CHF)",
         "timestamp": "2026-08-21 19:00",
-        "bars_ago": 2,
+        "bars_ago": 3,
         "is_fresh": true,
         "base_score_cross": -0.45,
         "quote_score_cross": -0.52,
-        "current_base_score": -0.33,
-        "current_quote_score": -0.55,
-        "current_spread": 0.22,
-        "abs_spread": 0.22,
+        "current_base_score": -0.21,
+        "current_quote_score": -0.53,
+        "current_spread": 0.316,
+        "abs_spread": 0.316,
         "region": "Zona de Sobrefraqueza (-0.20)"
       },
       {
-        "pair": "GBPCHF",
-        "base": "GBP",
-        "quote": "CHF",
-        "base_flag": "🇬🇧",
-        "quote_flag": "🇨🇭",
+        "pair": "USDJPY",
+        "base": "USD",
+        "quote": "JPY",
+        "base_flag": "🇺🇸",
+        "quote_flag": "🇯🇵",
         "timeframe": "H1",
         "direction": "BUY",
         "direction_label": "🟢 COMPRA",
-        "action_thesis": "GBP superou CHF em força relativa (GBP > CHF)",
-        "timestamp": "2026-08-21 18:00",
-        "bars_ago": 3,
+        "action_thesis": "USD superou JPY em força relativa (USD > JPY)",
+        "timestamp": "2026-08-21 22:00",
+        "bars_ago": 0,
         "is_fresh": true,
-        "base_score_cross": -0.39,
-        "quote_score_cross": -0.48,
-        "current_base_score": -0.2,
-        "current_quote_score": -0.55,
-        "current_spread": 0.349,
-        "abs_spread": 0.349,
+        "base_score_cross": -0.21,
+        "quote_score_cross": -0.29,
+        "current_base_score": -0.21,
+        "current_quote_score": -0.29,
+        "current_spread": 0.076,
+        "abs_spread": 0.076,
         "region": "Zona de Sobrefraqueza (-0.20)"
       },
       {
@@ -27635,14 +27635,14 @@
         "direction_label": "🟢 COMPRA",
         "action_thesis": "GBP superou JPY em força relativa (GBP > JPY)",
         "timestamp": "2026-08-21 20:00",
-        "bars_ago": 1,
+        "bars_ago": 2,
         "is_fresh": true,
         "base_score_cross": -0.26,
         "quote_score_cross": -0.29,
-        "current_base_score": -0.2,
-        "current_quote_score": -0.32,
-        "current_spread": 0.123,
-        "abs_spread": 0.123,
+        "current_base_score": -0.16,
+        "current_quote_score": -0.29,
+        "current_spread": 0.125,
+        "abs_spread": 0.125,
         "region": "Zona de Sobrefraqueza (-0.20)"
       },
       {
@@ -27659,11 +27659,11 @@
         "bars_ago": 0,
         "is_fresh": true,
         "base_score_cross": 0.03,
-        "quote_score_cross": 0.15,
+        "quote_score_cross": 0.13,
         "current_base_score": 0.03,
-        "current_quote_score": 0.15,
-        "current_spread": -0.114,
-        "abs_spread": 0.114,
+        "current_quote_score": 0.13,
+        "current_spread": -0.097,
+        "abs_spread": 0.097,
         "region": "Zona de Equilíbrio (0.00)"
       },
       {
@@ -27683,8 +27683,8 @@
         "quote_score_cross": 0.09,
         "current_base_score": 0.03,
         "current_quote_score": 0.09,
-        "current_spread": -0.06,
-        "abs_spread": 0.06,
+        "current_spread": -0.061,
+        "abs_spread": 0.061,
         "region": "Zona de Equilíbrio (0.00)"
       },
       {
@@ -27703,9 +27703,9 @@
         "base_score_cross": -0.11,
         "quote_score_cross": -0.0,
         "current_base_score": -0.07,
-        "current_quote_score": 0.15,
-        "current_spread": -0.219,
-        "abs_spread": 0.219,
+        "current_quote_score": 0.13,
+        "current_spread": -0.203,
+        "abs_spread": 0.203,
         "region": "Zona de Equilíbrio (0.00)"
       },
       {
@@ -27721,12 +27721,12 @@
         "timestamp": "2026-08-21 20:00",
         "bars_ago": 0,
         "is_fresh": true,
-        "base_score_cross": 0.15,
+        "base_score_cross": 0.13,
         "quote_score_cross": 0.09,
-        "current_base_score": 0.15,
+        "current_base_score": 0.13,
         "current_quote_score": 0.09,
-        "current_spread": 0.054,
-        "abs_spread": 0.054,
+        "current_spread": 0.036,
+        "abs_spread": 0.036,
         "region": "Zona de Equilíbrio (0.00)"
       },
       {
@@ -27744,10 +27744,10 @@
         "is_fresh": true,
         "base_score_cross": -0.18,
         "quote_score_cross": -0.35,
-        "current_base_score": 0.15,
-        "current_quote_score": -0.47,
-        "current_spread": 0.621,
-        "abs_spread": 0.621,
+        "current_base_score": 0.13,
+        "current_quote_score": -0.46,
+        "current_spread": 0.594,
+        "abs_spread": 0.594,
         "region": "Zona de Equilíbrio (0.00)"
       },
       {
@@ -27765,10 +27765,10 @@
         "is_fresh": true,
         "base_score_cross": 0.72,
         "quote_score_cross": 0.67,
-        "current_base_score": 0.84,
-        "current_quote_score": 0.46,
-        "current_spread": 0.384,
-        "abs_spread": 0.384,
+        "current_base_score": 0.82,
+        "current_quote_score": 0.45,
+        "current_spread": 0.371,
+        "abs_spread": 0.371,
         "region": "Zona de Sobreforça (+0.20)"
       },
       {
@@ -27788,8 +27788,8 @@
         "quote_score_cross": 0.16,
         "current_base_score": 0.13,
         "current_quote_score": 0.16,
-        "current_spread": -0.034,
-        "abs_spread": 0.034,
+        "current_spread": -0.029,
+        "abs_spread": 0.029,
         "region": "Zona de Equilíbrio (0.00)"
       },
       {
@@ -27830,8 +27830,8 @@
         "quote_score_cross": 0.09,
         "current_base_score": 0.13,
         "current_quote_score": 0.09,
-        "current_spread": 0.042,
-        "abs_spread": 0.042,
+        "current_spread": 0.037,
+        "abs_spread": 0.037,
         "region": "Zona de Equilíbrio (0.00)"
       },
       {
@@ -27848,11 +27848,11 @@
         "bars_ago": 0,
         "is_fresh": true,
         "base_score_cross": 0.13,
-        "quote_score_cross": 0.2,
+        "quote_score_cross": 0.19,
         "current_base_score": 0.13,
-        "current_quote_score": 0.2,
-        "current_spread": -0.067,
-        "abs_spread": 0.067,
+        "current_quote_score": 0.19,
+        "current_spread": -0.062,
+        "abs_spread": 0.062,
         "region": "Zona de Equilíbrio (0.00)"
       },
       {
@@ -27872,8 +27872,8 @@
         "quote_score_cross": 0.16,
         "current_base_score": 0.1,
         "current_quote_score": 0.16,
-        "current_spread": -0.058,
-        "abs_spread": 0.058,
+        "current_spread": -0.053,
+        "abs_spread": 0.053,
         "region": "Zona de Equilíbrio (0.00)"
       },
       {
@@ -27893,8 +27893,8 @@
         "quote_score_cross": 0.09,
         "current_base_score": 0.1,
         "current_quote_score": 0.09,
-        "current_spread": 0.018,
-        "abs_spread": 0.018,
+        "current_spread": 0.013,
+        "abs_spread": 0.013,
         "region": "Zona de Equilíbrio (0.00)"
       },
       {
@@ -27913,9 +27913,9 @@
         "base_score_cross": 0.02,
         "quote_score_cross": 0.05,
         "current_base_score": 0.1,
-        "current_quote_score": 0.2,
-        "current_spread": -0.091,
-        "abs_spread": 0.091,
+        "current_quote_score": 0.19,
+        "current_spread": -0.086,
+        "abs_spread": 0.086,
         "region": "Zona de Equilíbrio (0.00)"
       },
       {
@@ -27935,8 +27935,8 @@
         "quote_score_cross": 0.09,
         "current_base_score": 0.16,
         "current_quote_score": 0.09,
-        "current_spread": 0.076,
-        "abs_spread": 0.076,
+        "current_spread": 0.066,
+        "abs_spread": 0.066,
         "region": "Zona de Equilíbrio (0.00)"
       },
       {
@@ -27955,7 +27955,7 @@
         "base_score_cross": 0.04,
         "quote_score_cross": 0.05,
         "current_base_score": 0.16,
-        "current_quote_score": 0.2,
+        "current_quote_score": 0.19,
         "current_spread": -0.033,
         "abs_spread": 0.033,
         "region": "Zona de Equilíbrio (0.00)"
@@ -27977,8 +27977,8 @@
         "quote_score_cross": 0.09,
         "current_base_score": 0.19,
         "current_quote_score": 0.09,
-        "current_spread": 0.1,
-        "abs_spread": 0.1,
+        "current_spread": 0.095,
+        "abs_spread": 0.095,
         "region": "Zona de Equilíbrio (0.00)"
       },
       {
@@ -27994,12 +27994,12 @@
         "timestamp": "2026-08-21 00:00",
         "bars_ago": 0,
         "is_fresh": true,
-        "base_score_cross": 0.2,
+        "base_score_cross": 0.19,
         "quote_score_cross": 0.19,
-        "current_base_score": 0.2,
+        "current_base_score": 0.19,
         "current_quote_score": 0.19,
-        "current_spread": 0.009,
-        "abs_spread": 0.009,
+        "current_spread": 0.004,
+        "abs_spread": 0.004,
         "region": "Zona de Equilíbrio (0.00)"
       },
       {
@@ -28015,12 +28015,12 @@
         "timestamp": "2026-08-21 00:00",
         "bars_ago": 0,
         "is_fresh": true,
-        "base_score_cross": 0.2,
+        "base_score_cross": 0.19,
         "quote_score_cross": 0.09,
-        "current_base_score": 0.2,
+        "current_base_score": 0.19,
         "current_quote_score": 0.09,
-        "current_spread": 0.109,
-        "abs_spread": 0.109,
+        "current_spread": 0.099,
+        "abs_spread": 0.099,
         "region": "Zona de Equilíbrio (0.00)"
       },
       {
@@ -28040,8 +28040,8 @@
         "quote_score_cross": 0.16,
         "current_base_score": 0.23,
         "current_quote_score": 0.04,
-        "current_spread": 0.193,
-        "abs_spread": 0.193,
+        "current_spread": 0.19,
+        "abs_spread": 0.19,
         "region": "Zona de Sobreforça (+0.20)"
       },
       {
@@ -28061,8 +28061,8 @@
         "quote_score_cross": 0.04,
         "current_base_score": 0.07,
         "current_quote_score": 0.04,
-        "current_spread": 0.029,
-        "abs_spread": 0.029,
+        "current_spread": 0.024,
+        "abs_spread": 0.024,
         "region": "Zona de Equilíbrio (0.00)"
       },
       {
@@ -28082,8 +28082,8 @@
         "quote_score_cross": 0.12,
         "current_base_score": 0.24,
         "current_quote_score": 0.04,
-        "current_spread": 0.201,
-        "abs_spread": 0.201,
+        "current_spread": 0.195,
+        "abs_spread": 0.195,
         "region": "Zona de Equilíbrio (0.00)"
       },
       {
@@ -28103,8 +28103,8 @@
         "quote_score_cross": 0.04,
         "current_base_score": -0.09,
         "current_quote_score": -0.02,
-        "current_spread": -0.064,
-        "abs_spread": 0.064,
+        "current_spread": -0.066,
+        "abs_spread": 0.066,
         "region": "Zona de Equilíbrio (0.00)"
       },
       {
@@ -28124,8 +28124,8 @@
         "quote_score_cross": 0.24,
         "current_base_score": 0.23,
         "current_quote_score": 0.24,
-        "current_spread": -0.008,
-        "abs_spread": 0.008,
+        "current_spread": -0.005,
+        "abs_spread": 0.005,
         "region": "Zona de Sobreforça (+0.20)"
       },
       {
@@ -28145,8 +28145,8 @@
         "quote_score_cross": 0.03,
         "current_base_score": 0.07,
         "current_quote_score": -0.02,
-        "current_spread": 0.091,
-        "abs_spread": 0.091,
+        "current_spread": 0.087,
+        "abs_spread": 0.087,
         "region": "Zona de Equilíbrio (0.00)"
       },
       {
@@ -28166,8 +28166,8 @@
         "quote_score_cross": 0.13,
         "current_base_score": 0.07,
         "current_quote_score": 0.24,
-        "current_spread": -0.172,
-        "abs_spread": 0.172,
+        "current_spread": -0.171,
+        "abs_spread": 0.171,
         "region": "Zona de Equilíbrio (0.00)"
       },
       {
@@ -28208,8 +28208,8 @@
         "quote_score_cross": -0.25,
         "current_base_score": -0.19,
         "current_quote_score": -0.28,
-        "current_spread": 0.089,
-        "abs_spread": 0.089,
+        "current_spread": 0.087,
+        "abs_spread": 0.087,
         "region": "Zona de Sobrefraqueza (-0.20)"
       },
       {
@@ -28229,8 +28229,8 @@
         "quote_score_cross": 0.44,
         "current_base_score": 0.33,
         "current_quote_score": 0.6,
-        "current_spread": -0.267,
-        "abs_spread": 0.267,
+        "current_spread": -0.266,
+        "abs_spread": 0.266,
         "region": "Zona de Sobreforça (+0.20)"
       },
       {
@@ -28250,12 +28250,12 @@
         "quote_score_cross": 0.46,
         "current_base_score": 0.6,
         "current_quote_score": 0.42,
-        "current_spread": 0.18,
-        "abs_spread": 0.18,
+        "current_spread": 0.179,
+        "abs_spread": 0.179,
         "region": "Zona de Sobreforça (+0.20)"
       }
     ],
-    "fresh_count": 33
+    "fresh_count": 32
   },
   "colors": {
     "USD": "#FF3B30",

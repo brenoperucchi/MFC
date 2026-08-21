@@ -2537,7 +2537,7 @@ body.dark-theme {
 @media print {
     @page {
         size: A4 portrait;
-        margin: 8mm;
+        margin: 6mm 8mm;
     }
 
     html, body {
@@ -2546,26 +2546,42 @@ body.dark-theme {
         -webkit-print-color-adjust: exact !important;
         print-color-adjust: exact !important;
         height: auto !important;
+        min-height: auto !important;
+        margin: 0 !important;
+        padding: 0 !important;
         overflow: visible !important;
     }
 
-    /* Ocultar elementos fora do modal */
+    /* Ocultar rigorosamente todos os elementos fora do Raio-X */
+    header,
+    main,
     .app-header,
-    .main-container,
+    .dashboard-main,
+    .charts-section,
+    .matrix-section,
     #pairsModal,
     #matrixModal,
     #historyModal,
     #trackRecordModal,
     #crossoversModal {
         display: none !important;
+        visibility: hidden !important;
+        height: 0 !important;
+        width: 0 !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        overflow: hidden !important;
     }
 
+    /* Exibir SOMENTE o modal do Raio-X */
     body.printing-deep-dive #deepDiveModal,
     #deepDiveModal:not(.hidden) {
         display: block !important;
+        visibility: visible !important;
         position: static !important;
         background: transparent !important;
         padding: 0 !important;
+        margin: 0 !important;
         width: 100% !important;
         max-width: 100% !important;
         height: auto !important;
@@ -2588,7 +2604,7 @@ body.dark-theme {
 
     #deepDiveModal .modal-header {
         border-bottom: 2px solid rgba(0, 229, 255, 0.4) !important;
-        padding-bottom: 10px !important;
+        padding: 0 0 10px 0 !important;
         margin-bottom: 12px !important;
     }
 
@@ -2611,12 +2627,18 @@ body.dark-theme {
         margin-bottom: 12px !important;
     }
 
+    .triad-cards-grid {
+        display: flex !important;
+        flex-direction: column !important;
+        gap: 10px !important;
+    }
+
     .triad-card {
         background: #0E131E !important;
         border: 1px solid rgba(255, 255, 255, 0.12) !important;
         page-break-inside: avoid !important;
         break-inside: avoid !important;
-        margin-bottom: 10px !important;
+        margin-bottom: 8px !important;
     }
 
     .triad-card-body {
