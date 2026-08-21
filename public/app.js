@@ -213,18 +213,28 @@ async function fetchData() {
     try {
         const modeParam = state.engineMode === "gauss" ? "gauss" : "standard";
         let res = null;
+        const isLocalServer = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.port === '8050';
 
-        // Tentar endpoint dinâmico do servidor backend
-        try {
-            res = await fetch(`/api/css/all?mode=${modeParam}&t=${Date.now()}`);
-        } catch (e) {
-            // Servidor local offline ou rodando no Firebase
+        if (isLocalServer) {
+            // No localhost: chama a API dinâmica com query ?mode=...
+            try {
+                res = await fetch(`/api/css/all?mode=${modeParam}&t=${Date.now()}`);
+            } catch (e) {
+                // Servidor local offline
+            }
         }
 
-        // Se falhar ou estiver no Firebase, buscar snapshot estático
+        // Se estiver no Firebase Hosting (ou se o servidor local estiver offline), busca o arquivo JSON do banco selecionado
         if (!res || !res.ok) {
-            const staticPath = state.engineMode === "gauss" ? "/api/css/all_gauss.json" : "/api/css/all.json";
-            res = await fetch(`${staticPath}?t=${Date.now()}`);
+            const staticPath = state.engineMode === "gauss" ? "/api/css/all_gauss.json" : "/api/css/all_standard.json";
+            try {
+                res = await fetch(`${staticPath}?t=${Date.now()}`);
+            } catch (e) {}
+            
+            if (!res || !res.ok) {
+                // Fallback secundário
+                res = await fetch(`/api/css/all.json?t=${Date.now()}`);
+            }
         }
 
         if (!res || !res.ok) throw new Error("Erro ao carregar dados do CSS PRO");

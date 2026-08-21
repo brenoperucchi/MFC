@@ -8,10 +8,6 @@
     ],
     "rewrites": [
       {
-        "source": "/api/css/all",
-        "destination": "/api/css/all.json"
-      },
-      {
         "source": "/api/track-record/live",
         "destination": "/api/track-record/live.json"
       },
