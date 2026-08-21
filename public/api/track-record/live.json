@@ -7,8 +7,8 @@
     "status_label": "🔴 AO VIVO (EM ANDAMENTO)",
     "is_in_progress": true,
     "portfolios_count": 4,
-    "total_pnl_usd": -28.26,
-    "total_pips": -247.8,
+    "total_pnl_usd": -4.9,
+    "total_pips": 48.4,
     "mfe_usd": 16.48,
     "mae_usd": -12.85,
     "equity_after": 170.35,
@@ -55,8 +55,8 @@
           "H4": "red",
           "H1": "red"
         },
-        "pnl_usd": 1.51,
-        "pips": -1.1,
+        "pnl_usd": 11.71,
+        "pips": 108.3,
         "mfe_usd": 16.33,
         "mae_usd": -2.95,
         "intraday_pnl": [
@@ -110,9 +110,9 @@
             "action": "BUY",
             "lot": 0.01,
             "entry_price": 1.16743,
-            "exit_price": 1.16851,
-            "pnl_usd": 1.08,
-            "pips": 10.8,
+            "exit_price": 1.17001,
+            "pnl_usd": 2.58,
+            "pips": 25.8,
             "mfe_usd": 3.27,
             "mae_usd": -0.13,
             "hourly_pnl": [
@@ -130,7 +130,7 @@
               2.29
             ],
             "status": "WIN",
-            "current_price": 1.16851
+            "current_price": 1.17001
           },
           {
             "pair": "GBPUSD",
@@ -139,10 +139,10 @@
             "action": "BUY",
             "lot": 0.01,
             "entry_price": 1.35999,
-            "exit_price": 1.36392,
-            "pnl_usd": 3.93,
-            "pips": 39.3,
-            "mfe_usd": 4.77,
+            "exit_price": 1.36541,
+            "pnl_usd": 5.42,
+            "pips": 54.2,
+            "mfe_usd": 5.42,
             "mae_usd": -0.03,
             "hourly_pnl": [
               0.0,
@@ -159,7 +159,7 @@
               4.48
             ],
             "status": "WIN",
-            "current_price": 1.36392
+            "current_price": 1.36541
           },
           {
             "pair": "AUDUSD",
@@ -168,10 +168,10 @@
             "action": "BUY",
             "lot": 0.01,
             "entry_price": 0.71229,
-            "exit_price": 0.71233,
-            "pnl_usd": 0.04,
-            "pips": 0.4,
-            "mfe_usd": 0.55,
+            "exit_price": 0.71423,
+            "pnl_usd": 1.94,
+            "pips": 19.4,
+            "mfe_usd": 1.94,
             "mae_usd": -0.89,
             "hourly_pnl": [
               0.0,
@@ -188,7 +188,7 @@
               0.05
             ],
             "status": "WIN",
-            "current_price": 0.71233
+            "current_price": 0.71423
           },
           {
             "pair": "NZDUSD",
@@ -197,10 +197,10 @@
             "action": "BUY",
             "lot": 0.01,
             "entry_price": 0.59353,
-            "exit_price": 0.59565,
-            "pnl_usd": 2.12,
-            "pips": 21.2,
-            "mfe_usd": 2.44,
+            "exit_price": 0.59721,
+            "pnl_usd": 3.68,
+            "pips": 36.8,
+            "mfe_usd": 3.68,
             "mae_usd": 0.0,
             "hourly_pnl": [
               0.0,
@@ -217,7 +217,7 @@
               2.02
             ],
             "status": "WIN",
-            "current_price": 0.59565
+            "current_price": 0.59721
           },
           {
             "pair": "USDCAD",
@@ -226,10 +226,10 @@
             "action": "SELL",
             "lot": 0.01,
             "entry_price": 1.38105,
-            "exit_price": 1.3778299999999999,
-            "pnl_usd": 2.34,
-            "pips": 32.2,
-            "mfe_usd": 3.33,
+            "exit_price": 1.37619,
+            "pnl_usd": 3.53,
+            "pips": 48.6,
+            "mfe_usd": 3.53,
             "mae_usd": 0.0,
             "hourly_pnl": [
               0.0,
@@ -246,7 +246,7 @@
               3.07
             ],
             "status": "WIN",
-            "current_price": 1.3778299999999999
+            "current_price": 1.37619
           },
           {
             "pair": "USDCHF",
@@ -255,11 +255,11 @@
             "action": "SELL",
             "lot": 0.01,
             "entry_price": 0.79776,
-            "exit_price": 0.80002,
-            "pnl_usd": -2.82,
-            "pips": -22.6,
+            "exit_price": 0.79877,
+            "pnl_usd": -1.26,
+            "pips": -10.1,
             "mfe_usd": 2.48,
-            "mae_usd": -2.82,
+            "mae_usd": -2.8,
             "hourly_pnl": [
               0.0,
               -1.5,
@@ -275,7 +275,7 @@
               1.41
             ],
             "status": "LOSS",
-            "current_price": 0.80002
+            "current_price": 0.79877
           },
           {
             "pair": "USDJPY",
@@ -284,11 +284,11 @@
             "action": "SELL",
             "lot": 0.01,
             "entry_price": 158.261,
-            "exit_price": 159.085,
-            "pnl_usd": -5.18,
-            "pips": -82.4,
+            "exit_price": 158.925,
+            "pnl_usd": -4.18,
+            "pips": -66.4,
             "mfe_usd": 0.0,
-            "mae_usd": -5.18,
+            "mae_usd": -4.18,
             "hourly_pnl": [
               0.0,
               -0.92,
@@ -304,7 +304,7 @@
               -1.34
             ],
             "status": "LOSS",
-            "current_price": 159.085
+            "current_price": 158.925
           }
         ]
       },
@@ -322,8 +322,8 @@
           "H4": "red",
           "H1": "red"
         },
-        "pnl_usd": -28.09,
-        "pips": -346.0,
+        "pnl_usd": -24.8,
+        "pips": -290.6,
         "mfe_usd": 0.0,
         "mae_usd": -19.2,
         "intraday_pnl": [
@@ -377,11 +377,11 @@
             "action": "SELL",
             "lot": 0.01,
             "entry_price": 1.35999,
-            "exit_price": 1.36392,
-            "pnl_usd": -3.93,
-            "pips": -39.3,
+            "exit_price": 1.36543,
+            "pnl_usd": -5.44,
+            "pips": -54.4,
             "mfe_usd": 0.03,
-            "mae_usd": -4.77,
+            "mae_usd": -5.44,
             "hourly_pnl": [
               0.0,
               0.03,
@@ -397,7 +397,7 @@
               -4.48
             ],
             "status": "LOSS",
-            "current_price": 1.36392
+            "current_price": 1.36543
           },
           {
             "pair": "EURGBP",
@@ -406,11 +406,11 @@
             "action": "BUY",
             "lot": 0.01,
             "entry_price": 0.85838,
-            "exit_price": 0.8567,
-            "pnl_usd": -2.18,
-            "pips": -16.8,
+            "exit_price": 0.85685,
+            "pnl_usd": -1.99,
+            "pips": -15.3,
             "mfe_usd": 0.04,
-            "mae_usd": -2.18,
+            "mae_usd": -1.99,
             "hourly_pnl": [
               0.0,
               0.04,
@@ -426,7 +426,7 @@
               -1.5
             ],
             "status": "LOSS",
-            "current_price": 0.8567
+            "current_price": 0.85685
           },
           {
             "pair": "GBPAUD",
@@ -435,9 +435,9 @@
             "action": "SELL",
             "lot": 0.01,
             "entry_price": 1.90936,
-            "exit_price": 1.91475,
-            "pnl_usd": -3.5,
-            "pips": -53.9,
+            "exit_price": 1.91181,
+            "pnl_usd": -1.59,
+            "pips": -24.5,
             "mfe_usd": 0.0,
             "mae_usd": -4.27,
             "hourly_pnl": [
@@ -455,7 +455,7 @@
               -4.27
             ],
             "status": "LOSS",
-            "current_price": 1.91475
+            "current_price": 1.91181
           },
           {
             "pair": "GBPCAD",
@@ -464,11 +464,11 @@
             "action": "SELL",
             "lot": 0.01,
             "entry_price": 1.87797,
-            "exit_price": 1.87926,
-            "pnl_usd": -0.95,
-            "pips": -12.9,
+            "exit_price": 1.87901,
+            "pnl_usd": -0.76,
+            "pips": -10.4,
             "mfe_usd": 0.85,
-            "mae_usd": -0.95,
+            "mae_usd": -0.76,
             "hourly_pnl": [
               0.0,
               0.15,
@@ -484,7 +484,7 @@
               -0.3
             ],
             "status": "LOSS",
-            "current_price": 1.87926
+            "current_price": 1.87901
           },
           {
             "pair": "GBPCHF",
@@ -493,11 +493,11 @@
             "action": "SELL",
             "lot": 0.01,
             "entry_price": 1.08493,
-            "exit_price": 1.0912,
-            "pnl_usd": -7.12,
-            "pips": -62.7,
+            "exit_price": 1.09064,
+            "pnl_usd": -6.49,
+            "pips": -57.1,
             "mfe_usd": 0.0,
-            "mae_usd": -7.12,
+            "mae_usd": -6.49,
             "hourly_pnl": [
               0.0,
               -2.05,
@@ -513,7 +513,7 @@
               -2.59
             ],
             "status": "LOSS",
-            "current_price": 1.0912
+            "current_price": 1.09064
           },
           {
             "pair": "GBPJPY",
@@ -522,11 +522,11 @@
             "action": "SELL",
             "lot": 0.01,
             "entry_price": 215.236,
-            "exit_price": 216.977,
-            "pnl_usd": -11.23,
-            "pips": -174.1,
+            "exit_price": 217.006,
+            "pnl_usd": -11.42,
+            "pips": -177.0,
             "mfe_usd": 0.0,
-            "mae_usd": -11.23,
+            "mae_usd": -11.42,
             "hourly_pnl": [
               0.0,
               -1.15,
@@ -542,7 +542,7 @@
               -6.23
             ],
             "status": "LOSS",
-            "current_price": 216.977
+            "current_price": 217.006
           },
           {
             "pair": "GBPNZD",
@@ -551,9 +551,9 @@
             "action": "SELL",
             "lot": 0.01,
             "entry_price": 2.29127,
-            "exit_price": 2.2899,
-            "pnl_usd": 0.82,
-            "pips": 13.7,
+            "exit_price": 2.28646,
+            "pnl_usd": 2.89,
+            "pips": 48.1,
             "mfe_usd": 3.39,
             "mae_usd": 0.0,
             "hourly_pnl": [
@@ -571,7 +571,7 @@
               0.17
             ],
             "status": "WIN",
-            "current_price": 2.2899
+            "current_price": 2.28646
           }
         ]
       },
@@ -589,8 +589,8 @@
           "H4": "green",
           "H1": "green"
         },
-        "pnl_usd": -19.58,
-        "pips": -149.6,
+        "pnl_usd": -17.24,
+        "pips": -125.0,
         "mfe_usd": 4.23,
         "mae_usd": -18.24,
         "intraday_pnl": [
@@ -644,11 +644,11 @@
             "action": "SELL",
             "lot": 0.01,
             "entry_price": 0.79776,
-            "exit_price": 0.80002,
-            "pnl_usd": -2.82,
-            "pips": -22.6,
+            "exit_price": 0.79877,
+            "pnl_usd": -1.26,
+            "pips": -10.1,
             "mfe_usd": 2.48,
-            "mae_usd": -2.82,
+            "mae_usd": -2.8,
             "hourly_pnl": [
               0.0,
               -1.5,
@@ -664,7 +664,7 @@
               1.41
             ],
             "status": "LOSS",
-            "current_price": 0.80002
+            "current_price": 0.79877
           },
           {
             "pair": "EURCHF",
@@ -673,11 +673,11 @@
             "action": "SELL",
             "lot": 0.01,
             "entry_price": 0.93133,
-            "exit_price": 0.93486,
-            "pnl_usd": -4.01,
-            "pips": -35.3,
+            "exit_price": 0.93455,
+            "pnl_usd": -3.66,
+            "pips": -32.2,
             "mfe_usd": 0.0,
-            "mae_usd": -4.01,
+            "mae_usd": -3.66,
             "hourly_pnl": [
               0.0,
               -1.78,
@@ -693,7 +693,7 @@
               -0.64
             ],
             "status": "LOSS",
-            "current_price": 0.93486
+            "current_price": 0.93455
           },
           {
             "pair": "GBPCHF",
@@ -702,11 +702,11 @@
             "action": "SELL",
             "lot": 0.01,
             "entry_price": 1.08493,
-            "exit_price": 1.0912,
-            "pnl_usd": -7.12,
-            "pips": -62.7,
+            "exit_price": 1.09064,
+            "pnl_usd": -6.49,
+            "pips": -57.1,
             "mfe_usd": 0.0,
-            "mae_usd": -7.12,
+            "mae_usd": -6.49,
             "hourly_pnl": [
               0.0,
               -2.05,
@@ -722,7 +722,7 @@
               -2.59
             ],
             "status": "LOSS",
-            "current_price": 1.0912
+            "current_price": 1.09064
           },
           {
             "pair": "AUDCHF",
@@ -731,11 +731,11 @@
             "action": "SELL",
             "lot": 0.01,
             "entry_price": 0.56825,
-            "exit_price": 0.56987,
-            "pnl_usd": -1.84,
-            "pips": -16.2,
+            "exit_price": 0.57048,
+            "pnl_usd": -2.53,
+            "pips": -22.3,
             "mfe_usd": 1.23,
-            "mae_usd": -1.84,
+            "mae_usd": -2.53,
             "hourly_pnl": [
               0.0,
               -0.38,
@@ -751,7 +751,7 @@
               0.95
             ],
             "status": "LOSS",
-            "current_price": 0.56987
+            "current_price": 0.57048
           },
           {
             "pair": "CADCHF",
@@ -760,11 +760,11 @@
             "action": "SELL",
             "lot": 0.01,
             "entry_price": 0.57769,
-            "exit_price": 0.58071,
-            "pnl_usd": -3.43,
-            "pips": -30.2,
+            "exit_price": 0.58046,
+            "pnl_usd": -3.15,
+            "pips": -27.7,
             "mfe_usd": 0.0,
-            "mae_usd": -3.43,
+            "mae_usd": -3.15,
             "hourly_pnl": [
               0.0,
               -1.14,
@@ -780,7 +780,7 @@
               -1.22
             ],
             "status": "LOSS",
-            "current_price": 0.58071
+            "current_price": 0.58046
           },
           {
             "pair": "CHFJPY",
@@ -789,10 +789,10 @@
             "action": "BUY",
             "lot": 0.01,
             "entry_price": 198.37,
-            "exit_price": 198.847,
-            "pnl_usd": 3.08,
-            "pips": 47.7,
-            "mfe_usd": 3.82,
+            "exit_price": 198.966,
+            "pnl_usd": 3.85,
+            "pips": 59.6,
+            "mfe_usd": 3.85,
             "mae_usd": -1.86,
             "hourly_pnl": [
               0.0,
@@ -809,7 +809,7 @@
               3.47
             ],
             "status": "WIN",
-            "current_price": 198.847
+            "current_price": 198.966
           },
           {
             "pair": "NZDCHF",
@@ -818,11 +818,11 @@
             "action": "SELL",
             "lot": 0.01,
             "entry_price": 0.47349,
-            "exit_price": 0.47652,
-            "pnl_usd": -3.44,
-            "pips": -30.3,
+            "exit_price": 0.47701,
+            "pnl_usd": -4.0,
+            "pips": -35.2,
             "mfe_usd": 0.0,
-            "mae_usd": -3.44,
+            "mae_usd": -4.0,
             "hourly_pnl": [
               0.0,
               -0.88,
@@ -838,7 +838,7 @@
               -1.17
             ],
             "status": "LOSS",
-            "current_price": 0.47652
+            "current_price": 0.47701
           }
         ]
       },
@@ -856,8 +856,8 @@
           "H4": "red",
           "H1": "green"
         },
-        "pnl_usd": 17.9,
-        "pips": 248.9,
+        "pnl_usd": 25.43,
+        "pips": 355.7,
         "mfe_usd": 18.58,
         "mae_usd": 0.0,
         "intraday_pnl": [
@@ -911,10 +911,10 @@
             "action": "BUY",
             "lot": 0.01,
             "entry_price": 0.59353,
-            "exit_price": 0.59565,
-            "pnl_usd": 2.12,
-            "pips": 21.2,
-            "mfe_usd": 2.44,
+            "exit_price": 0.59721,
+            "pnl_usd": 3.68,
+            "pips": 36.8,
+            "mfe_usd": 3.68,
             "mae_usd": 0.0,
             "hourly_pnl": [
               0.0,
@@ -931,7 +931,7 @@
               2.02
             ],
             "status": "WIN",
-            "current_price": 0.59565
+            "current_price": 0.59721
           },
           {
             "pair": "EURNZD",
@@ -940,10 +940,10 @@
             "action": "SELL",
             "lot": 0.01,
             "entry_price": 1.9668299999999999,
-            "exit_price": 1.96184,
-            "pnl_usd": 2.99,
-            "pips": 49.9,
-            "mfe_usd": 3.21,
+            "exit_price": 1.9593,
+            "pnl_usd": 4.52,
+            "pips": 75.3,
+            "mfe_usd": 4.52,
             "mae_usd": 0.0,
             "hourly_pnl": [
               0.0,
@@ -960,7 +960,7 @@
               1.69
             ],
             "status": "WIN",
-            "current_price": 1.96184
+            "current_price": 1.9593
           },
           {
             "pair": "GBPNZD",
@@ -969,9 +969,9 @@
             "action": "SELL",
             "lot": 0.01,
             "entry_price": 2.29127,
-            "exit_price": 2.2899,
-            "pnl_usd": 0.82,
-            "pips": 13.7,
+            "exit_price": 2.28646,
+            "pnl_usd": 2.89,
+            "pips": 48.1,
             "mfe_usd": 3.39,
             "mae_usd": 0.0,
             "hourly_pnl": [
@@ -989,7 +989,7 @@
               0.17
             ],
             "status": "WIN",
-            "current_price": 2.2899
+            "current_price": 2.28646
           },
           {
             "pair": "AUDNZD",
@@ -998,9 +998,9 @@
             "action": "SELL",
             "lot": 0.01,
             "entry_price": 1.20005,
-            "exit_price": 1.19598,
+            "exit_price": 1.19599,
             "pnl_usd": 2.44,
-            "pips": 40.7,
+            "pips": 40.6,
             "mfe_usd": 2.85,
             "mae_usd": 0.0,
             "hourly_pnl": [
@@ -1018,7 +1018,7 @@
               2.37
             ],
             "status": "WIN",
-            "current_price": 1.19598
+            "current_price": 1.19599
           },
           {
             "pair": "NZDCAD",
@@ -1027,10 +1027,10 @@
             "action": "BUY",
             "lot": 0.01,
             "entry_price": 0.81953,
-            "exit_price": 0.82061,
-            "pnl_usd": 0.79,
-            "pips": 10.8,
-            "mfe_usd": 1.3,
+            "exit_price": 0.82176,
+            "pnl_usd": 1.64,
+            "pips": 22.3,
+            "mfe_usd": 1.64,
             "mae_usd": -0.01,
             "hourly_pnl": [
               0.0,
@@ -1047,7 +1047,7 @@
               0.22
             ],
             "status": "WIN",
-            "current_price": 0.82061
+            "current_price": 0.82176
           },
           {
             "pair": "NZDCHF",
@@ -1056,10 +1056,10 @@
             "action": "BUY",
             "lot": 0.01,
             "entry_price": 0.47349,
-            "exit_price": 0.47648,
-            "pnl_usd": 3.4,
-            "pips": 29.9,
-            "mfe_usd": 3.4,
+            "exit_price": 0.47697,
+            "pnl_usd": 3.95,
+            "pips": 34.8,
+            "mfe_usd": 3.95,
             "mae_usd": 0.0,
             "hourly_pnl": [
               0.0,
@@ -1076,7 +1076,7 @@
               1.17
             ],
             "status": "WIN",
-            "current_price": 0.47648
+            "current_price": 0.47697
           },
           {
             "pair": "NZDJPY",
@@ -1085,10 +1085,10 @@
             "action": "BUY",
             "lot": 0.01,
             "entry_price": 93.927,
-            "exit_price": 94.754,
-            "pnl_usd": 5.34,
-            "pips": 82.7,
-            "mfe_usd": 5.34,
+            "exit_price": 94.905,
+            "pnl_usd": 6.31,
+            "pips": 97.8,
+            "mfe_usd": 6.31,
             "mae_usd": 0.0,
             "hourly_pnl": [
               0.0,
@@ -1105,12 +1105,12 @@
               2.84
             ],
             "status": "WIN",
-            "current_price": 94.754
+            "current_price": 94.905
           }
         ]
       }
     ],
-    "time_remaining_str": "restam 10h 18m",
-    "session_info_str": "📅 Sessão Ao Vivo | Início: 21h00 ➔ Encerramento: 08h00 BRT (restam 10h 18m)"
+    "time_remaining_str": "restam 8h 8m",
+    "session_info_str": "📅 Sessão Ao Vivo | Início: 21h00 ➔ Encerramento: 08h00 BRT (restam 8h 8m)"
   }
 }

@@ -279,7 +279,7 @@ def detect_currency_crossovers(charts_dict):
                     }
                     break
             
-            if latest_cross:
+            if latest_cross and latest_cross["bars_ago"] <= 8:
                 tf_crossovers.append(latest_cross)
                 if latest_cross["is_fresh"]:
                     all_fresh.append(latest_cross)

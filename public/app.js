@@ -190,13 +190,14 @@ async function fetchData() {
         updateStrongSignalsCount(json.pairs);
         if (typeof renderMatrixChart === "function") renderMatrixChart();
 
-        // Atualizar Badge de Cruzamentos de Score
+        // Atualizar Badge de Cruzamentos de Score (limite máximo de 8 horas)
         if (json.crossovers) {
-            const count = json.crossovers.fresh_count || 0;
+            const h1Cross = (json.crossovers.timeframes?.H1?.crossovers || []).filter(c => c.bars_ago <= 8);
+            const count = h1Cross.length;
             const badge = document.getElementById("crossoversFreshCount");
             if (badge) badge.textContent = count;
             const tabBadge = document.getElementById("crossoversTabBadge");
-            if (tabBadge) tabBadge.textContent = `${count} Novos`;
+            if (tabBadge) tabBadge.textContent = `${count} Recentes (≤8h)`;
             if (state.isCrossoversModalOpen) {
                 renderCrossoversModal();
             }
@@ -2451,12 +2452,14 @@ function renderCrossoversLiveTab() {
 
     const tf = state.crossoversActiveTF || "H1";
     const tfData = state.data.crossovers.timeframes?.[tf];
-    const crossovers = tfData?.crossovers || [];
+    const rawCrossovers = tfData?.crossovers || [];
+    // Filtro estrito: Apenas sinais com no máximo 8 horas de idade
+    const crossovers = rawCrossovers.filter(c => c.bars_ago <= 8);
 
     if (crossovers.length === 0) {
         container.innerHTML = `
             <div style="grid-column: 1 / -1; padding: 30px; text-align: center; color: var(--text-muted); background: #0E131E; border-radius: 8px;">
-                Nenhum cruzamento recente detectado no timeframe ${tf}.
+                Nenhum cruzamento recente (≤ 8h) detectado no timeframe ${tf}.
             </div>
         `;
         return;
@@ -2576,7 +2579,7 @@ function renderCrossoversFilterTab() {
     const tf = state.crossoversActiveTF || "H1";
     const ccy = state.crossoversCurrencyFilter || "ALL";
     const tfData = state.data.crossovers.timeframes?.[tf];
-    let crossovers = tfData?.crossovers || [];
+    let crossovers = (tfData?.crossovers || []).filter(c => c.bars_ago <= 8);
 
     if (ccy !== "ALL") {
         crossovers = crossovers.filter(c => c.base === ccy || c.quote === ccy);
@@ -2585,7 +2588,7 @@ function renderCrossoversFilterTab() {
     if (crossovers.length === 0) {
         container.innerHTML = `
             <div style="grid-column: 1 / -1; padding: 30px; text-align: center; color: var(--text-muted); background: #0E131E; border-radius: 8px;">
-                Nenhum cruzamento encontrado para ${ccy} no timeframe ${tf}.
+                Nenhum cruzamento recente (≤ 8h) encontrado para ${ccy} no timeframe ${tf}.
             </div>
         `;
         return;
