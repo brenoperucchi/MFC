@@ -399,9 +399,9 @@ class CSSDataEngine:
                 "H1": analyze_tf_triad("H1", h1_s)
             }
             
-            # Status LEDs (Green=UP, Red=DN, Yellow=Flat)
+            # Status LEDs Institucionais (Green=UP Alinhado, Red=DN Alinhado, Yellow=Divergência / Transição)
             leds = {
-                tf: ("green" if "UP" in triads[tf]["dir"] else "red" if "DN" in triads[tf]["dir"] else "yellow")
+                tf: triads[tf].get("led", "yellow")
                 for tf in ["MN1", "W1", "D1", "H4", "H1"]
             }
             
@@ -507,20 +507,30 @@ class CSSDataEngine:
         now = datetime.now()
         dates = [f"18:00", "19:00", "20:00", "21:00", "22:00", "23:00", "00:00", "01:00", "02:00", "03:00", "04:00", "05:00", "06:00", "07:00", "08:00", "09:00", "10:00", "11:00", "12:00", "13:00", "14:00", "15:00", "16:00", "17:00"]
         
-        # Últimos scores conhecidos da rotina de 18/08/2026
-        last_h1 = {
-            "AUD": -0.70, "USD": 0.24, "EUR": 0.34, "GBP": 0.35,
-            "CHF": -0.03, "JPY": 0.39, "CAD": -0.45, "NZD": -0.15
+        # Últimos scores conhecidos e curvas estruturais
+        base_curves = {
+            "USD": [-0.65, -0.70, -0.75, -0.80, -0.85, -0.75, -0.60, -0.45, -0.30, -0.15, -0.05, -0.01, -0.02],
+            "EUR": [0.35, 0.40, 0.45, 0.42, 0.38, 0.30, 0.25, 0.18, 0.12, 0.08, 0.04, 0.00, 0.01],
+            "GBP": [0.20, 0.22, 0.25, 0.28, 0.30, 0.32, 0.35, 0.36, 0.38, 0.40, 0.40, 0.41, 0.41],
+            "AUD": [-0.20, -0.15, -0.05, 0.05, 0.12, 0.18, 0.22, 0.25, 0.28, 0.30, 0.31, 0.32, 0.33],
+            "NZD": [-0.10, -0.05, 0.02, 0.08, 0.14, 0.18, 0.20, 0.22, 0.24, 0.25, 0.26, 0.27, 0.28],
+            "CAD": [-0.15, -0.10, -0.05, 0.00, 0.04, 0.07, 0.09, 0.10, 0.11, 0.12, 0.12, 0.13, 0.13],
+            "CHF": [0.10, 0.05, 0.00, -0.08, -0.14, -0.20, -0.25, -0.28, -0.30, -0.32, -0.33, -0.34, -0.34],
+            "JPY": [0.15, 0.08, -0.02, -0.15, -0.30, -0.45, -0.58, -0.68, -0.74, -0.78, -0.80, -0.81, -0.81]
         }
+        
+        last_h1 = {c: base_curves[c][-1] for c in CURRENCIES}
         
         charts = {}
         pair_charts = {}
         for tf in ["MN1", "W1", "D1", "H4", "H1"]:
             series_dict = {}
             for c in CURRENCIES:
-                val = last_h1.get(c, 0.0)
-                # curva suave
-                curve = [round(val + 0.1 * np.sin(i * 0.3), 3) for i in range(len(dates))]
+                curve = base_curves.get(c, [0.0]*len(dates))
+                if len(curve) < len(dates):
+                    # Interpolar para o tamanho de dates
+                    curve = list(np.interp(np.linspace(0, len(curve)-1, len(dates)), np.arange(len(curve)), curve))
+                    curve = [round(float(x), 3) for x in curve]
                 series_dict[c] = curve
             charts[tf] = {
                 "times": dates,
@@ -530,9 +540,9 @@ class CSSDataEngine:
             pair_charts_dict = {}
             for sym in ALL_28_PAIRS:
                 base, quote = sym[:3], sym[3:6]
-                val = last_h1.get(base, 0.0) - last_h1.get(quote, 0.0)
-                curve = [round(val + 0.1 * np.sin(i * 0.3), 3) for i in range(len(dates))]
-                pair_charts_dict[sym] = curve
+                b_curve = series_dict.get(base, [0.0]*len(dates))
+                q_curve = series_dict.get(quote, [0.0]*len(dates))
+                pair_charts_dict[sym] = [round(b - q, 3) for b, q in zip(b_curve, q_curve)]
             pair_charts[tf] = pair_charts_dict
             
         currency_cards = []
@@ -556,26 +566,15 @@ class CSSDataEngine:
                 "has_divergence": False,
                 "divergence_alert": "Conexão com MT5 em espera (usando cache local)",
                 "triads": {
-                    tf: {
-                        "tf": tf, "score": val, "score_str": f"{val:+.2f}", "diff": 0.05,
-                        "dir": "▲ UP" if val < 0 else "▼ DN",
-                        "region": f"Box {'Superior' if val > 0 else 'Inferior'}",
-                        "current_cycle": "Ciclo Ativo", "owing_cycle": "Devendo Rompimento",
-                        "angle": "▲ Inclinado para Força" if val < 0 else "▼ Inclinado para Fraqueza",
-                        "is_retomada_forca": False, "is_retomada_fraqueza": False
-                    } for tf in ["MN1", "W1", "D1", "H4", "H1"]
+                    tf: analyze_tf_triad(tf, charts[tf]["series"][c])
+                    for tf in ["MN1", "W1", "D1", "H4", "H1"]
                 },
-                "leds": {tf: ("green" if val < 0 else "red") for tf in ["MN1", "W1", "D1", "H4", "H1"]},
-                "active_h1_triad": {
-                    "tf": "H1", "score": val, "score_str": f"{val:+.2f}", "dir": "▲ UP" if val < 0 else "▼ DN",
-                    "region": "Zona de Parada", "current_cycle": "Ciclo Ativo", "owing_cycle": "Devendo Força/Fraqueza",
-                    "angle": "🚀 Foguete" if abs(val) > 0.5 else "Moderado"
+                "leds": {
+                    tf: analyze_tf_triad(tf, charts[tf]["series"][c])["led"]
+                    for tf in ["MN1", "W1", "D1", "H4", "H1"]
                 },
-                "active_h4_triad": {
-                    "tf": "H4", "score": round(val*0.8, 2), "score_str": f"{val*0.8:+.2f}", "dir": "▲ UP" if val < 0 else "▼ DN",
-                    "region": "Box", "current_cycle": "Ciclo Ativo", "owing_cycle": "Devendo Força/Fraqueza",
-                    "angle": "Moderado"
-                }
+                "active_h1_triad": analyze_tf_triad("H1", charts["H1"]["series"][c]),
+                "active_h4_triad": analyze_tf_triad("H4", charts["H4"]["series"][c])
             })
 
         self.cache = {

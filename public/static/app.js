@@ -655,22 +655,12 @@ function renderTable(currencies) {
             </div>
         `;
 
-        // 6. SINAL BADGE (BUY / SELL / NEUTRAL)
-        const signalCell = document.createElement("td");
-        signalCell.className = "text-center";
-        const badgeType = item.signal_badge ? item.signal_badge.toLowerCase() : "neutral";
-        signalCell.innerHTML = `
-            <span class="signal-pill ${badgeType}">
-                ${item.signal_badge || "NEUTRAL"}
-            </span>
-        `;
-
-        // 7. CICLO DEVENDO
+        // 6. CICLO DEVENDO
         const owingCell = document.createElement("td");
         owingCell.className = "owing-cell";
         owingCell.textContent = item.active_h1_triad ? item.active_h1_triad.owing_cycle : "Devendo Alinhamento";
 
-        // 8. AÇÕES (RAIO-X)
+        // 7. AÇÕES (RAIO-X)
         const actionsCell = document.createElement("td");
         actionsCell.className = "text-center";
         actionsCell.innerHTML = `
@@ -686,7 +676,6 @@ function renderTable(currencies) {
         tr.appendChild(angleCell);
         tr.appendChild(regionCell);
         tr.appendChild(ledsCell);
-        tr.appendChild(signalCell);
         tr.appendChild(owingCell);
         tr.appendChild(actionsCell);
 
