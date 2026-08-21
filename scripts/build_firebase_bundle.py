@@ -50,16 +50,29 @@ def build():
     # CSS All (Standard & Gauss Mode)
     try:
         from web.css_service import css_engine
+        os.makedirs(os.path.join(API_DIR, "pairs"), exist_ok=True)
+        os.makedirs(os.path.join(API_DIR, "crossovers"), exist_ok=True)
+
         # 1. Standard Mode Snapshot
         css_data_std = css_engine.update_data(force=True, mode="standard")
         with open(os.path.join(API_DIR, "css", "all.json"), "w", encoding="utf-8") as f:
             json.dump(css_data_std, f, indent=2, ensure_ascii=False)
-        print("  [+] Gerado: /api/css/all.json (Modo Padrão TMA)")
+        with open(os.path.join(API_DIR, "css", "all_standard.json"), "w", encoding="utf-8") as f:
+            json.dump(css_data_std, f, indent=2, ensure_ascii=False)
+        with open(os.path.join(API_DIR, "pairs", "standard.json"), "w", encoding="utf-8") as f:
+            json.dump({"pairs": css_data_std.get("pairs", [])}, f, indent=2, ensure_ascii=False)
+        with open(os.path.join(API_DIR, "crossovers", "standard.json"), "w", encoding="utf-8") as f:
+            json.dump(css_data_std.get("crossovers", {}), f, indent=2, ensure_ascii=False)
+        print("  [+] Gerado: /api/css/all.json & all_standard.json (Modo Padrão TMA)")
 
         # 2. Gauss Mode Snapshot (NWE)
         css_data_gauss = css_engine.update_data(force=True, mode="gauss")
         with open(os.path.join(API_DIR, "css", "all_gauss.json"), "w", encoding="utf-8") as f:
             json.dump(css_data_gauss, f, indent=2, ensure_ascii=False)
+        with open(os.path.join(API_DIR, "pairs", "gauss.json"), "w", encoding="utf-8") as f:
+            json.dump({"pairs": css_data_gauss.get("pairs", [])}, f, indent=2, ensure_ascii=False)
+        with open(os.path.join(API_DIR, "crossovers", "gauss.json"), "w", encoding="utf-8") as f:
+            json.dump(css_data_gauss.get("crossovers", {}), f, indent=2, ensure_ascii=False)
         print("  [+] Gerado: /api/css/all_gauss.json (Modo Gauss NWE)")
     except Exception as e:
         print(f"  [!] Erro ao gerar CSS snapshots: {e}")

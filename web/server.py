@@ -91,10 +91,10 @@ async def get_crossovers(mode: str = "standard"):
 
 
 @app.get("/api/crossovers/{tf}")
-async def get_crossovers_by_tf(tf: str):
+async def get_crossovers_by_tf(tf: str, mode: str = "standard"):
     """Retorna cruzamentos específicos para um timeframe (H1, H4, D1, etc.)."""
     tf_upper = tf.upper()
-    data = css_engine.update_data(force=False)
+    data = css_engine.update_data(force=False, mode=mode)
     crossovers = data.get("crossovers", {}).get("timeframes", {})
     if tf_upper not in crossovers:
         raise HTTPException(status_code=404, detail=f"Timeframe '{tf_upper}' não encontrado nos cruzamentos.")
@@ -118,9 +118,17 @@ async def get_history_report(date_str: str):
 
 
 @app.post("/api/refresh")
-async def force_refresh():
-    """Força o recálculo dos dados a partir do MT5."""
-    data = css_engine.update_data(force=True)
+async def force_refresh(mode: str = "all"):
+    """Força o recálculo dos dois bancos de dados (Standard e Gauss) a partir do MT5."""
+    if mode == "gauss":
+        data = css_engine.update_data(force=True, mode="gauss")
+    elif mode == "standard":
+        data = css_engine.update_data(force=True, mode="standard")
+    else:
+        # Atualiza ambos os bancos
+        css_engine.update_data(force=True, mode="standard")
+        data = css_engine.update_data(force=True, mode="gauss")
+
     return {
         "success": True,
         "timestamp": data.get("timestamp"),

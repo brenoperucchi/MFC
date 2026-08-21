@@ -64,12 +64,24 @@ CCY_COLORS = {
     "NZD": "#D2B48C"  # Sand / Khaki
 }
 
+def get_tf_constant(tf_name):
+    if not MT5_AVAILABLE or mt5 is None:
+        return 0
+    tf_map = {
+        "MN1": getattr(mt5, "TIMEFRAME_MN1", 49153),
+        "W1": getattr(mt5, "TIMEFRAME_W1", 32769),
+        "D1": getattr(mt5, "TIMEFRAME_D1", 16408),
+        "H4": getattr(mt5, "TIMEFRAME_H4", 16388),
+        "H1": getattr(mt5, "TIMEFRAME_H1", 16385)
+    }
+    return tf_map.get(tf_name, 16385)
+
 TIMEFRAMES_CONFIG = [
-    ("MN1", getattr(mt5, "TIMEFRAME_MN1", 43200) if mt5 else 43200, 70),
-    ("W1",  getattr(mt5, "TIMEFRAME_W1", 10080) if mt5 else 10080, 100),
-    ("D1",  getattr(mt5, "TIMEFRAME_D1", 1440) if mt5 else 1440, 120),
-    ("H4",  getattr(mt5, "TIMEFRAME_H4", 240) if mt5 else 240, 120),
-    ("H1",  getattr(mt5, "TIMEFRAME_H1", 60) if mt5 else 60, 200)
+    ("MN1", 70),
+    ("W1", 100),
+    ("D1", 120),
+    ("H4", 120),
+    ("H1", 200)
 ]
 
 def calc_atr_sma(high, low, close, period=100):
@@ -365,19 +377,43 @@ def detect_currency_crossovers(charts_dict):
     }
 
 
+DATA_DIR = os.path.join(BASE_DIR, "data")
+os.makedirs(DATA_DIR, exist_ok=True)
+DB_STANDARD_FILE = os.path.join(DATA_DIR, "css_standard.json")
+DB_GAUSS_FILE = os.path.join(DATA_DIR, "css_gauss.json")
+
+
 class CSSDataEngine:
     _instance = None
 
     def __new__(cls):
         if cls._instance is None:
             cls._instance = super(CSSDataEngine, cls).__new__(cls)
-            cls._instance.cache_standard = {}
-            cls._instance.cache_gauss = {}
-            cls._instance.last_update_standard = None
-            cls._instance.last_update_gauss = None
+            cls._instance.cache_standard = cls._instance._load_from_disk(DB_STANDARD_FILE)
+            cls._instance.cache_gauss = cls._instance._load_from_disk(DB_GAUSS_FILE)
+            cls._instance.last_update_standard = time.time() if cls._instance.cache_standard else None
+            cls._instance.last_update_gauss = time.time() if cls._instance.cache_gauss else None
             cls._instance.is_mt5_connected = False
             cls._instance.last_error = None
         return cls._instance
+
+    @staticmethod
+    def _load_from_disk(filepath):
+        try:
+            if os.path.exists(filepath):
+                with open(filepath, "r", encoding="utf-8") as f:
+                    return json.load(f)
+        except Exception as e:
+            print(f"[!] Erro ao carregar banco {filepath}: {e}")
+        return {}
+
+    @staticmethod
+    def _save_to_disk(filepath, data):
+        try:
+            with open(filepath, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            print(f"[!] Erro ao salvar banco {filepath}: {e}")
 
     def connect_mt5(self):
         if not MT5_AVAILABLE:
@@ -400,24 +436,43 @@ class CSSDataEngine:
         last_up = self.last_update_gauss if mode == "gauss" else self.last_update_standard
         cached = self.cache_gauss if mode == "gauss" else self.cache_standard
 
+        # Throttle recalculation se dentro de 3s e já temos dados em memória
         if not force and last_up and (now_ts - last_up) < 3.0 and cached:
             return cached
 
         connected = self.connect_mt5()
-        if not connected and not cached:
-            res = self._generate_fallback_data(mode=mode)
-            if mode == "gauss":
-                self.cache_gauss = res
-                self.last_update_gauss = now_ts
-            else:
-                self.cache_standard = res
-                self.last_update_standard = now_ts
-            return res
+        if not connected:
+            if not cached:
+                # Tentar carregar do disco
+                db_file = DB_GAUSS_FILE if mode == "gauss" else DB_STANDARD_FILE
+                disk_data = self._load_from_disk(db_file)
+                if disk_data:
+                    if mode == "gauss":
+                        self.cache_gauss = disk_data
+                        self.last_update_gauss = now_ts
+                    else:
+                        self.cache_standard = disk_data
+                        self.last_update_standard = now_ts
+                    return disk_data
+                
+                # Gerar fallback
+                res = self._generate_fallback_data(mode=mode)
+                if mode == "gauss":
+                    self.cache_gauss = res
+                    self.last_update_gauss = now_ts
+                    self._save_to_disk(DB_GAUSS_FILE, res)
+                else:
+                    self.cache_standard = res
+                    self.last_update_standard = now_ts
+                    self._save_to_disk(DB_STANDARD_FILE, res)
+                return res
+            return cached
 
         tf_data_raw = {}
         tf_charts = {}
         tf_pair_charts = {}
-        for tf_name, tf_val, count in TIMEFRAMES_CONFIG:
+        for tf_name, count in TIMEFRAMES_CONFIG:
+            tf_val = get_tf_constant(tf_name)
             res, times, pair_slopes = calculate_full_css(tf_val, count, mode=mode)
             if res is not None:
                 tf_data_raw[tf_name] = (res, times)
@@ -460,7 +515,7 @@ class CSSDataEngine:
                 "H1": analyze_tf_triad("H1", h1_s)
             }
             
-            # Status LEDs Institucionais (Green=UP Alinhado, Red=DN Alinhado, Yellow=Divergência / Transição)
+            # Status LEDs Institucionais
             leds = {
                 tf: triads[tf].get("led", "yellow")
                 for tf in ["MN1", "W1", "D1", "H4", "H1"]
@@ -556,9 +611,11 @@ class CSSDataEngine:
         if mode == "gauss":
             self.cache_gauss = result_payload
             self.last_update_gauss = now_ts
+            self._save_to_disk(DB_GAUSS_FILE, result_payload)
         else:
             self.cache_standard = result_payload
             self.last_update_standard = now_ts
+            self._save_to_disk(DB_STANDARD_FILE, result_payload)
 
         return result_payload
 
