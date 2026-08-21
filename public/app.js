@@ -15,6 +15,7 @@ const state = {
         chart3: "D1"
     },
     data: null,
+    engineMode: localStorage.getItem("css_engine_mode") || "standard",
     pairsFilter: "RECENT_4H",
     pairsSearch: "",
     selectedDeepDive: "AUD",
@@ -109,7 +110,10 @@ function setupEventListeners() {
     setupTFTabs("chart2TFTabs", "chart2");
     setupTFTabs("chart3TFTabs", "chart3");
 
-    // 4. Botão de Refresh Manual
+    // 4. Modo Gauss Toggle (NWE Kernel Regression)
+    setupGaussModeToggle();
+
+    // 5. Botão de Refresh Manual
     const btnRefresh = document.getElementById("btnRefresh");
     if (btnRefresh) {
         btnRefresh.addEventListener("click", async () => {
@@ -120,13 +124,13 @@ function setupEventListeners() {
         });
     }
 
-    // 5. Modais
+    // 6. Modais
     setupModals();
     setupMatrixModal();
     setupTrackRecordModal();
     setupCrossoversModal();
 
-    // 6. Redimensionamento de Janela
+    // 7. Redimensionamento de Janela
     window.addEventListener("resize", () => {
         renderAllCharts();
         renderMatrixChart();
@@ -134,6 +138,34 @@ function setupEventListeners() {
             if (state.activeTrackTab === 'analytics') renderGlobalEquityCurve(state.trackRecordData.equity_curve || []);
             else if (state.activeTrackTab === 'audit' && state.auditSelectedSession) renderAuditDetailPanel(state.auditSelectedSession);
         }
+    });
+}
+
+function setupGaussModeToggle() {
+    const btn = document.getElementById("btnToggleGaussMode");
+    const tag = document.getElementById("gaussModeStateTag");
+    if (!btn) return;
+
+    const updateBtnUI = () => {
+        const isGauss = state.engineMode === "gauss";
+        if (isGauss) {
+            btn.classList.add("gauss-active");
+            if (tag) tag.textContent = "ON";
+            btn.setAttribute("title", "Modo Gauss ATIVADO (Nadaraya-Watson Kernel Regression + Tanh). Clique para voltar ao Modo Padrão.");
+        } else {
+            btn.classList.remove("gauss-active");
+            if (tag) tag.textContent = "OFF";
+            btn.setAttribute("title", "Modo Padrão ATIVADO (TMA / LWMA). Clique para ativar o Modo Gauss (Nadaraya-Watson).");
+        }
+    };
+
+    updateBtnUI();
+
+    btn.addEventListener("click", async () => {
+        state.engineMode = state.engineMode === "gauss" ? "standard" : "gauss";
+        localStorage.setItem("css_engine_mode", state.engineMode);
+        updateBtnUI();
+        await fetchData();
     });
 }
 
@@ -175,12 +207,27 @@ function updateViewModeLayout() {
 }
 
 // ==========================================================================
-// BUSCA DE DADOS (API REST)
+// BUSCA DE DADOS (API REST & STATIC SNAPSHOT)
 // ==========================================================================
 async function fetchData() {
     try {
-        const res = await fetch("/api/css/all");
-        if (!res.ok) throw new Error("Erro na resposta da API");
+        const modeParam = state.engineMode === "gauss" ? "gauss" : "standard";
+        let res = null;
+
+        // Tentar endpoint dinâmico do servidor backend
+        try {
+            res = await fetch(`/api/css/all?mode=${modeParam}&t=${Date.now()}`);
+        } catch (e) {
+            // Servidor local offline ou rodando no Firebase
+        }
+
+        // Se falhar ou estiver no Firebase, buscar snapshot estático
+        if (!res || !res.ok) {
+            const staticPath = state.engineMode === "gauss" ? "/api/css/all_gauss.json" : "/api/css/all.json";
+            res = await fetch(`${staticPath}?t=${Date.now()}`);
+        }
+
+        if (!res || !res.ok) throw new Error("Erro ao carregar dados do CSS PRO");
         const json = await res.json();
         state.data = json;
         

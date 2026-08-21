@@ -226,6 +226,77 @@ body.dark-theme {
     flex-wrap: wrap;
 }
 
+/* GAUSS MODE TOGGLE BUTTON (NWE KERNEL REGRESSION) */
+.mode-toggle-btn {
+    background: #0E1422;
+    border: 1px solid rgba(0, 229, 255, 0.25);
+    color: var(--text-secondary);
+    padding: 5px 12px;
+    border-radius: 8px;
+    font-family: var(--font-display);
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    position: relative;
+    user-select: none;
+}
+
+.mode-toggle-btn .mode-badge-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--text-muted);
+    transition: all 0.25s ease;
+}
+
+.mode-toggle-btn .mode-state-tag {
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--text-muted);
+    font-size: 9px;
+    font-family: var(--font-mono);
+    font-weight: 800;
+    padding: 1px 5px;
+    border-radius: 4px;
+    letter-spacing: 0.5px;
+    transition: all 0.25s ease;
+}
+
+.mode-toggle-btn:hover {
+    border-color: #00E5FF;
+    color: #FFFFFF;
+    background: rgba(0, 229, 255, 0.08);
+    box-shadow: 0 0 10px rgba(0, 229, 255, 0.2);
+}
+
+/* GAUSS MODE ACTIVE STATE (VIBRANT PURPLE/GOLD CYBER GLOW) */
+.mode-toggle-btn.gauss-active {
+    background: linear-gradient(135deg, rgba(255, 215, 0, 0.16), rgba(156, 39, 176, 0.25));
+    border-color: #FFD700;
+    color: #FFFFFF;
+    box-shadow: 0 0 16px rgba(255, 215, 0, 0.35);
+}
+
+.mode-toggle-btn.gauss-active .mode-badge-dot {
+    background: #FFD700;
+    box-shadow: 0 0 8px #FFD700;
+    animation: pulseGaussDot 1.5s infinite;
+}
+
+.mode-toggle-btn.gauss-active .mode-state-tag {
+    background: #FFD700;
+    color: #000000;
+    font-weight: 900;
+}
+
+@keyframes pulseGaussDot {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.4; transform: scale(1.3); }
+}
+
 .view-mode-selector {
     display: flex;
     background: #121826;

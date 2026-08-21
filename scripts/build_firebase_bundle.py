@@ -47,15 +47,22 @@ def build():
     # 2. Gerar Snapshots de API a partir do servidor local ou geradores
     print("[*] Gerando snapshots de API...")
     
-    # CSS All
+    # CSS All (Standard & Gauss Mode)
     try:
         from web.css_service import css_engine
-        css_data = css_engine.update_data(force=True)
+        # 1. Standard Mode Snapshot
+        css_data_std = css_engine.update_data(force=True, mode="standard")
         with open(os.path.join(API_DIR, "css", "all.json"), "w", encoding="utf-8") as f:
-            json.dump(css_data, f, indent=2, ensure_ascii=False)
-        print("  [+] Gerado: /api/css/all.json")
+            json.dump(css_data_std, f, indent=2, ensure_ascii=False)
+        print("  [+] Gerado: /api/css/all.json (Modo Padrão TMA)")
+
+        # 2. Gauss Mode Snapshot (NWE)
+        css_data_gauss = css_engine.update_data(force=True, mode="gauss")
+        with open(os.path.join(API_DIR, "css", "all_gauss.json"), "w", encoding="utf-8") as f:
+            json.dump(css_data_gauss, f, indent=2, ensure_ascii=False)
+        print("  [+] Gerado: /api/css/all_gauss.json (Modo Gauss NWE)")
     except Exception as e:
-        print(f"  [!] Erro ao gerar CSS snapshot: {e}")
+        print(f"  [!] Erro ao gerar CSS snapshots: {e}")
 
     # Track Record Summary
     try:

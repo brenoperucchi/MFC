@@ -8,7 +8,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/styles.css?v=3.0">
+    <link rel="stylesheet" href="/static/styles.css?v=3.1">
 </head>
 <body class="dark-theme">
     <!-- TOP NAVIGATION BAR -->
@@ -41,6 +41,14 @@
         </div>
 
         <div class="header-right">
+            <!-- GAUSS MODE TOGGLE (NADARAYA-WATSON KERNEL) -->
+            <button class="mode-toggle-btn" id="btnToggleGaussMode" title="Alternar entre Cálculo Padrão (TMA) e Modo Gauss (Nadaraya-Watson Kernel Regression + Tanh)">
+                <span class="mode-badge-dot"></span>
+                <span class="btn-icon">🧠</span>
+                <span class="btn-text">MODO GAUSS</span>
+                <span class="mode-state-tag" id="gaussModeStateTag">OFF</span>
+            </button>
+
             <!-- VIEW MODE SELECTOR -->
             <div class="view-mode-selector">
                 <button class="mode-btn active" id="btnModeSingle" data-mode="single">Gráfico Único</button>
@@ -743,6 +751,6 @@
     </div>
 
     <!-- SCRIPTS -->
-    <script src="/static/app.js?v=3.0"></script>
+    <script src="/static/app.js?v=3.1"></script>
 </body>
 </html>

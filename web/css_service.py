@@ -92,7 +92,37 @@ def calc_lwma(series_values, period=21):
     res = res.bfill().values 
     return res
 
-def calculate_full_css(tf_val, count=120):
+def calc_nwe_gaussian(closes, lookback=95, bandwidth=8.0):
+    """
+    Cálculo do Valor Central do Nadaraya-Watson Envelope (NWE) com Kernel Gaussiano.
+    Conforme especificação MQL5 CurrencySlopeStrength_NWE.mq5.
+    """
+    k = np.arange(lookback)
+    w = np.exp(-(k**2) / (2.0 * (bandwidth**2)))
+    n = len(closes)
+    nwe = np.zeros(n)
+    for i in range(n):
+        avail = min(lookback, i + 1)
+        sub_c = closes[i - avail + 1 : i + 1][::-1]
+        sub_w = w[:avail]
+        nwe[i] = np.dot(sub_c, sub_w) / np.sum(sub_w)
+    return nwe
+
+def normalize_score_tanh(value, sensitivity=1.0, max_bound=2.0, use_tanh=True):
+    """
+    Compressão Sigmoidal Suave (Tangente Hiperbólica - Tanh) com Retorno à Média.
+    Preserva o 0.00 exato e satura suavemente em ±max_bound.
+    """
+    if not use_tanh or max_bound <= 0.0:
+        return value
+    if isinstance(value, np.ndarray):
+        x = (value * sensitivity) / max_bound
+        return np.tanh(x) * max_bound
+    else:
+        x = (value * sensitivity) / max_bound
+        return float(np.tanh(x) * max_bound)
+
+def calculate_full_css(tf_val, count=120, mode="standard"):
     if not MT5_AVAILABLE:
         return None, None, None
         
@@ -131,28 +161,46 @@ def calculate_full_css(tf_val, count=120):
         highs = df['high'].values
         lows = df['low'].values
         
-        atr_arr = calc_atr_sma(highs, lows, closes, 100)
-        lwma_arr = calc_lwma(closes, 21)
         idx_map = {t: i for i, t in enumerate(df.index)}
-        
         slopes = []
-        for t in common_index:
-            pos = idx_map.get(t, -1)
-            if pos <= 0:
-                slopes.append(0.0)
-                continue
-            atr_val = atr_arr[pos - 10] if (pos - 10) >= 0 else atr_arr[pos]
-            atr = atr_val / 10.0
+
+        if mode == "gauss":
+            # MODO GAUSS: Nadaraya-Watson Envelope + Raw ATR(100)
+            atr_arr = calc_atr_sma(highs, lows, closes, 100)
+            nwe_arr = calc_nwe_gaussian(closes, lookback=95, bandwidth=8.0)
             
-            ma0 = lwma_arr[pos]
-            ma1 = lwma_arr[pos - 1]
-            close0 = closes[pos]
+            for t in common_index:
+                pos = idx_map.get(t, -1)
+                if pos <= 0:
+                    slopes.append(0.0)
+                    continue
+                atr = atr_arr[pos] if pos < len(atr_arr) and atr_arr[pos] > 0 else 0.0001
+                nwe0 = nwe_arr[pos]
+                nwe1 = nwe_arr[pos - 1] if pos > 0 else nwe0
+                sl = (nwe0 - nwe1) / atr
+                slopes.append(sl)
+        else:
+            # MODO PADRÃO: TMA / LWMA + ATR(100)/10
+            atr_arr = calc_atr_sma(highs, lows, closes, 100)
+            lwma_arr = calc_lwma(closes, 21)
             
-            dblTma = ma0
-            dblPrev = (ma1 * 231.0 + close0 * 20.0) / 251.0
-            
-            sl = (dblTma - dblPrev) / atr if atr > 0 else 0.0
-            slopes.append(sl)
+            for t in common_index:
+                pos = idx_map.get(t, -1)
+                if pos <= 0:
+                    slopes.append(0.0)
+                    continue
+                atr_val = atr_arr[pos - 10] if (pos - 10) >= 0 else atr_arr[pos]
+                atr = atr_val / 10.0
+                
+                ma0 = lwma_arr[pos]
+                ma1 = lwma_arr[pos - 1]
+                close0 = closes[pos]
+                
+                dblTma = ma0
+                dblPrev = (ma1 * 231.0 + close0 * 20.0) / 251.0
+                
+                sl = (dblTma - dblPrev) / atr if atr > 0 else 0.0
+                slopes.append(sl)
             
         base, quote = sym[:3], sym[3:6]
         pair_slopes[sym] = (base, quote, np.array(slopes))
@@ -167,6 +215,8 @@ def calculate_full_css(tf_val, count=120):
     for c in CURRENCIES:
         if occurrences[c] > 0:
             css_res[c] /= occurrences[c]
+        if mode == "gauss":
+            css_res[c] = normalize_score_tanh(css_res[c], sensitivity=1.0, max_bound=2.0, use_tanh=True)
             
     time_strs = [t.strftime("%Y-%m-%d %H:%M") for t in common_index]
     return css_res, time_strs, pair_slopes
@@ -321,8 +371,10 @@ class CSSDataEngine:
     def __new__(cls):
         if cls._instance is None:
             cls._instance = super(CSSDataEngine, cls).__new__(cls)
-            cls._instance.cache = {}
-            cls._instance.last_update = None
+            cls._instance.cache_standard = {}
+            cls._instance.cache_gauss = {}
+            cls._instance.last_update_standard = None
+            cls._instance.last_update_gauss = None
             cls._instance.is_mt5_connected = False
             cls._instance.last_error = None
         return cls._instance
@@ -342,22 +394,31 @@ class CSSDataEngine:
             self.last_error = None
         return connected
 
-    def update_data(self, force=False):
-        # Throttle recalculations to at most once every 3 seconds if not forced
+    def update_data(self, force=False, mode="standard"):
+        mode = "gauss" if mode == "gauss" else "standard"
         now_ts = time.time()
-        if not force and self.last_update and (now_ts - self.last_update) < 3.0:
-            return self.cache
+        last_up = self.last_update_gauss if mode == "gauss" else self.last_update_standard
+        cached = self.cache_gauss if mode == "gauss" else self.cache_standard
+
+        if not force and last_up and (now_ts - last_up) < 3.0 and cached:
+            return cached
 
         connected = self.connect_mt5()
-        if not connected and not self.cache:
-            # Generate simulated / fallback baseline if MT5 is closed
-            return self._generate_fallback_data()
+        if not connected and not cached:
+            res = self._generate_fallback_data(mode=mode)
+            if mode == "gauss":
+                self.cache_gauss = res
+                self.last_update_gauss = now_ts
+            else:
+                self.cache_standard = res
+                self.last_update_standard = now_ts
+            return res
 
         tf_data_raw = {}
         tf_charts = {}
         tf_pair_charts = {}
         for tf_name, tf_val, count in TIMEFRAMES_CONFIG:
-            res, times, pair_slopes = calculate_full_css(tf_val, count)
+            res, times, pair_slopes = calculate_full_css(tf_val, count, mode=mode)
             if res is not None:
                 tf_data_raw[tf_name] = (res, times)
                 # Formatar para frontend
@@ -373,9 +434,9 @@ class CSSDataEngine:
                 tf_pair_charts[tf_name] = formatted_pair_slopes
 
         if not tf_data_raw:
-            if not self.cache:
-                return self._generate_fallback_data()
-            return self.cache
+            if not cached:
+                return self._generate_fallback_data(mode=mode)
+            return cached
 
         # Confluence and Triad per currency
         ccy_confluence_results = {}
@@ -454,16 +515,7 @@ class CSSDataEngine:
             
             # Sinal visual
             rec = item["rec"]
-            if "STRONG BUY" in rec:
-                badge_type = "STRONG_BUY"
-            elif "BUY" in rec:
-                badge_type = "BUY"
-            elif "STRONG SELL" in rec:
-                badge_type = "STRONG_SELL"
-            elif "SELL" in rec:
-                badge_type = "SELL"
-            else:
-                badge_type = "NEUTRAL"
+            badge_type = "STRONG_BUY" if "STRONG BUY" in rec else "BUY" if "BUY" in rec else "STRONG_SELL" if "STRONG SELL" in rec else "SELL" if "SELL" in rec else "NEUTRAL"
 
             cross_info = h1_cross_map.get(pair)
             default_t = tf_charts.get("H1", {}).get("times", [""])[-1] if tf_charts.get("H1") else ""
@@ -487,9 +539,11 @@ class CSSDataEngine:
                 "bars_ago": bars_ago
             })
 
-        self.cache = {
+        result_payload = {
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "mt5_connected": self.is_mt5_connected,
+            "engine_mode": mode,
+            "engine_mode_label": "MODO GAUSS (Nadaraya-Watson Kernel)" if mode == "gauss" else "MODO PADRÃO (TMA / LWMA)",
             "currencies": currency_cards,
             "charts": tf_charts,
             "pair_charts": tf_pair_charts,
@@ -498,10 +552,17 @@ class CSSDataEngine:
             "colors": CCY_COLORS,
             "flags": CCY_FLAGS
         }
-        self.last_update = now_ts
-        return self.cache
+        
+        if mode == "gauss":
+            self.cache_gauss = result_payload
+            self.last_update_gauss = now_ts
+        else:
+            self.cache_standard = result_payload
+            self.last_update_standard = now_ts
 
-    def _generate_fallback_data(self):
+        return result_payload
+
+    def _generate_fallback_data(self, mode="standard"):
         """Dados de demonstração robustos baseados na análise do dia anterior se MT5 estiver offline"""
         # Criar tempos
         now = datetime.now()
@@ -531,6 +592,8 @@ class CSSDataEngine:
                     # Interpolar para o tamanho de dates
                     curve = list(np.interp(np.linspace(0, len(curve)-1, len(dates)), np.arange(len(curve)), curve))
                     curve = [round(float(x), 3) for x in curve]
+                if mode == "gauss":
+                    curve = [round(float(normalize_score_tanh(v)), 3) for v in curve]
                 series_dict[c] = curve
             charts[tf] = {
                 "times": dates,
@@ -548,6 +611,8 @@ class CSSDataEngine:
         currency_cards = []
         for c in CURRENCIES:
             val = last_h1.get(c, 0.0)
+            if mode == "gauss":
+                val = round(float(normalize_score_tanh(val)), 2)
             bias = "COMPRA FORTE" if val < -0.20 or c == "USD" else "VENDA FORTE" if val > 0.20 or c == "EUR" else "COMPRA" if c == "AUD" else "NEUTRO"
             badge = "BUY" if "COMPRA" in bias else "SELL" if "VENDA" in bias else "NEUTRAL"
             
@@ -561,7 +626,7 @@ class CSSDataEngine:
                 "total_score": round(val, 2),
                 "signal_badge": badge,
                 "trade_bias": bias,
-                "confluence_state": "MODO SIMULADO / OFFLINE (CACHE LOCAL)",
+                "confluence_state": f"MODO SIMULADO {'GAUSS (NWE)' if mode == 'gauss' else 'PADRÃO'} (CACHE LOCAL)",
                 "final_verdict": f"{bias} (BASEADO NO ÚLTIMO FECHAMENTO)",
                 "has_divergence": False,
                 "divergence_alert": "Conexão com MT5 em espera (usando cache local)",
@@ -577,9 +642,13 @@ class CSSDataEngine:
                 "active_h4_triad": analyze_tf_triad("H4", charts["H4"]["series"][c])
             })
 
-        self.cache = {
+        crossovers_data = detect_currency_crossovers(charts)
+
+        return {
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "mt5_connected": False,
+            "engine_mode": mode,
+            "engine_mode_label": "MODO GAUSS (Nadaraya-Watson Kernel)" if mode == "gauss" else "MODO PADRÃO (TMA / LWMA)",
             "currencies": currency_cards,
             "charts": charts,
             "pair_charts": pair_charts,

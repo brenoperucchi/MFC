@@ -52,22 +52,23 @@ async def get_status():
 
 
 @app.get("/api/css/all")
-async def get_css_all():
-    """Retorna todos os dados de moedas, gráficos, tríades e screener dos 28 pares."""
-    data = css_engine.update_data(force=False)
+async def get_css_all(mode: str = "standard"):
+    """Retorna todos os dados de moedas, gráficos, tríades e screener dos 28 pares (Modo Padrão TMA ou Modo Gauss NWE)."""
+    data = css_engine.update_data(force=False, mode=mode)
     return JSONResponse(content=data)
 
 
 @app.get("/api/css/chart/{tf}")
-async def get_chart_by_tf(tf: str):
+async def get_chart_by_tf(tf: str, mode: str = "standard"):
     """Retorna séries temporais específicas para um timeframe (MN1, W1, D1, H4, H1)."""
     tf_upper = tf.upper()
-    data = css_engine.update_data(force=False)
+    data = css_engine.update_data(force=False, mode=mode)
     charts = data.get("charts", {})
     if tf_upper not in charts:
         raise HTTPException(status_code=404, detail=f"Timeframe '{tf_upper}' não encontrado.")
     return {
         "tf": tf_upper,
+        "mode": mode,
         "times": charts[tf_upper]["times"],
         "series": charts[tf_upper]["series"],
         "colors": data.get("colors", {}),
@@ -76,16 +77,16 @@ async def get_chart_by_tf(tf: str):
 
 
 @app.get("/api/pairs")
-async def get_pairs():
+async def get_pairs(mode: str = "standard"):
     """Retorna o ranking e diagnóstico dos 28 pares Forex."""
-    data = css_engine.update_data(force=False)
-    return {"pairs": data.get("pairs", [])}
+    data = css_engine.update_data(force=False, mode=mode)
+    return {"pairs": data.get("pairs", []), "mode": mode}
 
 
 @app.get("/api/crossovers")
-async def get_crossovers():
+async def get_crossovers(mode: str = "standard"):
     """Retorna os cruzamentos de scores detectados entre as moedas dos 28 pares Forex."""
-    data = css_engine.update_data(force=False)
+    data = css_engine.update_data(force=False, mode=mode)
     return JSONResponse(content=data.get("crossovers", {}))
 
 
