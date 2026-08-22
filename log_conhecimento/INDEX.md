@@ -11,3 +11,4 @@
 | 18/08/2026 | `20260818` | **EURCHF / CHFJPY** | COMPRA / VENDA | Sistema Multi-Agente (Macro + Operacional) | 🟢 Concluído | [20260818.md](file:///c:/Users/ryzen/Downloads/Antigravity/MFC/log_conhecimento/20260818.md) |
 | 19/08/2026 | `20260819` | **EURUSD / NZDCAD** | COMPRA / VENDA | Sistema Multi-Agente (Macro + Operacional) | 🟢 Concluído | [20260819.md](file:///c:/Users/ryzen/Downloads/Antigravity/MFC/log_conhecimento/20260819.md) |
 | 20/08/2026 | `20260820` | **EURUSD / EURCAD** | COMPRA / VENDA | Sistema Multi-Agente (Macro + Operacional) | 🟢 Concluído | [20260820.md](file:///c:/Users/ryzen/Downloads/Antigravity/MFC/log_conhecimento/20260820.md) |
+| 21/08/2026 | `20260821` | **USDCHF / GBPCAD** | RAIO-X 5-TF | Raio-X dos 5 TFs & Despacho Telegram | 🟢 Concluído | [20260821.md](file:///c:/Users/ryzen/Downloads/Antigravity/MFC/log_conhecimento/20260821.md) |

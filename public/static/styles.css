@@ -2507,6 +2507,81 @@ body.dark-theme {
 }
 
 /* ==========================================================================
+   MULTI-TF STATUS PILLS IN DEEP DIVE MODAL
+   ========================================================================== */
+
+.deep-dive-tf-pills-row {
+    display: flex;
+    align-items: stretch;
+    gap: 8px;
+    margin-top: 10px;
+    flex-wrap: wrap;
+}
+
+.deep-dive-tf-pill {
+    flex: 1;
+    min-width: 110px;
+    background: #05070A;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+    padding: 6px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    transition: all 0.2s ease;
+}
+
+.deep-dive-tf-pill.pill-green {
+    border-color: rgba(0, 230, 118, 0.4);
+    background: rgba(0, 230, 118, 0.08);
+}
+.deep-dive-tf-pill.pill-red {
+    border-color: rgba(255, 23, 68, 0.4);
+    background: rgba(255, 23, 68, 0.08);
+}
+.deep-dive-tf-pill.pill-yellow {
+    border-color: rgba(255, 215, 0, 0.4);
+    background: rgba(255, 215, 0, 0.08);
+}
+.deep-dive-tf-pill.pill-rocket-up {
+    border-color: #00E676;
+    background: rgba(0, 230, 118, 0.16);
+    box-shadow: 0 0 10px rgba(0, 230, 118, 0.3);
+}
+.deep-dive-tf-pill.pill-rocket-down {
+    border-color: #FF1744;
+    background: rgba(255, 23, 68, 0.16);
+    box-shadow: 0 0 10px rgba(255, 23, 68, 0.3);
+}
+
+.tf-pill-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+.tf-pill-name {
+    font-size: 11px;
+    font-weight: 800;
+    color: #FFFFFF;
+}
+.tf-pill-score {
+    font-size: 11px;
+    font-weight: 800;
+    font-family: var(--font-mono);
+    color: #FFFFFF;
+}
+.tf-pill-bottom {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 10px;
+    font-weight: 700;
+}
+.pill-green .tf-pill-bottom, .pill-rocket-up .tf-pill-bottom { color: #00E676; }
+.pill-red .tf-pill-bottom, .pill-rocket-down .tf-pill-bottom { color: #FF1744; }
+.pill-yellow .tf-pill-bottom { color: #FFD700; }
+
+/* ==========================================================================
    PRINT / PDF EXPORT STYLING FOR RAIO-X 5-TIMEFRAMES REPORT
    ========================================================================== */
 
@@ -2532,6 +2607,19 @@ body.dark-theme {
     color: #FFFFFF;
     box-shadow: 0 0 12px rgba(0, 229, 255, 0.35);
     transform: translateY(-1px);
+}
+
+.btn-telegram {
+    background: rgba(0, 136, 204, 0.18) !important;
+    border-color: rgba(0, 136, 204, 0.45) !important;
+    color: #0088CC !important;
+}
+
+.btn-telegram:hover {
+    background: rgba(0, 136, 204, 0.35) !important;
+    border-color: #0088CC !important;
+    color: #FFFFFF !important;
+    box-shadow: 0 0 12px rgba(0, 136, 204, 0.45) !important;
 }
 
 @media print {

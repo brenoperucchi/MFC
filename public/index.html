@@ -8,7 +8,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/styles.css?v=3.5">
+    <link rel="stylesheet" href="/static/styles.css?v=3.6">
 </head>
 <body class="dark-theme">
     <!-- TOP NAVIGATION BAR -->
@@ -298,6 +298,9 @@
                     </div>
                 </div>
                 <div style="display: flex; align-items: center; gap: 8px;">
+                    <button class="btn-print-pdf btn-telegram" id="btnSendTelegram" onclick="sendDeepDiveToTelegram()" title="Enviar Foto do Raio-X para o Telegram" style="background: rgba(0, 136, 204, 0.18); border-color: rgba(0, 136, 204, 0.45); color: #0088CC;">
+                        <span>✈️</span> <span>Telegram</span>
+                    </button>
                     <button class="btn-print-pdf" id="btnExportDeepDivePNG" onclick="exportDeepDiveImage()" title="Salvar Raio-X como Imagem de Alta Resolução (PNG)" style="background: rgba(46, 204, 113, 0.15); border-color: rgba(46, 204, 113, 0.4); color: #2ECC71;">
                         <span>📸</span> <span>Salvar PNG</span>
                     </button>
@@ -754,6 +757,6 @@
     </div>
 
     <!-- SCRIPTS -->
-    <script src="/static/app.js?v=3.5"></script>
+    <script src="/static/app.js?v=3.6"></script>
 </body>
 </html>

@@ -1,364 +1,283 @@
 """
-ROTINA DIÁRIA AUTOMATIZADA DE ANÁLISE CSS MULTI-TIMEFRAME (21:01)
-Sistema Multi-Agente: Agente Macro (MN, W1, D1) + Agente Operacional (H4, H1)
+ROTINA DIÁRIA AUTOMATIZADA DE ANÁLISE CSS MULTI-TIMEFRAME (21:00 BRT)
+Emite o Raio-X Institucional dos 5 Timeframes (MN1, W1, D1, H4, H1) de todas as moedas,
+gera os relatórios de confluência e despacha tudo automaticamente para o Telegram.
 """
 
 import os
 import sys
+import time
+import textwrap
 from datetime import datetime
 import numpy as np
-import pandas as pd
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-import matplotlib.dates as mdates
-import MetaTrader5 as mt5
 
-# Garantir que a pasta MFC esteja no sys.path para importar agents
-BASE_DIR = r"c:\Users\ryzen\Downloads\Antigravity\MFC"
+# Assegurar imports do diretório raiz
+BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
 
-from agents.confluence_engine import evaluate_currency_confluence, evaluate_28_pairs_confluence
+from web.css_service import css_engine, CCY_COLORS, CCY_FLAGS, CURRENCIES, ALL_28_PAIRS
+from web.telegram_service import send_telegram_photo, send_telegram_message, get_telegram_config
 
-# Setup dark styling
+import html
+
+# Setup Matplotlib styling
 plt.style.use('dark_background')
 plt.rcParams['font.family'] = 'sans-serif'
+plt.rcParams['font.sans-serif'] = ['DejaVu Sans', 'Arial', 'Helvetica']
 plt.rcParams['font.size'] = 9
 
 LOG_DIR = os.path.join(BASE_DIR, "log_conhecimento")
 os.makedirs(LOG_DIR, exist_ok=True)
+REPORTS_DIR = os.path.join(BASE_DIR, "reports")
+os.makedirs(REPORTS_DIR, exist_ok=True)
 
-MT5_PATH = r"C:\Program Files\Tickmill MT5 Terminal - Copia - Copia\terminal64.exe"
 
-SYMBOLS = [
-    "AUDCAD", "AUDCHF", "AUDJPY", "AUDNZD", "AUDUSD",
-    "CADJPY", "CHFJPY",
-    "EURAUD", "EURCAD", "EURJPY", "EURNZD", "EURUSD",
-    "GBPAUD", "GBPCAD", "GBPCHF", "GBPJPY", "GBPNZD", "GBPUSD",
-    "NZDCHF", "NZDJPY", "NZDUSD",
-    "USDCAD", "USDCHF", "USDJPY"
-]
+def clean_text_for_plot(text):
+    """Remove tags HTML e substitui emojis por símbolos ASCII/Unicode padrão para o Matplotlib."""
+    if not text:
+        return ""
+    t = str(text).replace("<br>", " | ").replace("<br/>", " | ").replace("<br />", " ")
+    t = t.replace("<b>", "").replace("</b>", "").replace("<i>", "").replace("</i>", "")
+    t = t.replace("🚀", "▲▲").replace("🎢", "▼▼").replace("⚡", "*").replace("🔥", "*")
+    t = t.replace("🇦🇺", "").replace("🇪🇺", "").replace("🇬🇧", "").replace("🇨🇭", "")
+    t = t.replace("🇯🇵", "").replace("🇺🇸", "").replace("🇨🇦", "").replace("🇳🇿", "")
+    t = t.replace("⚠️", "(!)")
+    return t.strip()
 
-ALL_28_PAIRS = [
-    "EURUSD", "GBPUSD", "AUDUSD", "NZDUSD", "USDCAD", "USDCHF", "USDJPY",
-    "EURGBP", "EURAUD", "EURCAD", "EURCHF", "EURJPY", "EURNZD",
-    "GBPAUD", "GBPCAD", "GBPCHF", "GBPJPY", "GBPNZD",
-    "AUDCAD", "AUDCHF", "AUDJPY", "AUDNZD",
-    "CADCHF", "CADJPY",
-    "CHFJPY",
-    "NZDCAD", "NZDCHF", "NZDJPY"
-]
 
-CURRENCIES = ["USD", "EUR", "GBP", "CHF", "JPY", "AUD", "CAD", "NZD"]
+def tg_esc(text):
+    """Escapa HTML com segurança para as captions do Telegram."""
+    if not text:
+        return ""
+    t = str(text).replace("<br>", " ").replace("<br/>", " ").replace("<br />", " ")
+    t = t.replace("<b>", "").replace("</b>", "").replace("<i>", "").replace("</i>", "")
+    return html.escape(t.strip())
 
-CCY_COLORS = {
-    "USD": "#FF3333",
-    "EUR": "#2ECC71",
-    "GBP": "#4169E1",
-    "CHF": "#00E5FF",
-    "JPY": "#9932CC",
-    "AUD": "#FF8C00",
-    "CAD": "#8B0000",
-    "NZD": "#D2B48C"
-}
 
-TIMEFRAMES_CONFIG = [
-    ("MN1", mt5.TIMEFRAME_MN1, 70),
-    ("W1",  mt5.TIMEFRAME_W1, 100),
-    ("D1",  mt5.TIMEFRAME_D1, 120),
-    ("H4",  mt5.TIMEFRAME_H4, 120),
-    ("H1",  mt5.TIMEFRAME_H1, 500)
-]
 
-def calculate_atr_wilder(high, low, close, period=100):
-    tr = np.zeros(len(close))
-    tr[0] = high[0] - low[0]
-    for i in range(1, len(close)):
-        tr[i] = max(high[i] - low[i], abs(high[i] - close[i-1]), abs(low[i] - close[i-1]))
-    atr = np.zeros(len(close))
-    if len(close) < period:
-        return atr
-    atr[period-1] = np.mean(tr[:period])
-    alpha = 1.0 / period
-    for i in range(period, len(close)):
-        atr[i] = atr[i-1] * (1.0 - alpha) + tr[i] * alpha
-    return atr
+def render_currency_raio_x_image(ccy_data, all_charts, output_path, date_str=""):
+    """
+    Gera imagem em altíssima resolução (Dark Premium) do Raio-X Institucional da Moeda
+    contendo o Resumo dos 5 Timeframes (Bolinhas/Foguetes) e as Tríades Analíticas.
+    """
+    ccy = ccy_data["symbol"]
+    color = CCY_COLORS.get(ccy, "#00E5FF")
+    tfs = ["MN1", "W1", "D1", "H4", "H1"]
+    
+    # Criar Figura Dark Institucional
+    fig = plt.figure(figsize=(11.5, 15.5), facecolor="#080B11", dpi=130)
+    
+    # 1. Cabeçalho
+    plt.figtext(0.04, 0.968, f"Raio-X Institucional: {ccy}", 
+                fontsize=17, fontweight='bold', color='white')
+    plt.figtext(0.04, 0.950, "Diagnóstico Cíclico e Tríade Analítica nos 5 Timeframes (MN1, W1, D1, H4, H1) — CSS PRO", 
+                fontsize=9.5, color='#8899A6')
+    time_label = date_str or datetime.now().strftime("%d/%m/%Y às %H:%M")
+    plt.figtext(0.96, 0.968, time_label, 
+                fontsize=10, color='#8899A6', horizontalalignment='right')
 
-def calc_tma_series(closes):
-    tma = np.zeros(len(closes))
-    n = len(closes)
-    for pos in range(n):
-        c0 = closes[pos]
-        dblSum = c0 * 21.0
-        dblSumw = 21.0
-        for jnx in range(1, 21):
-            knx = 21 - jnx
-            past_pos = pos - jnx
-            if past_pos >= 0:
-                dblSum += closes[past_pos] * knx
-                dblSumw += knx
-            future_pos = pos + jnx
-            if future_pos < n:
-                dblSum += closes[future_pos] * knx
-                dblSumw += knx
-        tma[pos] = dblSum / dblSumw if dblSumw > 0 else c0
-    return tma
+    # Linha divisória ciano
+    line_ax = fig.add_axes([0.04, 0.942, 0.92, 0.002])
+    line_ax.set_facecolor("#00E5FF")
+    line_ax.axis('off')
 
-def calculate_full_css(tf_val, count=120):
-    pair_dfs = {}
-    for sym in ALL_28_PAIRS:
-        rates = mt5.copy_rates_from_pos(sym, tf_val, 0, count + 150)
-        if rates is None or len(rates) < 120:
-            continue
-        df = pd.DataFrame(rates)
-        df['time'] = pd.to_datetime(df['time'], unit='s')
-        df.set_index('time', inplace=True)
-        pair_dfs[sym] = df
-        
-    if not pair_dfs:
-        return None, None
-        
-    common_index = None
-    for sym, df in pair_dfs.items():
-        if common_index is None:
-            common_index = df.index
+    # 2. Card com Resumo dos 5 Timeframes (Bolinhas e Foguetes)
+    card_ax = fig.add_axes([0.04, 0.865, 0.92, 0.068])
+    card_ax.set_facecolor("#0E131E")
+    for spine in card_ax.spines.values():
+        spine.set_color((1.0, 1.0, 1.0, 0.12))
+        spine.set_linewidth(1.0)
+    card_ax.set_xticks([])
+    card_ax.set_yticks([])
+
+    # 5 Caixas dos Timeframes (Distribuídas em 100% da largura)
+    box_w = 0.188
+    gap = 0.010
+    box_start_x = 0.012
+    box_y = 0.12
+    box_h = 0.76
+
+    for idx, tf in enumerate(tfs):
+        bx = box_start_x + idx * (box_w + gap)
+        triad = ccy_data.get("triads", {}).get(tf, {})
+        led = triad.get("led", "yellow")
+        angle = triad.get("angle", "")
+        angle_type = triad.get("angle_type", "")
+        score_val = triad.get("score", 0.0)
+        score_str = triad.get("score_str", f"{score_val:+.2f}")
+
+        # Determinar Símbolo, Cor e Texto de Status
+        if angle_type == "FOGUETE" or "Foguete" in angle or "▲▲" in angle:
+            icon_sym = "▲▲ FOGUETE"
+            pill_color = "#00E676"
+            pill_bg = "#0B2618"
+            pill_border = "#00E676"
+        elif angle_type == "MONTANHA_RUSSA" or "Montanha-Russa" in angle or "▼▼" in angle:
+            icon_sym = "▼▼ QUEDA FORTE"
+            pill_color = "#FF1744"
+            pill_bg = "#2B0B11"
+            pill_border = "#FF1744"
+        elif led == "green":
+            icon_sym = "● FORÇA (UP)"
+            pill_color = "#00E676"
+            pill_bg = "#071C12"
+            pill_border = "#00E676"
+        elif led == "red":
+            icon_sym = "● FRAQUEZA (DN)"
+            pill_color = "#FF1744"
+            pill_bg = "#21080D"
+            pill_border = "#FF1744"
         else:
-            common_index = common_index.intersection(df.index)
-            
-    if common_index is None or len(common_index) == 0:
-        return None, None
-        
-    common_index = common_index[-count:]
-    pair_slopes = {}
-    occurrences = {c: 0 for c in CURRENCIES}
-    
-    for sym in ALL_28_PAIRS:
-        if sym not in pair_dfs:
-            continue
-        df = pair_dfs[sym]
-        closes = df['close'].values
-        highs = df['high'].values
-        lows = df['low'].values
-        
-        atr_arr = calculate_atr_wilder(highs, lows, closes, 100)
-        tma_arr = calc_tma_series(closes)
-        idx_map = {t: i for i, t in enumerate(df.index)}
-        
-        slopes = []
-        for t in common_index:
-            pos = idx_map.get(t, -1)
-            if pos <= 0:
-                slopes.append(0.0)
-                continue
-            atr_val = atr_arr[pos - 10] if (pos - 10) >= 0 else atr_arr[pos]
-            atr = atr_val / 10.0
-            sl = (tma_arr[pos] - tma_arr[pos - 1]) / atr if atr > 0 else 0.0
-            slopes.append(sl)
-            
-        base, quote = sym[:3], sym[3:6]
-        pair_slopes[sym] = (base, quote, np.array(slopes))
-        if base in occurrences: occurrences[base] += 1
-        if quote in occurrences: occurrences[quote] += 1
-        
-    css_res = {c: np.zeros(len(common_index)) for c in CURRENCIES}
-    for sym, (base, quote, sl) in pair_slopes.items():
-        if base in css_res: css_res[base] += sl
-        if quote in css_res: css_res[quote] -= sl
-        
-    for c in CURRENCIES:
-        if occurrences[c] > 0:
-            css_res[c] /= occurrences[c]
-            
-    return css_res, [t.to_pydatetime() for t in common_index]
+            icon_sym = "● DIVERGÊNCIA"
+            pill_color = "#FFD700"
+            pill_bg = "#211D07"
+            pill_border = "#FFD700"
 
-def run_daily_routine():
-    now = datetime.now()
-    date_str = now.strftime("%Y%m%d")
-    date_formatted = now.strftime("%d/%m/%Y")
-    
-    reports_dir = os.path.join(BASE_DIR, "reports")
-    os.makedirs(reports_dir, exist_ok=True)
-    daily_folder = os.path.join(reports_dir, date_str)
-    os.makedirs(daily_folder, exist_ok=True)
-    
-    print(f"[{now.strftime('%H:%M:%S')}] Iniciando Rotina Diaria Multi-Agente CSS: {date_formatted}")
-    
-    if not mt5.initialize(path=MT5_PATH):
-        print("Falha ao inicializar MT5:", mt5.last_error())
-        return False
-        
-    # 1. Obter dados CSS para todos os timeframes
-    tf_data = {}
-    for tf_name, tf_val, count in TIMEFRAMES_CONFIG:
-        res, times = calculate_full_css(tf_val, count)
-        if res is not None:
-            tf_data[tf_name] = (res, times)
-            
-    # 2. Execucao dos Agentes Especializados (Macro + Operacional + Confluencia)
-    ccy_confluence_results = {}
-    for c in CURRENCIES:
-        mn_s = tf_data["MN1"][0][c]
-        w1_s = tf_data["W1"][0][c]
-        d1_s = tf_data["D1"][0][c]
-        h4_s = tf_data["H4"][0][c]
-        h1_s = tf_data["H1"][0][c]
-        
-        conf = evaluate_currency_confluence(c, mn_s, w1_s, d1_s, h4_s, h1_s)
-        ccy_confluence_results[c] = conf
-        
-    # 3. Avaliacao dos 28 Pares pelo Motor de Confluencia
-    pair_rankings = evaluate_28_pairs_confluence(ALL_28_PAIRS, ccy_confluence_results, tf_data)
-    
-    mt5.shutdown()
+        # Desenhar Pill do TF
+        pill_rect = plt.Rectangle((bx, box_y), box_w, box_h, transform=card_ax.transAxes,
+                                  facecolor=pill_bg, edgecolor=pill_border, linewidth=1.1, clip_on=False)
+        card_ax.add_patch(pill_rect)
 
-    # 4. Gerar Prints dos 8 Dashboards das Moedas Puras (AUD, EUR, GBP, NZD, CAD, CHF, JPY, USD)
-    for ccy in CURRENCIES:
-        fig, axes = plt.subplots(2, 3, figsize=(18, 9), facecolor="#141414")
-        title_hdr = f"CSS Cyclic Macro Dashboard — Moeda: {ccy} | {date_formatted}"
-        fig.suptitle(title_hdr, fontsize=14, fontweight='bold', color='white', y=0.98)
+        # Texto dentro do Pill: TF + Score e Símbolo
+        card_ax.text(bx + 0.015, box_y + box_h * 0.58, f"{tf}: {score_str}", 
+                     fontsize=9.2, fontweight='bold', color='#FFFFFF', transform=card_ax.transAxes)
+        card_ax.text(bx + 0.015, box_y + box_h * 0.16, icon_sym, 
+                     fontsize=8.0, fontweight='bold', color=pill_color, transform=card_ax.transAxes)
+
+    # 3. Desenhar os 5 Timeframes (MN1, W1, D1, H4, H1)
+    row_height = 0.145
+    row_gap = 0.015
+    start_top = 0.845
+
+    for i, tf in enumerate(tfs):
+        top_y = start_top - (i + 1) * row_height - (i * row_gap)
+        triad = ccy_data.get("triads", {}).get(tf, {})
+        chart_data = all_charts.get(tf, {})
+        series = np.array(chart_data.get("series", {}).get(ccy, []))
         
-        grid_map = [
-            ("MN1", axes[0, 0]),
-            ("D1",  axes[0, 1]),
-            ("H1",  axes[0, 2]),
-            ("W1",  axes[1, 0]),
-            ("H4",  axes[1, 1])
+        # Sub-gráfico (64% largura)
+        ax_chart = fig.add_axes([0.04, top_y, 0.63, row_height])
+        ax_chart.set_facecolor("#05070A")
+        for spine in ax_chart.spines.values():
+            spine.set_color((1.0, 1.0, 1.0, 0.08))
+        ax_chart.grid(True, linestyle=":", alpha=0.25, color="#555555")
+
+        # Título do Timeframe e Score
+        ax_chart.text(0.02, 0.88, f"{tf} {ccy}", fontsize=10.5, fontweight='bold', color='white', transform=ax_chart.transAxes)
+        score_val = triad.get("score", 0.0)
+        score_color = "#00E676" if score_val > 0 else "#FF1744"
+        score_hdr = f"{triad.get('score_str', '')} {triad.get('dir', '')} - {clean_text_for_plot(triad.get('angle', ''))}"
+        ax_chart.text(0.98, 0.88, score_hdr, fontsize=9.5, fontweight='bold', color=score_color,
+                      horizontalalignment='right', transform=ax_chart.transAxes)
+
+        if len(series) > 1:
+            s_min = series.min()
+            s_max = series.max()
+            y_min = min(s_min - 0.08, -0.26)
+            y_max = max(s_max + 0.08, 0.26)
+            ax_chart.set_ylim(y_min, y_max)
+
+            # Linhas de Parada e Nível 0.00
+            ax_chart.axhline(0.20, color="#00E676", linestyle="--", linewidth=1.0, alpha=0.65)
+            ax_chart.axhline(0.00, color="#00E5FF", linestyle=":", linewidth=1.0, alpha=0.55)
+            ax_chart.axhline(-0.20, color="#FF3333", linestyle="--", linewidth=1.0, alpha=0.65)
+
+            x = np.arange(len(series))
+            ax_chart.plot(x, series, color=color, linewidth=2.3)
+            
+            # Ponto Final
+            last_x = len(series) - 1
+            last_y = series[-1]
+            ax_chart.plot(last_x, last_y, 'o', color=color, markersize=5)
+            
+            # Indicadores de Níveis no eixo Y à direita
+            ax_chart.text(last_x + 1, 0.20, "+0.20", color="#00E676", fontsize=7.5, verticalalignment='center')
+            ax_chart.text(last_x + 1, 0.00, " 0.00", color="#00E5FF", fontsize=7.5, verticalalignment='center')
+            ax_chart.text(last_x + 1, -0.20, "-0.20", color="#FF3333", fontsize=7.5, verticalalignment='center')
+            ax_chart.set_xlim(0, len(series) + 8)
+        
+        ax_chart.set_xticks([])
+        ax_chart.set_yticks([])
+
+        # Sub-painel da Tríade Analítica (28% largura)
+        ax_info = fig.add_axes([0.68, top_y, 0.28, row_height])
+        ax_info.set_facecolor("#05070A")
+        for spine in ax_info.spines.values():
+            spine.set_color((1.0, 1.0, 1.0, 0.08))
+        ax_info.set_xticks([])
+        ax_info.set_yticks([])
+
+        # Itens da Tríade
+        y_text = 0.86
+        steps = [
+            ("1. Região no Box", clean_text_for_plot(triad.get("region", "-")), "#FFFFFF"),
+            ("2. Ciclo Atual", clean_text_for_plot(triad.get("current_cycle", "-")), "#00E5FF"),
+            ("3. Ciclo Devendo", clean_text_for_plot(triad.get("owing_cycle", "-")), "#FFD600"),
+            ("4. Angulação / Veredito", clean_text_for_plot(triad.get("angle", "-")), "#FFFFFF"),
         ]
-        
-        ccy_color = CCY_COLORS.get(ccy, "#FF8C00")
-        
-        for tf_name, ax in grid_map:
-            ax.set_facecolor("#181818")
-            ax.grid(True, linestyle=":", alpha=0.3, color="#555555")
-            if tf_name in tf_data:
-                css_dict, times = tf_data[tf_name]
-                series = css_dict[ccy]
-                
-                # Auto-escala vertical dinamica
-                d_min = series.min()
-                d_max = series.max()
-                y_min = min(d_min - 0.15, -1.2)
-                y_max = max(d_max + 0.15, 1.2)
-                ax.set_ylim(y_min, y_max)
-                
-                # Linhas do Box Principal (+0.20 Verde, -0.20 Vermelha) e Linhas Pontilhadas Sutis
-                if y_min <= 0.0 <= y_max:
-                    ax.axhline(0.0, color="#777777", linestyle=":", linewidth=1.0, alpha=0.7)
-                if y_min <= 0.20 <= y_max:
-                    ax.axhline(0.20, color="#00FF00", linestyle="--", linewidth=1.5, alpha=0.9)
-                if y_min <= -0.20 <= y_max:
-                    ax.axhline(-0.20, color="#FF3333", linestyle="--", linewidth=1.5, alpha=0.9)
-                
-                other_lvls = [0.50, -0.50, 1.00, -1.00, 1.50, -1.50, 2.00, -2.00, 2.50, -2.50, 3.00, -3.00]
-                for lvl in other_lvls:
-                    if y_min <= lvl <= y_max:
-                        ax.axhline(lvl, color="#444444", linestyle=":", linewidth=0.8, alpha=0.45)
-                
-                x_idx = np.arange(len(times))
-                ax.plot(x_idx, series, color=ccy_color, linewidth=2.2, label=ccy)
-                last_val = series[-1]
-                diff = series[-1] - series[-2]
-                dir_txt = "▲ UP" if diff > 0 else "▼ DN"
-                
-                ax.text(0.97, 0.92, f"TF: {tf_name}\n{ccy}: {last_val:+5.2f} ({dir_txt})", 
-                        transform=ax.transAxes, fontsize=10, fontweight='bold',
-                        color=ccy_color, horizontalalignment='right', verticalalignment='top',
-                        bbox=dict(boxstyle="round,pad=0.3", facecolor="#222222", edgecolor=ccy_color, alpha=0.85))
-                        
-                ax.set_title(f"{ccy}, {tf_name}", fontsize=11, color="#E0E0E0", pad=6)
-                
-                tick_pos = np.linspace(0, len(times)-1, 6, dtype=int)
-                ax.set_xticks(tick_pos)
-                fmt_str = '%b %y' if tf_name in ['MN1', 'W1'] else '%d/%m %H:%M' if tf_name in ['H4', 'H1'] else '%d %b'
-                ax.set_xticklabels([times[p].strftime(fmt_str) for p in tick_pos], color='#AAAAAA', fontsize=8)
-                 # Painel 6: Resumo Institucional e Diagnostico da Moeda Pura
-        ax_card = axes[1, 2]
-        ax_card.set_facecolor("#181818")
-        ax_card.axis('off')
-        
-        ax_card.text(0.05, 0.95, f"RESUMO MULTI-TIMEFRAME — {ccy}", fontsize=11.5, fontweight='bold', color='white', transform=ax_card.transAxes)
-        ax_card.plot([0.05, 0.95], [0.91, 0.91], color=ccy_color, linewidth=1.5, transform=ax_card.transAxes)
-        
-        tfs_order = [("MN1", "Macro Mensal"), ("W1", "Macro Semanal"), ("D1", "Gatilho Diário"), ("H4", "Swing H4"), ("H1", "Operacional H1")]
-        y_c = 0.83
-        for tf_k, tf_lbl in tfs_order:
-            if tf_k in tf_data:
-                s_dict, _ = tf_data[tf_k]
-                val = s_dict[ccy][-1]
-                diff = s_dict[ccy][-1] - s_dict[ccy][-2]
-                dir_t = "▲ UP" if diff > 0 else "▼ DN"
-                ax_card.text(0.08, y_c, f"{tf_k:<4} ({tf_lbl}):", fontsize=9.0, color="#CCCCCC", transform=ax_card.transAxes)
-                ax_card.text(0.65, y_c, f"{val:+5.2f} ({dir_t})", fontsize=9.5, fontweight='bold', color=ccy_color, transform=ax_card.transAxes)
-                y_c -= 0.075
-                
-        ax_card.plot([0.05, 0.95], [0.43, 0.43], color="#555555", transform=ax_card.transAxes)
-        ax_card.text(0.05, 0.38, "DIAGNÓSTICO E PERMISSÕES", fontsize=10.5, fontweight='bold', color='white', transform=ax_card.transAxes)
-        
-        conf_info = ccy_confluence_results.get(ccy, None)
-        if conf_info:
-            m_phase = conf_info["macro"]["cyclic_phase"]
-            op_stat = conf_info["operational"]["op_status"]
-            v_bias = conf_info["final_verdict"]
-            div_alert = conf_info["divergence_alert"]
-            has_div = conf_info["has_divergence"]
-            
-            ax_card.text(0.08, 0.29, f"Macro: {m_phase[:44]}", fontsize=8.0, color="#E0E0E0", transform=ax_card.transAxes)
-            ax_card.text(0.08, 0.21, f"Operacional: {op_stat[:44]}", fontsize=8.0, color="#E0E0E0", transform=ax_card.transAxes)
-            
-            if has_div:
-                ax_card.text(0.08, 0.12, f"{div_alert[:46]}", fontsize=7.8, fontweight='bold', color="#FFD700", transform=ax_card.transAxes)
-            else:
-                ax_card.text(0.08, 0.12, "Alinhamento: Sem divergência estrutural", fontsize=8.0, color="#88FF88", transform=ax_card.transAxes)
-                
-            ax_card.text(0.08, 0.02, f"Veredito: {v_bias[:42]}", fontsize=9.0, fontweight='bold', color=ccy_color, transform=ax_card.transAxes, bbox=dict(boxstyle="round,pad=0.25", facecolor="#222222", edgecolor=ccy_color, alpha=0.85))
-            
-        plt.tight_layout(rect=[0, 0.03, 1, 0.95])
-        img_filename = f"{ccy}_5TF_Dashboard.png"
-        img_full_path = os.path.join(daily_folder, img_filename)
-        plt.savefig(img_full_path, dpi=120)
-        plt.close()
+        for label, val, c_val in steps:
+            ax_info.text(0.05, y_text, label.upper(), fontsize=6.8, fontweight='bold', color="#7F8C8D", transform=ax_info.transAxes)
+            y_text -= 0.115
+            wrapped_val = textwrap.shorten(val, width=38, placeholder="...")
+            ax_info.text(0.05, y_text, wrapped_val, fontsize=7.8, fontweight='bold', color=c_val, transform=ax_info.transAxes)
+            y_text -= 0.135
 
-    # 4.1 Gerar Painel Geral CSS H1 com Todas as 8 Moedas (Alinhado com Template MT5)
-    fig_all, (ax_main, ax_rank) = plt.subplots(1, 2, figsize=(18, 8), gridspec_kw={'width_ratios': [4, 1]}, facecolor="#141414")
-    fig_all.suptitle(f"CSS Indicator — Todas as 8 Moedas (H1) | {date_formatted} ({now.strftime('%H:%M')})", fontsize=14, fontweight='bold', color='white', y=0.98)
+    # 4. Rodapé
+    plt.figtext(0.5, 0.015, "CSS PRO INSTITUTIONAL PLATFORM — ROTINA DIÁRIA 21H", 
+                fontsize=8.5, color='#555555', horizontalalignment='center')
+
+    plt.savefig(output_path, dpi=130, facecolor=fig.get_facecolor(), bbox_inches='tight')
+    plt.close()
+    return output_path
+
+
+def render_all_currencies_h1_image(h1_data, output_path, date_str=""):
+    """Gera o painel geral das 8 moedas no H1 com ranking lateral."""
+    fig, (ax_main, ax_rank) = plt.subplots(1, 2, figsize=(18, 8), gridspec_kw={'width_ratios': [4, 1]}, facecolor="#080B11", dpi=120)
+    fig.suptitle(f"CSS Indicator — Todas as 8 Moedas (H1) | {date_str}", fontsize=14, fontweight='bold', color='white', y=0.98)
     
-    ax_main.set_facecolor("#181818")
+    ax_main.set_facecolor("#05070A")
     ax_main.grid(True, linestyle=":", alpha=0.3, color="#555555")
     
-    h1_css, h1_times = tf_data["H1"]
-    all_min = min(h1_css[c].min() for c in CURRENCIES)
-    all_max = max(h1_css[c].max() for c in CURRENCIES)
+    series_dict = h1_data.get("series", {})
+    times = h1_data.get("times", [])
+    
+    if not series_dict:
+        plt.close()
+        return output_path
+
+    all_min = min(np.array(series_dict[c]).min() for c in CURRENCIES if c in series_dict)
+    all_max = max(np.array(series_dict[c]).max() for c in CURRENCIES if c in series_dict)
     y_min = min(all_min - 0.25, -1.5)
     y_max = max(all_max + 0.25, 1.5)
     ax_main.set_ylim(y_min, y_max)
     
-    # Niveis no grafico principal: +0.20 Verde, -0.20 Vermelho, 0.0 Pontilhado, outros pontilhados sutis
-    if y_min <= 0.0 <= y_max:
-        ax_main.axhline(0.0, color="#777777", linestyle=":", linewidth=1.0, alpha=0.7)
-    if y_min <= 0.20 <= y_max:
-        ax_main.axhline(0.20, color="#00FF00", linestyle="--", linewidth=1.5, alpha=0.9)
-    if y_min <= -0.20 <= y_max:
-        ax_main.axhline(-0.20, color="#FF3333", linestyle="--", linewidth=1.5, alpha=0.9)
+    ax_main.axhline(0.0, color="#00E5FF", linestyle=":", linewidth=1.0, alpha=0.6)
+    ax_main.axhline(0.20, color="#00E676", linestyle="--", linewidth=1.4, alpha=0.85)
+    ax_main.axhline(-0.20, color="#FF3333", linestyle="--", linewidth=1.4, alpha=0.85)
     
-    other_lvls = [0.50, -0.50, 1.00, -1.00, 1.50, -1.50, 2.00, -2.00, 2.50, -2.50, 3.00, -3.00]
-    for lvl in other_lvls:
-        if y_min <= lvl <= y_max:
-            ax_main.axhline(lvl, color="#444444", linestyle=":", linewidth=0.8, alpha=0.45)
-    
-    x_indices = np.arange(len(h1_times))
+    x_indices = np.arange(len(times)) if times else np.arange(len(next(iter(series_dict.values()))))
     for c in CURRENCIES:
-        ax_main.plot(x_indices, h1_css[c], color=CCY_COLORS[c], linewidth=2.0, label=c)
+        if c in series_dict:
+            ax_main.plot(x_indices, series_dict[c], color=CCY_COLORS.get(c, "#FFF"), linewidth=2.1, label=c)
         
-    ax_main.set_title("Currency Slope Strength — H1 (Últimas 500 barras / ~1 Mês - Auto-Escala)", fontsize=11, color="#E0E0E0", pad=6)
-    tick_pos = np.linspace(0, len(h1_times)-1, 10, dtype=int)
-    ax_main.set_xticks(tick_pos)
-    ax_main.set_xticklabels([h1_times[p].strftime('%d/%m %H:%M') for p in tick_pos], color='#AAAAAA', fontsize=8.5)
+    ax_main.set_title("Currency Slope Strength — H1 (Últimas Barras / Auto-Escala)", fontsize=11, color="#E0E0E0", pad=6)
+    if times and len(times) > 5:
+        tick_pos = np.linspace(0, len(times)-1, 10, dtype=int)
+        ax_main.set_xticks(tick_pos)
+        ax_main.set_xticklabels([times[p] if isinstance(times[p], str) else times[p].strftime('%d/%m %H:%M') for p in tick_pos], color='#AAAAAA', fontsize=8.5)
+    
     ax_main.legend(loc="upper left", ncol=4, framealpha=0.3, facecolor="#222222", edgecolor="#555555", labelcolor="white")
     
-    # Painel Lateral de Ranking H1 e MN1
-    ax_rank.set_facecolor("#181818")
+    # Painel Lateral de Ranking H1
+    ax_rank.set_facecolor("#0E131E")
     ax_rank.axis('off')
     
-    sorted_ccys = sorted(CURRENCIES, key=lambda c: h1_css[c][-1], reverse=True)
+    sorted_ccys = sorted(CURRENCIES, key=lambda c: series_dict[c][-1] if c in series_dict else 0, reverse=True)
     
     ax_rank.text(0.05, 0.96, "RANKING H1 (Operacional)", fontsize=11, fontweight='bold', color='white', transform=ax_rank.transAxes)
     ax_rank.text(0.05, 0.92, "Moeda    Score    Dir", fontsize=9, color='#AAAAAA', transform=ax_rank.transAxes)
@@ -366,168 +285,214 @@ def run_daily_routine():
     
     y_pos = 0.865
     for c in sorted_ccys:
-        val = h1_css[c][-1]
-        diff = h1_css[c][-1] - h1_css[c][-2]
+        s = series_dict[c]
+        val = s[-1]
+        diff = s[-1] - s[-2] if len(s) > 1 else 0
         dir_t = "▲ UP" if diff > 0 else "▼ DN"
-        c_color = CCY_COLORS[c]
+        c_color = CCY_COLORS.get(c, "#FFF")
         row_txt = f"{c:<4}  {val:+5.2f}  ({dir_t})"
         ax_rank.text(0.05, y_pos, row_txt, fontsize=10, fontweight='bold', color=c_color, transform=ax_rank.transAxes)
-        y_pos -= 0.046
+        y_pos -= 0.05
         
-    # Adicionar também Ranking MN1 no painel lateral
-    if "MN1" in tf_data:
-        mn_css, _ = tf_data["MN1"]
-        sorted_mn = sorted(CURRENCIES, key=lambda c: mn_css[c][-1], reverse=True)
-        ax_rank.text(0.05, 0.46, "RANKING MN1 (Macro)", fontsize=11, fontweight='bold', color='white', transform=ax_rank.transAxes)
-        ax_rank.text(0.05, 0.42, "Moeda    Score    Dir", fontsize=9, color='#AAAAAA', transform=ax_rank.transAxes)
-        ax_rank.plot([0.05, 0.95], [0.405, 0.405], color='#555555', transform=ax_rank.transAxes)
-        y_pos = 0.365
-        for c in sorted_mn:
-            val = mn_css[c][-1]
-            diff = mn_css[c][-1] - mn_css[c][-2]
-            dir_t = "▲ UP" if diff > 0 else "▼ DN"
-            c_color = CCY_COLORS[c]
-            row_txt = f"{c:<4}  {val:+5.2f}  ({dir_t})"
-            ax_rank.text(0.05, y_pos, row_txt, fontsize=9.5, fontweight='bold', color=c_color, transform=ax_rank.transAxes)
-            y_pos -= 0.044
-            
     plt.tight_layout(rect=[0, 0.03, 1, 0.95])
-    all_h1_path = os.path.join(daily_folder, "CSS_AllCurrencies_H1.png")
-    plt.savefig(all_h1_path, dpi=120)
+    plt.savefig(output_path, dpi=120)
     plt.close()
+    return output_path
+
+
+def run_daily_routine():
+    """
+    Executa a rotina diária das 21h:
+    1. Recalcula o CSS e Confluência Multi-Timeframe.
+    2. Gera os 8 Raio-X dos 5 Timeframes em alta resolução.
+    3. Despacha o Briefing Executivo e as fotos do Raio-X diretamente para o Telegram.
+    4. Salva histórico local em Markdown e relatórios arquivados.
+    """
+    now = datetime.now()
+    date_str = now.strftime("%Y%m%d")
+    date_formatted = now.strftime("%d/%m/%Y")
+    time_formatted = now.strftime("%H:%M:%S")
     
-    print(f"[{now.strftime('%H:%M:%S')}] 8 Dashboards das Moedas Puras + Painel Geral H1 salvos em: {daily_folder}")
+    daily_folder = os.path.join(REPORTS_DIR, date_str)
+    os.makedirs(daily_folder, exist_ok=True)
     
-    # 5. Montar Relatorio Diario em Markdown com Separacao dos Agentes e Tríade Analítica
+    print(f"[{time_formatted}] ========================================================")
+    print(f"[{time_formatted}] INICIANDO ROTINA DIÁRIA DAS 21H — RAIO-X 5-TF & TELEGRAM")
+    print(f"[{time_formatted}] Data: {date_formatted}")
+    print(f"[{time_formatted}] ========================================================")
+    
+    # 1. Obter Dados Oficiais do Motor CSS
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] Atualizando dados de cálculo CSS do MT5...")
+    data = css_engine.update_data(force=True, mode="standard")
+    
+    currencies = data.get("currencies", [])
+    charts = data.get("charts", {})
+    pairs = data.get("pairs", [])
+    timestamp = data.get("timestamp", f"{date_formatted} às {time_formatted}")
+    
+    if not currencies:
+        print("[!] Erro: Nenhum dado de moeda retornado pelo motor CSS.")
+        return False
+
+    # 2. Gerar as Imagens dos 8 Raio-X 5-TF
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] Gerando imagens em alta definição dos 8 Raio-X 5-TF...")
+    raio_x_images = {}
+    for ccy_item in currencies:
+        ccy = ccy_item["symbol"]
+        out_path = os.path.join(daily_folder, f"{ccy}_RaioX_5TF.png")
+        render_currency_raio_x_image(ccy_item, charts, out_path, date_str=timestamp)
+        raio_x_images[ccy] = out_path
+
+    # Gerar Painel Geral H1
+    h1_chart_path = os.path.join(daily_folder, "CSS_AllCurrencies_H1.png")
+    render_all_currencies_h1_image(charts.get("H1", {}), h1_chart_path, date_str=timestamp)
+
+    # 3. Disparar Relatório Completo para o Telegram
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] Despachando Raio-X e Briefing para o Telegram...")
+    tg_cfg = get_telegram_config()
+    
+    if tg_cfg.get("enabled", True):
+        # 3.1 Mensagem de Abertura Executiva (Briefing 21h)
+        top_buys = [p for p in pairs if "BUY" in p.get("recommendation", "") or "COMPRA" in p.get("recommendation", "")][:3]
+        top_sells = [p for p in pairs if "SELL" in p.get("recommendation", "") or "VENDA" in p.get("recommendation", "")][:3]
+        
+        # Resumo das Moedas
+        ccy_summary_lines = []
+        for c in currencies:
+            flag = c.get("flag", "")
+            sym = c.get("symbol", "")
+            state = c.get("confluence_state", "")
+            badge = c.get("signal_badge", "")
+            div = " ⚠️ <i>(Divergência)</i>" if c.get("has_divergence") else ""
+            ccy_summary_lines.append(f"• <b>{flag} {sym}:</b> {badge} — {state}{div}")
+
+        ccy_summary_text = "\n".join(ccy_summary_lines)
+
+        pairs_summary_lines = []
+        if top_buys:
+            pairs_summary_lines.append("🟢 <b>Melhores Oportunidades de COMPRA:</b>")
+            for p in top_buys:
+                pairs_summary_lines.append(f"  • <b>{p['pair']}:</b> {p.get('recommendation')} | Convicção: {p.get('conviction')}")
+        if top_sells:
+            pairs_summary_lines.append("🔴 <b>Melhores Oportunidades de VENDA:</b>")
+            for p in top_sells:
+                pairs_summary_lines.append(f"  • <b>{p['pair']}:</b> {p.get('recommendation')} | Convicção: {p.get('conviction')}")
+
+        pairs_summary_text = "\n".join(pairs_summary_lines) if pairs_summary_lines else "• Sem confluências duplas extremas no momento."
+
+        briefing_msg = f"""🏛️ <b>RELATÓRIO INSTITUCIONAL RAIO-X 5-TF (21:00 BRT)</b>
+📅 <b>Data:</b> {date_formatted} | ⏱️ <b>Sessão:</b> Madrugada (21h ➔ 08h)
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📊 <b>ESTADO DE CONFLUÊNCIA DAS 8 MOEDAS:</b>
+{ccy_summary_text}
+
+🎯 <b>RADAR DOS 28 PARES FOREX:</b>
+{pairs_summary_text}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+<i>Abaixo seguem os 8 Raio-X dos 5 Timeframes (MN1, W1, D1, H4, H1) com as Tríades Analíticas detalhadas.</i>"""
+
+        send_telegram_message(briefing_msg)
+        time.sleep(1.0)
+
+        # 3.2 Enviar Foto do Gráfico Geral H1
+        if os.path.exists(h1_chart_path):
+            with open(h1_chart_path, "rb") as img_f:
+                send_telegram_photo(
+                    img_f.read(),
+                    filename="CSS_AllCurrencies_H1.png",
+                    caption=f"📈 <b>CSS PRO — Visão Geral das 8 Moedas no H1</b>\nRanking Operacional e Inversão de Fluxo Institucional ({date_formatted})"
+                )
+            time.sleep(1.2)
+
+        # 3.3 Enviar as 8 Fotos de Raio-X com Captions Ricas
+        for ccy_item in currencies:
+            ccy = ccy_item["symbol"]
+            flag = ccy_item.get("flag", "")
+            img_file = raio_x_images.get(ccy)
+            
+            if img_file and os.path.exists(img_file):
+                triads = ccy_item.get("triads", {})
+                mn = triads.get("MN1", {})
+                w1 = triads.get("W1", {})
+                d1 = triads.get("D1", {})
+                h4 = triads.get("H4", {})
+                h1 = triads.get("H1", {})
+                
+                div_text = f"\n⚠️ <b>Divergência:</b> {tg_esc(ccy_item.get('divergence_alert'))}" if ccy_item.get("has_divergence") else ""
+                
+                caption = f"""📊 <b>RAIO-X INSTITUCIONAL: {flag} {ccy} ({tg_esc(ccy_item.get('trade_bias', 'NEUTRO'))})</b>
+🎯 <b>Confluência:</b> {tg_esc(ccy_item.get('confluence_state', ''))}
+🔮 <b>Veredito:</b> {tg_esc(ccy_item.get('final_verdict', ''))}{div_text}
+
+📈 <b>Tríades Analíticas (5-TF):</b>
+• <b>MN1:</b> {tg_esc(mn.get('score_str', ''))} | {tg_esc(mn.get('owing_cycle', ''))}
+• <b>W1:</b> {tg_esc(w1.get('score_str', ''))} | {tg_esc(w1.get('owing_cycle', ''))}
+• <b>D1:</b> {tg_esc(d1.get('score_str', ''))} | {tg_esc(d1.get('owing_cycle', ''))}
+• <b>H4:</b> {tg_esc(h4.get('score_str', ''))} | {tg_esc(h4.get('owing_cycle', ''))}
+• <b>H1:</b> {tg_esc(h1.get('score_str', ''))} | {tg_esc(h1.get('owing_cycle', ''))}
+
+🌐 <i>https://css-pro-mfc.web.app/</i>"""
+
+                with open(img_file, "rb") as img_f:
+                    send_telegram_photo(img_f.read(), filename=f"{ccy}_RaioX_5TF.png", caption=caption)
+                
+                time.sleep(0.8)
+
+        print(f"[{datetime.now().strftime('%H:%M:%S')}] Todos os Raio-X e Briefings foram entregues no Telegram com sucesso!")
+    else:
+        print("[*] Envio ao Telegram desativado em data/telegram_config.json.")
+
+    # 4. Salvar Relatório em Markdown e Histórico Local
     md_content = f"""# Relatório Diário de Confluência Multi-Agente CSS — {date_formatted}
 
 ## 1. Referência dos Dados
-* **Data da Execução**: {now.strftime('%d/%m/%Y às %H:%M:%S')}
+* **Data da Execução**: {timestamp}
 * **Diretório das Imagens**: [`c:\\Users\\ryzen\\Downloads\\Antigravity\\MFC\\reports\\{date_str}`](file:///c:/Users/ryzen/Downloads/Antigravity/MFC/reports/{date_str})
-* **Dashboards Salvos (Moedas Puras)**:
-  * [`USD_5TF_Dashboard.png`](file:///c:/Users/ryzen/Downloads/Antigravity/MFC/reports/{date_str}/USD_5TF_Dashboard.png)
-  * [`EUR_5TF_Dashboard.png`](file:///c:/Users/ryzen/Downloads/Antigravity/MFC/reports/{date_str}/EUR_5TF_Dashboard.png)
-  * [`GBP_5TF_Dashboard.png`](file:///c:/Users/ryzen/Downloads/Antigravity/MFC/reports/{date_str}/GBP_5TF_Dashboard.png)
-  * [`AUD_5TF_Dashboard.png`](file:///c:/Users/ryzen/Downloads/Antigravity/MFC/reports/{date_str}/AUD_5TF_Dashboard.png)
-  * [`NZD_5TF_Dashboard.png`](file:///c:/Users/ryzen/Downloads/Antigravity/MFC/reports/{date_str}/NZD_5TF_Dashboard.png)
-  * [`CAD_5TF_Dashboard.png`](file:///c:/Users/ryzen/Downloads/Antigravity/MFC/reports/{date_str}/CAD_5TF_Dashboard.png)
-  * [`CHF_5TF_Dashboard.png`](file:///c:/Users/ryzen/Downloads/Antigravity/MFC/reports/{date_str}/CHF_5TF_Dashboard.png)
-  * [`JPY_5TF_Dashboard.png`](file:///c:/Users/ryzen/Downloads/Antigravity/MFC/reports/{date_str}/JPY_5TF_Dashboard.png)
-  * [`CSS_AllCurrencies_H1.png`](file:///c:/Users/ryzen/Downloads/Antigravity/MFC/reports/{date_str}/CSS_AllCurrencies_H1.png) *(Visão Geral 8 Moedas no H1)*
-
----
-
-## 2. Análise Estruturada por Moeda (Tríade Analítica: Região $\\rightarrow$ Ciclo Atual $\\rightarrow$ Ciclo Devendo $\\rightarrow$ Score & Angulação)
+* **Dashboards Salvos (Raio-X 5-TF)**:
 """
-    for c in CURRENCIES:
-        conf = ccy_confluence_results[c]
-        macro = conf["macro"]
-        op = conf["operational"]
-        
+    for c in currencies:
+        sym = c["symbol"]
+        md_content += f"  * [`{sym}_RaioX_5TF.png`](file:///c:/Users/ryzen/Downloads/Antigravity/MFC/reports/{date_str}/{sym}_RaioX_5TF.png)\n"
+    md_content += f"  * [`CSS_AllCurrencies_H1.png`](file:///c:/Users/ryzen/Downloads/Antigravity/MFC/reports/{date_str}/CSS_AllCurrencies_H1.png)\n\n---\n\n"
+
+    md_content += "## 2. Análise Estruturada por Moeda (Tríade Analítica nos 5 Timeframes)\n"
+    for c in currencies:
+        sym = c["symbol"]
+        triads = c.get("triads", {})
         md_content += f"""
-### 🔹 Moeda: **{c}**
-* **Veredito Unificado**: `{conf['confluence_state']}` $\\rightarrow$ **{conf['final_verdict']}**
-* **Alerta de Divergência**: {conf['divergence_alert']}
+### 🔹 Moeda: **{c.get('flag', '')} {sym}** ({c.get('trade_bias', 'NEUTRO')})
+* **Estado de Confluência**: `{c.get('confluence_state', '')}` ➔ **{c.get('final_verdict', '')}**
+* **Alerta de Divergência**: {c.get('divergence_alert', 'Nenhuma divergência estrutural')}
 
 | Timeframe | 1. Região no Box | 2. Ciclo Atual | 3. Ciclo Devendo | 4. Score & Angulação |
 | :---: | :--- | :--- | :--- | :--- |
-| **MN1 (Mensal)** | {macro['mn_triad']['region']} | {macro['mn_triad']['current_cycle']} | {macro['mn_triad']['owing_cycle']} | `{macro['mn_triad']['score_str']}` ({macro['mn_triad']['angle']}) |
-| **W1 (Semanal)** | {macro['w1_triad']['region']} | {macro['w1_triad']['current_cycle']} | {macro['w1_triad']['owing_cycle']} | `{macro['w1_triad']['score_str']}` ({macro['w1_triad']['angle']}) |
-| **D1 (Diário)**  | {macro['d1_triad']['region']} | {macro['d1_triad']['current_cycle']} | {macro['d1_triad']['owing_cycle']} | `{macro['d1_triad']['score_str']}` ({macro['d1_triad']['angle']}) |
-| **H4 (Swing)**   | {op['h4_triad']['region']} | {op['h4_triad']['current_cycle']} | {op['h4_triad']['owing_cycle']} | `{op['h4_triad']['score_str']}` ({op['h4_triad']['angle']}) |
-| **H1 (Intraday)**| {op['h1_triad']['region']} | {op['h1_triad']['current_cycle']} | {op['h1_triad']['owing_cycle']} | `{op['h1_triad']['score_str']}` ({op['h1_triad']['angle']}) |
 """
+        for tf in ["MN1", "W1", "D1", "H4", "H1"]:
+            tr = triads.get(tf, {})
+            md_content += f"| **{tf}** | {tr.get('region', '-')} | {tr.get('current_cycle', '-')} | {tr.get('owing_cycle', '-')} | `{tr.get('score_str', '')}` ({tr.get('angle', '-')}) |\n"
 
-    md_content += """
----
+    md_content += "\n---\n\n## 3. Radar dos 28 Pares Forex\n\n"
+    md_content += "| # | Par | Ação Recomendada | Convicção | Total Score | Macro Diff | Op Diff | Tese Cíclica de Confluência |\n"
+    md_content += "| :-: | :---: | :---: | :---: | :---: | :---: | :---: | :--- |\n"
+    for idx, p in enumerate(pairs):
+        md_content += f"| {idx+1} | **{p.get('pair')}** | **{p.get('recommendation')}** | {p.get('conviction')} | `{p.get('total_score', 0):+5.2f}` | {p.get('macro_diff', 0):+5.2f} | {p.get('op_diff', 0):+5.2f} | {p.get('thesis', '')} |\n"
 
-## 3. Síntese do Agente Macro (MN1, W1, D1)
-*Foco: Contexto institucional, zonas de parada (+/- 0.20), equilíbrio (0.00) e permissões de ciclo.*
-
-| Moeda | MN1 (Score / Dir) | W1 (Score / Dir) | D1 (Score / Dir) | Fase do Ciclo Macro | Viés Macro |
-| :---: | :---: | :---: | :---: | :--- | :--- |
-"""
-    for c in CURRENCIES:
-        m = ccy_confluence_results[c]["macro"]
-        md_content += f"| **{c}** | {m['mn_score']:+5.2f} ({m['mn_dir']}) | {m['w1_score']:+5.2f} ({m['w1_dir']}) | {m['d1_score']:+5.2f} ({m['d1_dir']}) | {m['cyclic_phase']} | **{m['macro_bias']}** |\n"
-        
-    md_content += """
----
-
-## 4. Síntese do Agente Operacional (H4, H1)
-*Foco: Timing intraday, acúmulos sobre zonas de parada, retomadas no Box e cumprimento de ciclos.*
-
-| Moeda | H4 (Score / Dir) | H1 (Score / Dir) | Status Operacional | Timing de Execução |
-| :---: | :---: | :---: | :--- | :--- |
-"""
-    for c in CURRENCIES:
-        o = ccy_confluence_results[c]["operational"]
-        md_content += f"| **{c}** | {o['h4_score']:+5.2f} ({o['h4_dir']}) | {o['h1_score']:+5.2f} ({o['h1_dir']}) | {o['op_status']} | **{o['timing_type']}** |\n"
-        
-    md_content += """
----
-
-## 5. Alertas de Divergência entre Timeframes (Mensal vs H4/H1)
-*Identificação de divergências estruturais entre a inércia do Mensal e os ciclos operacionais imediatos de H4 e H1.*
-
-| Moeda | Alerta de Divergência | Impacto no Trade |
-| :---: | :--- | :--- |
-"""
-    for c in CURRENCIES:
-        res = ccy_confluence_results[c]
-        alert_txt = res["divergence_alert"]
-        impact = "⚠️ Ciclo operacional (H4/H1) em contra-fluxo à inércia do Mensal" if res["has_divergence"] else "✅ Timeframes em pleno alinhamento harmônico"
-        md_content += f"| **{c}** | {alert_txt} | {impact} |\n"
-        
-    md_content += """
----
-
-## 6. Diagnóstico Unificado de Confluência das 8 Moedas
-
-| Moeda | Estado de Confluência | Veredito Final | Potencial Cíclico |
-| :---: | :--- | :--- | :--- |
-"""
-    for c in CURRENCIES:
-        res = ccy_confluence_results[c]
-        md_content += f"| **{c}** | {res['confluence_state']} | **{res['final_verdict']}** | `{res['trade_bias']}` |\n"
-        
-    md_content += """
----
-
-## 7. Ranking Oficial de Confluência dos 28 Pares de Moedas
-
-| # | Par | Ação Recomendada | Convicção | Total Score | Macro Diff | Op Diff | Tese Cíclica de Confluência |
-| :-: | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
-"""
-    for idx, p in enumerate(pair_rankings):
-        md_content += f"| {idx+1} | **{p['pair']}** | **{p['rec']}** | {p['conviction']} | `{p['total_score']:+5.2f}` | {p['macro_diff']:+5.2f} | {p['op_diff']:+5.2f} | {p['thesis']} |\n"
-        
-    top_buy = pair_rankings[0]
-    top_sell = pair_rankings[-1]
-    
-    md_content += f"""
----
-
-## 8. Oportunidades Principais de Alta Convicção
-* 🥇 **Melhor Par para COMPRA**: **{top_buy['pair']}** ({top_buy['rec']})
-  * *Tese*: {top_buy['thesis']}
-* 🥇 **Melhor Par para VENDA**: **{top_sell['pair']}** ({top_sell['rec']})
-  * *Tese*: {top_sell['thesis']}
-"""
-
-    # Salvar relatorios
     daily_report_path = os.path.join(daily_folder, "analise_diaria.md")
     with open(daily_report_path, "w", encoding="utf-8") as f:
         f.write(md_content)
-        
+
     central_report_path = os.path.join(LOG_DIR, f"{date_str}.md")
     with open(central_report_path, "w", encoding="utf-8") as f:
         f.write(md_content)
-        
+
     # Atualizar INDEX.md
     index_path = os.path.join(LOG_DIR, "INDEX.md")
-    index_entry = f"| {date_formatted} | `{date_str}` | **{top_buy['pair']} / {top_sell['pair']}** | COMPRA / VENDA | Sistema Multi-Agente (Macro + Operacional) | 🟢 Concluído | [{date_str}.md](file:///c:/Users/ryzen/Downloads/Antigravity/MFC/log_conhecimento/{date_str}.md) |\n"
-    
+    best_buy = pairs[0].get("pair", "") if pairs else "EURUSD"
+    best_sell = pairs[-1].get("pair", "") if pairs else "USDJPY"
+    index_entry = f"| {date_formatted} | `{date_str}` | **{best_buy} / {best_sell}** | RAIO-X 5-TF | Raio-X dos 5 TFs & Despacho Telegram | 🟢 Concluído | [{date_str}.md](file:///c:/Users/ryzen/Downloads/Antigravity/MFC/log_conhecimento/{date_str}.md) |\n"
+
     if os.path.exists(index_path):
         with open(index_path, "r", encoding="utf-8") as f:
             idx_text = f.read()
@@ -538,10 +503,11 @@ def run_daily_routine():
     else:
         with open(index_path, "w", encoding="utf-8") as f:
             f.write("# Índice de Análises Diárias e Avaliação de Resultados\n\n| Data | Pasta de Imagens | Ativo Principal | Direção | Tese Cíclica | Status do Resultado | Link da Análise |\n| :---: | :---: | :---: | :---: | :--- | :---: | :---: |\n" + index_entry)
-            
-    print(f"[{now.strftime('%H:%M:%S')}] Rotina Multi-Agente concluida com sucesso!")
-    print(f"Relatório gerado em: {daily_report_path}")
+
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] Relatório arquivado com sucesso em: {daily_report_path}")
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] Rotina Diária das 21h concluída com 100% de êxito!")
     return True
+
 
 if __name__ == "__main__":
     run_daily_routine()

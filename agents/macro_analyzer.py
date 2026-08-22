@@ -35,13 +35,13 @@ def analyze_macro_currency(ccy, mn_series, w1_series, d1_series):
             macro_bias = "COMPRA EM DESENVOLVIMENTO (TESTE DO 0)"
             macro_power = +1.5
         elif d1_curr >= 0.20:
-            cyclic_phase = "CUMPRIU CICLO DE ALTA (ALERTA DE TOPO / LINHA VERDE)"
-            macro_bias = "EXAUSTÃO DE ALTA (DEVENDO CICLO DE QUEDA)"
-            macro_power = -1.5
+            cyclic_phase = "SOBREFORÇA NO DIÁRIO (DEVENDO EXAUSTÃO)"
+            macro_bias = "ALTA EM EXAUSTÃO (DEVENDO REVERSÃO)"
+            macro_power = +1.0
         else:
             cyclic_phase = "CICLO DE FORÇA EM ANDAMENTO (BUSCANDO +0.20)"
             macro_bias = "COMPRA ATIVA"
-            macro_power = +1.0
+            macro_power = +1.5
     elif d1_dir == "DN":
         if d1_curr >= 0.15:
             cyclic_phase = "ZONA DE PARADA VERDE (DEVENDO CICLO DE FRAQUEZA)"
@@ -52,13 +52,13 @@ def analyze_macro_currency(ccy, mn_series, w1_series, d1_series):
             macro_bias = "VENDA EM DESENVOLVIMENTO (TESTE DO 0)"
             macro_power = -1.5
         elif d1_curr <= -0.20:
-            cyclic_phase = "CUMPRIU CICLO DE BAIXA (ALERTA DE FUNDO / LINHA VERMELHA)"
-            macro_bias = "EXAUSTÃO DE BAIXA (DEVENDO CICLO DE ALTA)"
-            macro_power = +1.5
+            cyclic_phase = "SOBREFRAQUEZA NO DIÁRIO (DEVENDO EXAUSTÃO)"
+            macro_bias = "QUEDA EM EXAUSTÃO (DEVENDO REVERSÃO)"
+            macro_power = -1.0
         else:
             cyclic_phase = "CICLO DE FRAQUEZA EM ANDAMENTO (BUSCANDO -0.20)"
             macro_bias = "VENDA ATIVA"
-            macro_power = -1.0
+            macro_power = -1.5
             
     # Pontuação Ponderada Macro
     weighted_macro_score = (mn_curr * 0.2) + (w1_curr * 0.3) + (d1_curr * 0.5)

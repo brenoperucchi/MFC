@@ -5,8 +5,11 @@ Fornece API REST de alta performance e serve a aplicação web frontend SPA.
 
 import os
 import sys
+import base64
+from datetime import datetime
 import webbrowser
 import uvicorn
+from pydantic import BaseModel
 from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -155,6 +158,52 @@ async def recalculate_track_record(days: int = 45):
     """Força o recálculo do backtest multi-portfólio a partir do MT5."""
     res = history_engine.run_full_backtest(days=days)
     return JSONResponse(content={"success": True, "summary": res.get("summary")})
+
+
+class TelegramRaioXPayload(BaseModel):
+    target: str
+    image_base64: str
+    bias: str = ""
+    confluence_state: str = ""
+    timestamp: str = ""
+
+
+@app.post("/api/telegram/send-raio-x")
+async def send_raio_x_telegram(payload: TelegramRaioXPayload):
+    """Recebe a imagem do Raio-X em Base64 e despacha diretamente para o Telegram."""
+    try:
+        from web.telegram_service import send_telegram_photo
+        img_str = payload.image_base64
+        if "," in img_str:
+            img_str = img_str.split(",", 1)[1]
+        img_bytes = base64.b64decode(img_str)
+
+        caption = (
+            f"📊 <b>Raio-X Institucional: {payload.target}</b>\n"
+            f"🎯 <b>Estado:</b> {payload.confluence_state}\n"
+            f"🧭 <b>Viés:</b> {payload.bias}\n"
+            f"🕒 <i>{payload.timestamp or datetime.now().strftime('%Y-%m-%d %H:%M:%S')} — CSS Institutional</i>"
+        )
+
+        res = send_telegram_photo(img_bytes, filename=f"Raio-X_{payload.target}.png", caption=caption)
+        if not res.get("success"):
+            raise HTTPException(status_code=500, detail=res.get("error", "Erro ao disparar Telegram"))
+        return res
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/telegram/trigger-daily-routine")
+async def trigger_daily_routine_endpoint():
+    """Dispara a rotina diária das 21h em background gerando os 8 Raio-X e enviando para o Telegram."""
+    try:
+        import threading
+        from daily_css_routine import run_daily_routine
+        thread = threading.Thread(target=run_daily_routine, daemon=True)
+        thread.start()
+        return {"success": True, "message": "Rotina diária das 21h iniciada em background."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # Montar arquivos estáticos

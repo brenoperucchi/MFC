@@ -39,13 +39,13 @@ def analyze_operational_currency(ccy, h4_series, h1_series, macro_info=None):
             timing_type = "VENDA EM ANDAMENTO (TESTE DO 0)"
             op_power = -1.5
         elif h1_curr <= -0.20:
-            op_status = "CUMPRIU CICLO DE BAIXA (ALERTA DE FUNDO / LINHA VERMELHA)"
-            timing_type = "EXAUSTÃO DE QUEDA (DEVENDO REVERSÃO DE ALTA)"
-            op_power = +1.5
+            op_status = "EXTREMO INFERIOR / SOBREFRAQUEZA (DEVENDO EXAUSTÃO)"
+            timing_type = "QUEDA EM ANDAMENTO (DEVENDO VIRADA DE ALTA)"
+            op_power = -1.0
         else:
             op_status = "CICLO DE FRAQUEZA EM ANDAMENTO (BUSCANDO -0.20)"
             timing_type = "VENDA ATIVA"
-            op_power = -1.0
+            op_power = -1.5
     elif h4_dir == "UP" and h1_dir == "UP":
         if h1_curr <= -0.15 or h4_curr <= -0.15:
             op_status = "ZONA DE PARADA VERMELHA (DEVENDO CICLO DE FORÇA)"
@@ -56,13 +56,13 @@ def analyze_operational_currency(ccy, h4_series, h1_series, macro_info=None):
             timing_type = "COMPRA EM ANDAMENTO (TESTE DO 0)"
             op_power = +1.5
         elif h1_curr >= 0.20:
-            op_status = "CUMPRIU CICLO DE ALTA (ALERTA DE TOPO / LINHA VERDE)"
-            timing_type = "EXAUSTÃO DE ALTA (DEVENDO REVERSÃO DE BAIXA)"
-            op_power = -1.5
+            op_status = "EXTREMO SUPERIOR / SOBREFORÇA (DEVENDO EXAUSTÃO)"
+            timing_type = "ALTA EM ANDAMENTO (DEVENDO VIRADA DE BAIXA)"
+            op_power = +1.0
         else:
             op_status = "CICLO DE FORÇA EM ANDAMENTO (BUSCANDO +0.20)"
             timing_type = "COMPRA ATIVA"
-            op_power = +1.0
+            op_power = +1.5
     elif h4_dir == "DN" and h1_dir == "UP":
         op_status = "H4 EM QUEDA COM REPIQUE DE H1 (ACÚMULO / TESTE DO 0)"
         timing_type = "AGUARDAR H1 VIRAR PARA BAIXA (VENDA)"

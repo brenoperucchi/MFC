@@ -1347,24 +1347,69 @@ window.openDeepDive = function(target) {
     const ccyData = state.data.currencies?.find(c => c.symbol === ccy);
     if (!ccyData) return;
 
+    const tfs = ["MN1", "W1", "D1", "H4", "H1"];
+    let tfPillsHtml = "";
+    tfs.forEach(tf => {
+        const triad = ccyData.triads ? ccyData.triads[tf] : null;
+        if (!triad) return;
+        const led = triad.led || "yellow";
+        const angle = triad.angle || "";
+        const angleType = triad.angle_type || "";
+        const scoreStr = triad.score_str || `${triad.score >= 0 ? "+" : ""}${triad.score.toFixed(2)}`;
+
+        let icon = "●";
+        let label = "Neutro";
+        let pillClass = "pill-yellow";
+
+        if (angleType === "FOGUETE" || angle.includes("Foguete") || angle.includes("▲▲")) {
+            icon = "🚀";
+            label = "Foguete (▲▲)";
+            pillClass = "pill-rocket-up";
+        } else if (angleType === "MONTANHA_RUSSA" || angle.includes("Montanha-Russa") || angle.includes("▼▼")) {
+            icon = "🎢";
+            label = "Queda Forte (▼▼)";
+            pillClass = "pill-rocket-down";
+        } else if (led === "green") {
+            icon = "🟢";
+            label = "Força (UP)";
+            pillClass = "pill-green";
+        } else if (led === "red") {
+            icon = "🔴";
+            label = "Fraqueza (DN)";
+            pillClass = "pill-red";
+        } else {
+            icon = "🟡";
+            label = "Divergência";
+            pillClass = "pill-yellow";
+        }
+
+        tfPillsHtml += `
+            <div class="deep-dive-tf-pill ${pillClass}">
+                <div class="tf-pill-top">
+                    <span class="tf-pill-name">${tf}</span>
+                    <span class="tf-pill-score">${scoreStr}</span>
+                </div>
+                <div class="tf-pill-bottom">
+                    <span class="tf-pill-icon">${icon}</span>
+                    <span class="tf-pill-text">${label}</span>
+                </div>
+            </div>
+        `;
+    });
+
     document.getElementById("deepDiveFlag").textContent = ccyData.flag;
-    document.getElementById("deepDiveTitle").textContent = `${ccyData.symbol} (${ccyData.trade_bias})`;
-    document.getElementById("deepDiveSubtitle").textContent = ccyData.final_verdict;
+    document.getElementById("deepDiveTitle").textContent = `${ccyData.symbol}`;
+    document.getElementById("deepDiveSubtitle").textContent = "Diagnóstico Cíclico e Tríade Analítica nos 5 Timeframes (MN1, W1, D1, H4, H1) — CSS PRO";
 
     verdictCard.innerHTML = `
-        <div>
-            <div style="font-size: 11px; color: var(--text-muted); text-transform: uppercase;">Estado de Confluência:</div>
-            <div style="font-size: 14px; font-weight: 800; color: #FFFFFF;">${ccyData.confluence_state}</div>
-            ${ccyData.has_divergence ? `<div style="color: #FFD600; font-size: 11.5px; margin-top: 4px;">${ccyData.divergence_alert}</div>` : ''}
-        </div>
-        <div>
-            <span class="signal-pill ${ccyData.signal_badge.toLowerCase()}">${ccyData.signal_badge}</span>
+        <div style="width: 100%;">
+            <div class="deep-dive-tf-pills-row" style="margin-top: 0;">
+                ${tfPillsHtml}
+            </div>
         </div>
     `;
 
     triadsGrid.innerHTML = "";
-    const tfs = ["MN1", "W1", "D1", "H4", "H1"];
-
     tfs.forEach(tf => {
         const triad = ccyData.triads[tf];
         if (!triad) return;
@@ -1404,7 +1449,7 @@ window.openDeepDive = function(target) {
                     </div>
                     <div class="triad-step">
                         <div class="triad-step-label">4. Angulação / Veredito</div>
-                        <div class="triad-step-val" style="color: #FFFFFF;">${triad.angle}</div>
+                        <div class="triad-step-val" style="color: #FFF;">${triad.angle}</div>
                     </div>
                 </div>
             </div>
@@ -1412,66 +1457,90 @@ window.openDeepDive = function(target) {
         triadsGrid.appendChild(card);
     });
 
-    document.getElementById("deepDiveModal").classList.remove("hidden");
+    const modal = document.getElementById("deepDiveModal");
+    modal.classList.add("active");
 
-    const renderCharts = () => {
-        tfs.forEach(tf => drawTriadMiniChart(`deepDiveCanvas_${tf}`, ccy, tf));
-    };
-    requestAnimationFrame(renderCharts);
-    setTimeout(renderCharts, 60);
-    setTimeout(renderCharts, 200);
+    setTimeout(() => {
+        tfs.forEach(tf => {
+            drawTriadMiniChart(`deepDiveCanvas_${tf}`, ccy, tf);
+        });
+    }, 150);
 };
 
-// IMPRESSÃO / EXPORTAÇÃO EM PDF DO RAIO-X INSTITUCIONAL (ISOLADO 100%)
+// IMPRESSÃO EM PDF DO RELATÓRIO DO RAIO-X
 window.printDeepDiveReport = function() {
     const target = state.selectedDeepDiveTarget || "USD";
     const flag = CCY_FLAGS[target] || "";
+    const isPair = target.length === 6 && !state.currencies.includes(target);
     const tfs = ["MN1", "W1", "D1", "H4", "H1"];
-    
-    // Garantir renderização imediata dos 5 canvas
-    tfs.forEach(tf => drawTriadMiniChart(`deepDiveCanvas_${tf}`, target, tf));
 
-    // Capturar as imagens em dataURL dos 5 canvas
-    const canvasImages = {};
+    let ccyData = null;
+    let pairData = null;
+    if (isPair) pairData = state.data.pairs?.find(p => p.pair === target);
+    else ccyData = state.data.currencies?.find(c => c.symbol === target);
+
+    const verdictHtml = document.getElementById("deepDiveVerdictCard")?.innerHTML || "";
+    
+    // Capturar as 5 imagens PNG dos canvas do Raio-X
+    const chartImages = {};
     tfs.forEach(tf => {
-        const cvs = document.getElementById(`deepDiveCanvas_${tf}`);
-        if (cvs) {
-            canvasImages[tf] = cvs.toDataURL("image/png");
+        const c = document.getElementById(`deepDiveCanvas_${tf}`);
+        if (c) {
+            try {
+                chartImages[tf] = c.toDataURL("image/png");
+            } catch (e) {
+                chartImages[tf] = "";
+            }
         }
     });
 
-    const verdictEl = document.getElementById("deepDiveVerdictCard");
-    const verdictHtml = verdictEl ? verdictEl.innerHTML : "";
-    
+    // Montar os 5 cards com imagem + tríade
     let triadsHtml = "";
-    const triadCards = document.querySelectorAll("#deepDiveTriadsGrid .triad-card");
-    triadCards.forEach((card, idx) => {
-        const tf = tfs[idx] || "";
-        const titleEl = card.querySelector(".triad-card-header");
-        const infoEl = card.querySelector(".triad-info-pane");
-        const imgUrl = canvasImages[tf] || "";
+    tfs.forEach(tf => {
+        const triad = ccyData ? ccyData.triads[tf] : (pairData?.triads ? pairData.triads[tf] : null);
+        const imgSrc = chartImages[tf] || "";
+        const scoreClass = (triad && triad.score > 0) ? "positive" : "negative";
+        const scoreText = triad ? `${triad.score_str} ${triad.dir} — ${triad.angle}` : "";
 
         triadsHtml += `
             <div class="print-triad-card">
-                <div class="print-triad-header">${titleEl ? titleEl.innerHTML : tf}</div>
+                <div class="print-triad-header">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <span class="triad-tf-title">${tf}</span>
+                        <span class="tf-tab">${flag} ${target}</span>
+                    </div>
+                    <span class="triad-score ${scoreClass}">${scoreText}</span>
+                </div>
                 <div class="print-triad-body">
                     <div class="print-triad-chart">
-                        <img src="${imgUrl}" style="width: 100%; height: 130px; object-fit: contain; display: block;" />
+                        ${imgSrc ? `<img src="${imgSrc}" style="width: 100%; height: 130px; object-fit: contain; display: block;" />` : ''}
                     </div>
                     <div class="print-triad-info">
-                        ${infoEl ? infoEl.innerHTML : ""}
+                        <div class="triad-step">
+                            <div class="triad-step-label">1. Região no Box</div>
+                            <div class="triad-step-val" style="color: #FFF;">${triad ? triad.region : '-'}</div>
+                        </div>
+                        <div class="triad-step">
+                            <div class="triad-step-label">2. Ciclo Atual</div>
+                            <div class="triad-step-val" style="color: #00E5FF;">${triad ? triad.current_cycle : '-'}</div>
+                        </div>
+                        <div class="triad-step">
+                            <div class="triad-step-label">3. Ciclo Devendo</div>
+                            <div class="triad-step-val" style="color: #FFD600;">${triad ? triad.owing_cycle : '-'}</div>
+                        </div>
+                        <div class="triad-step">
+                            <div class="triad-step-label">4. Angulação / Veredito</div>
+                            <div class="triad-step-val" style="color: #FFF;">${triad ? triad.angle : '-'}</div>
+                        </div>
                     </div>
                 </div>
             </div>
         `;
     });
 
-    const printWin = window.open("", "_blank", "width=900,height=1000");
+    const printWin = window.open('', '_blank', 'width=1100,height=900');
     if (!printWin) {
-        // Fallback caso popup seja bloqueado
-        document.body.classList.add("printing-deep-dive");
-        window.print();
-        setTimeout(() => document.body.classList.remove("printing-deep-dive"), 800);
+        alert("Por favor, permita popups para imprimir o relatório.");
         return;
     }
 
@@ -1482,18 +1551,15 @@ window.printDeepDiveReport = function() {
         <html lang="pt-BR">
         <head>
             <meta charset="UTF-8">
-            <title>Raio-X Institucional ${target} — CSS PRO</title>
-            <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+            <title>Raio-X Institucional - ${target}</title>
             <style>
-                @page { size: A4 portrait; margin: 8mm 10mm; }
-                * { box-sizing: border-box; margin: 0; padding: 0; }
+                @page { size: A4 portrait; margin: 10mm 10mm 10mm 10mm; }
+                * { box-sizing: border-box; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; margin: 0; padding: 0; }
                 body {
                     background: #080B11 !important;
-                    color: #FFFFFF !important;
-                    font-family: 'Inter', sans-serif;
-                    padding: 10px;
-                    -webkit-print-color-adjust: exact !important;
-                    print-color-adjust: exact !important;
+                    color: #E2E8F0 !important;
+                    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                    padding: 12px;
                 }
                 .print-header {
                     display: flex;
@@ -1509,25 +1575,34 @@ window.printDeepDiveReport = function() {
                     background: #0E131E;
                     border: 1px solid rgba(255, 255, 255, 0.12);
                     border-radius: 8px;
-                    padding: 10px 14px;
+                    padding: 8px 12px;
                     margin-bottom: 10px;
-                    display: flex;
-                    align-items: center;
-                    justify-content: space-between;
                     page-break-inside: avoid;
                     break-inside: avoid;
                 }
-                .signal-pill {
-                    display: inline-block;
-                    padding: 4px 12px;
-                    border-radius: 6px;
-                    font-size: 11px;
-                    font-weight: 800;
-                    text-transform: uppercase;
+                .deep-dive-tf-pills-row {
+                    display: flex;
+                    align-items: stretch;
+                    gap: 8px;
+                    margin-top: 0;
+                    flex-wrap: wrap;
                 }
-                .signal-pill.buy { background: rgba(0, 230, 118, 0.2); color: #00E676; border: 1px solid #00E676; }
-                .signal-pill.sell { background: rgba(255, 23, 68, 0.2); color: #FF1744; border: 1px solid #FF1744; }
-                .signal-pill.neutral { background: rgba(255, 215, 0, 0.2); color: #FFD700; border: 1px solid #FFD700; }
+                .deep-dive-tf-pill {
+                    flex: 1;
+                    min-width: 100px;
+                    background: #05070A;
+                    border: 1px solid rgba(255, 255, 255, 0.1);
+                    border-radius: 6px;
+                    padding: 5px 8px;
+                    display: flex;
+                    flex-direction: column;
+                    gap: 3px;
+                }
+                .tf-pill-top { display: flex; justify-content: space-between; font-size: 10.5px; font-weight: 800; color: #FFF; }
+                .tf-pill-bottom { display: flex; align-items: center; gap: 4px; font-size: 9.5px; font-weight: 700; }
+                .pill-green .tf-pill-bottom, .pill-rocket-up .tf-pill-bottom { color: #00E676; }
+                .pill-red .tf-pill-bottom, .pill-rocket-down .tf-pill-bottom { color: #FF1744; }
+                .pill-yellow .tf-pill-bottom { color: #FFD700; }
                 
                 .print-triad-card {
                     background: #0E131E;
@@ -1538,47 +1613,6 @@ window.printDeepDiveReport = function() {
                     page-break-inside: avoid;
                     break-inside: avoid;
                 }
-                .print-triad-header {
-                    font-size: 11.5px;
-                    font-weight: 700;
-                    color: #FFFFFF;
-                    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-                    padding-bottom: 4px;
-                    margin-bottom: 6px;
-                    display: flex;
-                    align-items: center;
-                    justify-content: space-between;
-                }
-                .triad-score.positive { color: #00E676; font-weight: 700; }
-                .triad-score.negative { color: #FF1744; font-weight: 700; }
-                .print-triad-body {
-                    display: flex;
-                    flex-direction: row;
-                    gap: 10px;
-                    align-items: stretch;
-                }
-                .print-triad-chart {
-                    flex: 3;
-                    background: #05070A;
-                    border-radius: 6px;
-                    overflow: hidden;
-                    border: 1px solid rgba(255, 255, 255, 0.06);
-                }
-                .print-triad-info {
-                    flex: 1.2;
-                    background: #05070A;
-                    border-radius: 6px;
-                    border: 1px solid rgba(255, 255, 255, 0.06);
-                    padding: 6px 8px;
-                    font-size: 9.5px;
-                    display: flex;
-                    flex-direction: column;
-                    gap: 3px;
-                    justify-content: center;
-                }
-                .triad-step { display: flex; flex-direction: column; margin-bottom: 2px; }
-                .triad-step-label { font-size: 8px; color: #7F8C8D; text-transform: uppercase; font-weight: 700; }
-                .triad-step-val { font-size: 9px; font-weight: 700; }
             </style>
         </head>
         <body>
@@ -1587,26 +1621,10 @@ window.printDeepDiveReport = function() {
                     <h1 class="print-title">${flag} Raio-X Institucional: ${target}</h1>
                     <p class="print-subtitle">Diagnóstico Cíclico e Tríade Analítica nos 5 Timeframes (MN1, W1, D1, H4, H1) — CSS PRO</p>
                 </div>
-                <div style="font-size: 11px; color: #8899A6; text-align: right;">
-                    ${state.data?.timestamp || new Date().toLocaleString()}
-                </div>
             </div>
-
-            <div class="deep-dive-verdict-card">
-                ${verdictHtml}
-            </div>
-
-            <div class="print-triads-container">
-                ${triadsHtml}
-            </div>
-
-            <script>
-                window.onload = function() {
-                    setTimeout(function() {
-                        window.print();
-                    }, 250);
-                };
-            </script>
+            <div class="deep-dive-verdict-card">${verdictHtml}</div>
+            <div class="print-triads-container">${triadsHtml}</div>
+            <script>window.onload = () => { setTimeout(() => window.print(), 500); }</script>
         </body>
         </html>
     `);
@@ -1617,8 +1635,8 @@ window.printDeepDiveReport = function() {
 window.exportDeepDiveImage = function() {
     const target = state.selectedDeepDiveTarget || "USD";
     const flag = CCY_FLAGS[target] || "";
-    const tfs = ["MN1", "W1", "D1", "H4", "H1"];
     const isPair = target.length === 6 && !state.currencies.includes(target);
+    const tfs = ["MN1", "W1", "D1", "H4", "H1"];
 
     // Redesenhar os 5 mini canvas
     tfs.forEach(tf => drawTriadMiniChart(`deepDiveCanvas_${tf}`, target, tf));
@@ -1654,36 +1672,69 @@ window.exportDeepDiveImage = function() {
     ctx.fillText(timeStr, width - 40, 58);
     ctx.textAlign = "left";
 
-    // 3. Card de Confluência / Veredito
+    // 3. Card com Resumo dos 5 Timeframes
     let ccyData = null;
     let pairItem = null;
     if (isPair) pairItem = state.data.pairs?.find(p => p.pair === target);
     else ccyData = state.data.currencies?.find(c => c.symbol === target);
 
+    const verdictH = 68;
     ctx.fillStyle = "#0E131E";
-    ctx.fillRect(20, 118, width - 40, 75);
+    ctx.fillRect(20, 118, width - 40, verdictH);
     ctx.strokeStyle = "rgba(255, 255, 255, 0.12)";
     ctx.lineWidth = 1;
-    ctx.strokeRect(20, 118, width - 40, 75);
+    ctx.strokeRect(20, 118, width - 40, verdictH);
 
-    ctx.fillStyle = "#7F8C8D";
-    ctx.font = "bold 11px 'Inter', sans-serif";
-    ctx.fillText("ESTADO DE CONFLUÊNCIA:", 40, 142);
+    // Desenhar os 5 Pills Multi-TF no Card de Resumo
+    if (ccyData && ccyData.triads) {
+        const pillBoxW = (width - 90) / 5;
+        const pillBoxH = 50;
+        const pillBoxY = 127;
 
-    ctx.fillStyle = "#00E5FF";
-    ctx.font = "bold 16px 'Inter', sans-serif";
-    const stateText = isPair ? (pairItem ? `${pairItem.recommendation} — Convicção: ${pairItem.conviction}` : target) : (ccyData ? ccyData.confluence_state : "");
-    ctx.fillText(stateText, 40, 168);
+        tfs.forEach((tf, idx) => {
+            const triad = ccyData.triads[tf];
+            if (!triad) return;
+            const bx = 30 + idx * (pillBoxW + 6);
+            const led = triad.led || "yellow";
+            const angle = triad.angle || "";
+            const angleType = triad.angle_type || "";
+            const scoreStr = triad.score_str || `${triad.score >= 0 ? "+" : ""}${triad.score.toFixed(2)}`;
 
-    if (ccyData && ccyData.has_divergence) {
-        ctx.fillStyle = "#FFD600";
-        ctx.font = "12px 'Inter', sans-serif";
-        ctx.fillText(ccyData.divergence_alert, 40, 185);
+            let pBg = "#071C12", pBorder = "#00E676", pText = "#00E676", pIcon = "● FORÇA (UP)";
+            if (angleType === "FOGUETE" || angle.includes("Foguete") || angle.includes("▲▲")) {
+                pBg = "#0B2618"; pBorder = "#00E676"; pText = "#00E676"; pIcon = "▲▲ FOGUETE";
+            } else if (angleType === "MONTANHA_RUSSA" || angle.includes("Montanha-Russa") || angle.includes("▼▼")) {
+                pBg = "#2B0B11"; pBorder = "#FF1744"; pText = "#FF1744"; pIcon = "▼▼ QUEDA FORTE";
+            } else if (led === "green") {
+                pBg = "#071C12"; pBorder = "#00E676"; pText = "#00E676"; pIcon = "● FORÇA (UP)";
+            } else if (led === "red") {
+                pBg = "#21080D"; pBorder = "#FF1744"; pText = "#FF1744"; pIcon = "● FRAQUEZA (DN)";
+            } else {
+                pBg = "#211D07"; pBorder = "#FFD700"; pText = "#FFD700"; pIcon = "● DIVERGÊNCIA";
+            }
+
+            ctx.fillStyle = pBg;
+            ctx.strokeStyle = pBorder;
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            if (ctx.roundRect) ctx.roundRect(bx, pillBoxY, pillBoxW, pillBoxH, 5);
+            else ctx.rect(bx, pillBoxY, pillBoxW, pillBoxH);
+            ctx.fill();
+            ctx.stroke();
+
+            ctx.fillStyle = "#FFFFFF";
+            ctx.font = "bold 13px 'Inter', sans-serif";
+            ctx.fillText(`${tf}: ${scoreStr}`, bx + 12, pillBoxY + 20);
+
+            ctx.fillStyle = pText;
+            ctx.font = "bold 11px 'Inter', sans-serif";
+            ctx.fillText(pIcon, bx + 12, pillBoxY + 38);
+        });
     }
 
     // 4. Desenhar os 5 Timeframe Cards
-    let startY = 205;
-    const cardHeight = 260;
+    let startY = 198;
+    const cardHeight = 265;
     const cardGap = 12;
 
     tfs.forEach((tf, i) => {
@@ -1705,10 +1756,11 @@ window.exportDeepDiveImage = function() {
 
         if (triad) {
             ctx.fillStyle = triad.score > 0 ? "#00E676" : "#FF1744";
-            ctx.font = "bold 14px 'JetBrains Mono', monospace";
+            ctx.font = "bold 13px 'JetBrains Mono', monospace";
             ctx.textAlign = "right";
             ctx.fillText(`${triad.score_str} ${triad.dir} — ${triad.angle}`, width - 35, y + 26);
             ctx.textAlign = "left";
+        }
         }
 
         // Gráfico (renderizado a partir do canvas existente)
@@ -1744,6 +1796,27 @@ window.exportDeepDiveImage = function() {
             drawStep("2. Ciclo Atual", triad.current_cycle, "#00E5FF");
             drawStep("3. Ciclo Devendo", triad.owing_cycle, "#FFD600");
             drawStep("4. Angulação / Veredito", triad.angle, "#FFFFFF");
+        } else if (isPair) {
+            const base = target.substring(0, 3);
+            const quote = target.substring(3, 6);
+            const baseFlag = CCY_FLAGS[base] || "";
+            const quoteFlag = CCY_FLAGS[quote] || "";
+            let lineY = y + 56;
+            const drawStep = (label, val, color) => {
+                ctx.fillStyle = "#7F8C8D";
+                ctx.font = "bold 10px 'Inter', sans-serif";
+                ctx.fillText(label.toUpperCase(), infoX + 12, lineY);
+                lineY += 16;
+                ctx.fillStyle = color || "#FFFFFF";
+                ctx.font = "bold 11.5px 'Inter', sans-serif";
+                ctx.fillText(val, infoX + 12, lineY);
+                lineY += 28;
+            };
+
+            drawStep("Timeframe", `${tf} Institutional Cycle`, "#FFFFFF");
+            drawStep("Moeda Base", `${baseFlag} ${base} (Força Relativa)`, CCY_COLORS[base] || "#FFF");
+            drawStep("Moeda Cotada", `${quoteFlag} ${quote} (Força Relativa)`, CCY_COLORS[quote] || "#FFF");
+            drawStep("Confluência", `Cruzamento e fluxo no ${tf}`, "#00E5FF");
         }
     });
 
@@ -1752,6 +1825,262 @@ window.exportDeepDiveImage = function() {
     link.download = `Raio-X_${target}_${new Date().toISOString().slice(0, 10)}.png`;
     link.href = exportCanvas.toDataURL("image/png");
     link.click();
+};
+
+// ENVIAR FOTO DO RAIO-X INSTITUCIONAL PARA O TELEGRAM
+window.sendDeepDiveToTelegram = async function() {
+    const btn = document.getElementById("btnSendTelegram");
+    const originalText = btn ? btn.innerHTML : "<span>✈️</span> <span>Telegram</span>";
+    const target = state.selectedDeepDiveTarget || "USD";
+    const flag = CCY_FLAGS[target] || "";
+    const isPair = target.length === 6 && !state.currencies.includes(target);
+
+    let ccyData = null;
+    let pairItem = null;
+    if (isPair) pairItem = state.data.pairs?.find(p => p.pair === target);
+    else ccyData = state.data.currencies?.find(c => c.symbol === target);
+
+    const bias = isPair ? (pairItem?.recommendation || "") : (ccyData?.trade_bias || "");
+    const confluenceState = isPair ? (`Convicção: ${pairItem?.conviction || 'ALTA'}`) : (ccyData?.confluence_state || "");
+    const timeStr = state.data?.timestamp || new Date().toLocaleString();
+
+    try {
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = `<span>⏳</span> <span>Enviando...</span>`;
+        }
+
+        // 1. Gerar imagem offscreen canvas em alta resolução
+        const tfs = ["MN1", "W1", "D1", "H4", "H1"];
+        tfs.forEach(tf => drawTriadMiniChart(`deepDiveCanvas_${tf}`, target, tf));
+
+        const exportCanvas = document.createElement("canvas");
+        const width = 1200;
+        const height = 1580;
+        exportCanvas.width = width;
+        exportCanvas.height = height;
+        const ctx = exportCanvas.getContext("2d");
+
+        // Fundo Dark Premium
+        ctx.fillStyle = "#080B11";
+        ctx.fillRect(0, 0, width, height);
+
+        // Cabeçalho
+        ctx.fillStyle = "#0E131E";
+        ctx.fillRect(20, 20, width - 40, 85);
+        ctx.strokeStyle = "rgba(0, 229, 255, 0.4)";
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(20, 20, width - 40, 85);
+
+        ctx.fillStyle = "#FFFFFF";
+        ctx.font = "bold 24px 'Inter', sans-serif";
+        ctx.fillText(`${flag} Raio-X Institucional: ${target}`, 40, 58);
+
+        ctx.fillStyle = "#8899A6";
+        ctx.font = "13px 'Inter', sans-serif";
+        ctx.fillText("Diagnóstico Cíclico e Tríade Analítica nos 5 Timeframes (MN1, W1, D1, H4, H1) — CSS PRO", 40, 85);
+
+        ctx.textAlign = "right";
+        ctx.fillText(timeStr, width - 40, 58);
+        ctx.textAlign = "left";
+
+        // Card com Resumo dos 5 Timeframes
+        const verdictH = 68;
+        ctx.fillStyle = "#0E131E";
+        ctx.fillRect(20, 118, width - 40, verdictH);
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.12)";
+        ctx.lineWidth = 1;
+        ctx.strokeRect(20, 118, width - 40, verdictH);
+
+        // Desenhar os 5 Pills Multi-TF no Card de Resumo
+        if (ccyData && ccyData.triads) {
+            const pillBoxW = (width - 90) / 5;
+            const pillBoxH = 50;
+            const pillBoxY = 127;
+
+            tfs.forEach((tf, idx) => {
+                const triad = ccyData.triads[tf];
+                if (!triad) return;
+                const bx = 30 + idx * (pillBoxW + 6);
+                const led = triad.led || "yellow";
+                const angle = triad.angle || "";
+                const angleType = triad.angle_type || "";
+                const scoreStr = triad.score_str || `${triad.score >= 0 ? "+" : ""}${triad.score.toFixed(2)}`;
+
+                let pBg = "#071C12", pBorder = "#00E676", pText = "#00E676", pIcon = "● FORÇA (UP)";
+                if (angleType === "FOGUETE" || angle.includes("Foguete") || angle.includes("▲▲")) {
+                    pBg = "#0B2618"; pBorder = "#00E676"; pText = "#00E676"; pIcon = "▲▲ FOGUETE";
+                } else if (angleType === "MONTANHA_RUSSA" || angle.includes("Montanha-Russa") || angle.includes("▼▼")) {
+                    pBg = "#2B0B11"; pBorder = "#FF1744"; pText = "#FF1744"; pIcon = "▼▼ QUEDA FORTE";
+                } else if (led === "green") {
+                    pBg = "#071C12"; pBorder = "#00E676"; pText = "#00E676"; pIcon = "● FORÇA (UP)";
+                } else if (led === "red") {
+                    pBg = "#21080D"; pBorder = "#FF1744"; pText = "#FF1744"; pIcon = "● FRAQUEZA (DN)";
+                } else {
+                    pBg = "#211D07"; pBorder = "#FFD700"; pText = "#FFD700"; pIcon = "● DIVERGÊNCIA";
+                }
+
+                ctx.fillStyle = pBg;
+                ctx.strokeStyle = pBorder;
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                if (ctx.roundRect) ctx.roundRect(bx, pillBoxY, pillBoxW, pillBoxH, 5);
+                else ctx.rect(bx, pillBoxY, pillBoxW, pillBoxH);
+                ctx.fill();
+                ctx.stroke();
+
+                ctx.fillStyle = "#FFFFFF";
+                ctx.font = "bold 13px 'Inter', sans-serif";
+                ctx.fillText(`${tf}: ${scoreStr}`, bx + 12, pillBoxY + 20);
+
+                ctx.fillStyle = pText;
+                ctx.font = "bold 11px 'Inter', sans-serif";
+                ctx.fillText(pIcon, bx + 12, pillBoxY + 38);
+            });
+        }
+
+        // 5 Timeframe Cards
+        let startY = 198;
+        const cardHeight = 265;
+        const cardGap = 12;
+
+        tfs.forEach((tf, i) => {
+            const y = startY + i * (cardHeight + cardGap);
+            const cardW = width - 40;
+
+            ctx.fillStyle = "#0E131E";
+            ctx.fillRect(20, y, cardW, cardHeight);
+            ctx.strokeStyle = "rgba(255, 255, 255, 0.1)";
+            ctx.lineWidth = 1;
+            ctx.strokeRect(20, y, cardW, cardHeight);
+
+            const triad = ccyData ? ccyData.triads[tf] : null;
+            ctx.fillStyle = "#FFFFFF";
+            ctx.font = "bold 15px 'Inter', sans-serif";
+            ctx.fillText(`📊 ${tf} ${target}`, 35, y + 26);
+
+            if (triad) {
+                ctx.fillStyle = triad.score > 0 ? "#00E676" : "#FF1744";
+                ctx.font = "bold 14px 'JetBrains Mono', monospace";
+                ctx.textAlign = "right";
+                ctx.fillText(`${triad.score_str} ${triad.dir} — ${triad.angle}`, width - 35, y + 26);
+                ctx.textAlign = "left";
+            }
+
+            const srcCanvas = document.getElementById(`deepDiveCanvas_${tf}`);
+            if (srcCanvas) {
+                const chartW = cardW * 0.70;
+                const chartH = cardHeight - 45;
+                ctx.drawImage(srcCanvas, 35, y + 36, chartW, chartH);
+            }
+
+            const infoX = 35 + cardW * 0.70 + 15;
+            const infoW = cardW * 0.26;
+            ctx.fillStyle = "#05070A";
+            ctx.fillRect(infoX, y + 36, infoW, cardHeight - 45);
+            ctx.strokeStyle = "rgba(255, 255, 255, 0.08)";
+            ctx.strokeRect(infoX, y + 36, infoW, cardHeight - 45);
+
+            if (triad) {
+                let lineY = y + 56;
+                const drawStep = (label, val, color) => {
+                    ctx.fillStyle = "#7F8C8D";
+                    ctx.font = "bold 10px 'Inter', sans-serif";
+                    ctx.fillText(label.toUpperCase(), infoX + 12, lineY);
+                    lineY += 16;
+                    ctx.fillStyle = color || "#FFFFFF";
+                    ctx.font = "bold 11.5px 'Inter', sans-serif";
+                    ctx.fillText(val, infoX + 12, lineY);
+                    lineY += 28;
+                };
+
+                drawStep("1. Região no Box", triad.region, "#FFFFFF");
+                drawStep("2. Ciclo Atual", triad.current_cycle, "#00E5FF");
+                drawStep("3. Ciclo Devendo", triad.owing_cycle, "#FFD600");
+                drawStep("4. Angulação / Veredito", triad.angle, "#FFFFFF");
+            }
+        });
+
+        const imageBase64 = exportCanvas.toDataURL("image/png");
+
+        // 2. Enviar via Backend API ou direto via Telegram Bot
+        let sent = false;
+        const isLocalServer = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.port === '8050';
+
+        if (isLocalServer) {
+            try {
+                const resp = await fetch("/api/telegram/send-raio-x", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        target: target,
+                        image_base64: imageBase64,
+                        bias: bias,
+                        confluence_state: confluenceState,
+                        timestamp: timeStr
+                    })
+                });
+                if (resp.ok) {
+                    const resJson = await resp.json();
+                    if (resJson.success) sent = true;
+                }
+            } catch (e) {
+                console.warn("Backend local offline, tentando envio direto Telegram:", e);
+            }
+        }
+
+        if (!sent) {
+            // Envio Direto via Telegram Bot API (Firebase Hosting / Client-Side Fallback)
+            const botToken = "8661694016:AAHJ5RV7kJOnxXvYhcgllx-kYJSdHfbrBH8";
+            const chatId = "665651806";
+            
+            // Converter dataUrl para Blob
+            const blobBin = atob(imageBase64.split(',')[1]);
+            const array = [];
+            for (let i = 0; i < blobBin.length; i++) {
+                array.push(blobBin.charCodeAt(i));
+            }
+            const fileBlob = new Blob([new Uint8Array(array)], { type: 'image/png' });
+
+            const formData = new FormData();
+            formData.append("chat_id", chatId);
+            formData.append("photo", fileBlob, `Raio-X_${target}.png`);
+            formData.append("parse_mode", "HTML");
+            formData.append("caption", `📊 <b>Raio-X Institucional: ${target}</b>\n🎯 <b>Estado:</b> ${confluenceState}\n🧭 <b>Viés:</b> ${bias}\n🕒 <i>${timeStr} — CSS Institutional</i>`);
+
+            const tgResp = await fetch(`https://api.telegram.org/bot${botToken}/sendPhoto`, {
+                method: "POST",
+                body: formData
+            });
+            const tgJson = await tgResp.json();
+            if (tgJson.ok) sent = true;
+        }
+
+        if (sent) {
+            if (btn) {
+                btn.innerHTML = `<span>✅</span> <span>Enviado!</span>`;
+                btn.style.borderColor = "#00E676";
+                btn.style.color = "#00E676";
+            }
+            setTimeout(() => {
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerHTML = originalText;
+                    btn.style.borderColor = "";
+                    btn.style.color = "";
+                }
+            }, 2500);
+        } else {
+            throw new Error("Falha ao entregar mensagem no Telegram.");
+        }
+    } catch (err) {
+        console.error("Erro ao enviar Raio-X para o Telegram:", err);
+        alert("Erro ao enviar Raio-X para o Telegram: " + (err.message || err));
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = originalText;
+        }
+    }
 };
 
 // HISTÓRICO DE RELATÓRIOS
