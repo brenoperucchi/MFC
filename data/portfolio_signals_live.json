@@ -1,0 +1,81 @@
+{
+  "timestamp": "2026-08-22 21:02:19",
+  "date": "2026-08-22",
+  "session_id": "2026-08-22_NIGHT",
+  "entry_time_brt": "21:05:00",
+  "exit_time_brt": "08:00:00",
+  "portfolios": {
+    "USD": {
+      "magic": 801001,
+      "direction": "NEUTRAL",
+      "status": "BLOCKED",
+      "d1_score": -0.705,
+      "h4_score": -0.991,
+      "confluence_state": "CONFLUÊNCIA DE QUEDA (FLUXO VENDEDOR 3-TF)",
+      "reason": "Mercado Fechado no Final de Semana (Preservação de Capital)"
+    },
+    "EUR": {
+      "magic": 801002,
+      "direction": "NEUTRAL",
+      "status": "BLOCKED",
+      "d1_score": 0.126,
+      "h4_score": 0.024,
+      "confluence_state": "BOX DE EQUILÍBRIO (TESTE DO 0)",
+      "reason": "Mercado Fechado no Final de Semana (Preservação de Capital)"
+    },
+    "GBP": {
+      "magic": 801003,
+      "direction": "NEUTRAL",
+      "status": "BLOCKED",
+      "d1_score": 0.102,
+      "h4_score": -0.08,
+      "confluence_state": "BOX DE EQUILÍBRIO (TESTE DO 0)",
+      "reason": "Mercado Fechado no Final de Semana (Preservação de Capital)"
+    },
+    "CHF": {
+      "magic": 801004,
+      "direction": "NEUTRAL",
+      "status": "BLOCKED",
+      "d1_score": -0.155,
+      "h4_score": 0.455,
+      "confluence_state": "BOX DE EQUILÍBRIO (TESTE DO 0)",
+      "reason": "Mercado Fechado no Final de Semana (Preservação de Capital)"
+    },
+    "JPY": {
+      "magic": 801005,
+      "direction": "NEUTRAL",
+      "status": "BLOCKED",
+      "d1_score": 0.101,
+      "h4_score": -0.444,
+      "confluence_state": "CONFLUÊNCIA DE QUEDA (FLUXO VENDEDOR 3-TF)",
+      "reason": "Mercado Fechado no Final de Semana (Preservação de Capital)"
+    },
+    "AUD": {
+      "magic": 801006,
+      "direction": "NEUTRAL",
+      "status": "BLOCKED",
+      "d1_score": 0.152,
+      "h4_score": 0.114,
+      "confluence_state": "CONFLUÊNCIA DE ALTA (FLUXO COMPRADOR 3-TF)",
+      "reason": "Mercado Fechado no Final de Semana (Preservação de Capital)"
+    },
+    "CAD": {
+      "magic": 801007,
+      "direction": "NEUTRAL",
+      "status": "BLOCKED",
+      "d1_score": 0.193,
+      "h4_score": 0.112,
+      "confluence_state": "CONFLUÊNCIA DE ALTA (FLUXO COMPRADOR 3-TF)",
+      "reason": "Mercado Fechado no Final de Semana (Preservação de Capital)"
+    },
+    "NZD": {
+      "magic": 801008,
+      "direction": "NEUTRAL",
+      "status": "BLOCKED",
+      "d1_score": 0.186,
+      "h4_score": 0.811,
+      "confluence_state": "CONFLUÊNCIA DE ALTA (FLUXO COMPRADOR 3-TF)",
+      "reason": "Mercado Fechado no Final de Semana (Preservação de Capital)"
+    }
+  }
+}

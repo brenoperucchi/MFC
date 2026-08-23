@@ -814,5 +814,7 @@ class TrackRecordEngine:
         return self.data
 
 
-# Instância Singleton
-history_engine = TrackRecordEngine()
+# Instância Singleton Oficial de Auditoria Real (100% MT5 Deals)
+from web.real_portfolio_audit import real_audit_engine
+history_engine = real_audit_engine
+

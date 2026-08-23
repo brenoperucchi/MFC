@@ -34,15 +34,18 @@ def build():
                 shutil.copy2(src, os.path.join(PUBLIC_DIR, "static", f))
             print(f"  [+] Copiado: {f}")
 
-    # Ajustar referências de /static/ em index.html para caminhos raiz
+    # Ajustar referências de /static/ em index.html para caminhos raiz com cache-busting timestamp
+    import time
+    ts = int(time.time())
     index_dst = os.path.join(PUBLIC_DIR, "index.html")
     with open(index_dst, "r", encoding="utf-8") as f:
         html = f.read()
-    html = html.replace('href="/static/styles.css"', 'href="/styles.css"')
-    html = html.replace('src="/static/app.js"', 'src="/app.js"')
+    import re
+    html = re.sub(r'href="/static/styles\.css[^"]*"', f'href="/styles.css?v={ts}"', html)
+    html = re.sub(r'src="/static/app\.js[^"]*"', f'src="/app.js?v={ts}"', html)
     with open(index_dst, "w", encoding="utf-8") as f:
         f.write(html)
-    print("  [+] Ajustadas referências estáticas em index.html")
+    print("  [+] Ajustadas referências estáticas em index.html com cache busting")
 
     # 2. Gerar Snapshots de API a partir do servidor local ou geradores
     print("[*] Gerando snapshots de API...")
@@ -77,33 +80,20 @@ def build():
     except Exception as e:
         print(f"  [!] Erro ao gerar CSS snapshots: {e}")
 
-    # Track Record Summary
+    # Track Record Summary & Live (100% Real MT5 Audit Engine)
     try:
-        req = urllib.request.urlopen("http://127.0.0.1:8050/api/track-record/summary?currency=ALL", timeout=5)
-        tr_data = json.loads(req.read().decode("utf-8"))
+        from web.real_portfolio_audit import real_audit_engine
+        tr_data = real_audit_engine.get_filtered_data("ALL")
         with open(os.path.join(API_DIR, "track-record", "summary.json"), "w", encoding="utf-8") as f:
             json.dump(tr_data, f, indent=2, ensure_ascii=False)
-        print("  [+] Gerado: /api/track-record/summary.json")
-    except Exception as e:
-        print(f"  [!] Fallback para Track Record local: {e}")
-        from web.history_tracker import history_engine
-        tr_data = history_engine.get_filtered_data("ALL")
-        with open(os.path.join(API_DIR, "track-record", "summary.json"), "w", encoding="utf-8") as f:
-            json.dump(tr_data, f, indent=2, ensure_ascii=False)
+        print("  [+] Gerado: /api/track-record/summary.json (Direto de real_audit_engine)")
 
-    # Track Record Live
-    try:
-        req = urllib.request.urlopen("http://127.0.0.1:8050/api/track-record/live", timeout=5)
-        live_data = json.loads(req.read().decode("utf-8"))
+        live_data = {"session": real_audit_engine.get_live_session()}
         with open(os.path.join(API_DIR, "track-record", "live.json"), "w", encoding="utf-8") as f:
             json.dump(live_data, f, indent=2, ensure_ascii=False)
-        print("  [+] Gerado: /api/track-record/live.json")
+        print("  [+] Gerado: /api/track-record/live.json (Direto de real_audit_engine)")
     except Exception as e:
-        print(f"  [!] Fallback para Live Session local: {e}")
-        from web.history_tracker import history_engine
-        live_data = {"session": history_engine.get_live_session()}
-        with open(os.path.join(API_DIR, "track-record", "live.json"), "w", encoding="utf-8") as f:
-            json.dump(live_data, f, indent=2, ensure_ascii=False)
+        print(f"  [!] Erro ao gerar Track Record snapshots: {e}")
 
     # Matrix Summary
     os.makedirs(os.path.join(API_DIR, "matrix"), exist_ok=True)

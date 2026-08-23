@@ -24,7 +24,6 @@ env/
 venv/
 ENV/
 
-# OS specific
-Thumbs.db
-Desktop.ini
-.DS_Store
+# Firebase
+.firebase/
+*.tmp

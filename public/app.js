@@ -8,6 +8,13 @@
 const state = {
     currencies: ["USD", "EUR", "GBP", "CHF", "JPY", "AUD", "CAD", "NZD"],
     activeCurrencies: new Set(["USD", "EUR", "GBP", "CHF", "JPY", "AUD", "CAD", "NZD"]),
+    chartType: "flow", // "flow" (CSS Flow) | "matrix" (Matriz de Pares)
+    matrixActiveCcy: "USD",
+    chartMatrixCcys: {
+        chart1: "USD",
+        chart2: "EUR",
+        chart3: "GBP"
+    },
     viewMode: "single", // 'single', 'split2', 'split3'
     chartTFs: {
         chart1: "H1",
@@ -16,7 +23,7 @@ const state = {
     },
     data: null,
     engineMode: localStorage.getItem("css_engine_mode") || "standard",
-    pairsFilter: "RECENT_4H",
+    pairsFilter: "ALICATE",
     pairsSearch: "",
     selectedDeepDive: "AUD",
     matrixActiveCcy: "USD",
@@ -102,6 +109,71 @@ function setupEventListeners() {
             btn.classList.add("active");
             state.viewMode = btn.dataset.mode;
             updateViewModeLayout();
+        });
+    });
+
+    // 2.1 Alternador do Gráfico Principal: CSS Flow vs Matriz de Pares
+    const btnSwitchFlow = document.getElementById("btnSwitchFlow");
+    const btnSwitchMatrix = document.getElementById("btnSwitchMatrix");
+
+    function updateChartTypeUI(type) {
+        state.chartType = type;
+        if (btnSwitchFlow && btnSwitchMatrix) {
+            btnSwitchFlow.classList.toggle("active", type === "flow");
+            btnSwitchMatrix.classList.toggle("active", type === "matrix");
+        }
+
+        const isMatrix = type === "matrix";
+        const currencyToggles = document.getElementById("currencyToggles");
+        if (currencyToggles) {
+            // Em modo matriz, esconde os toggles gerais de moeda do header para deixar a tela 100% limpa e sem duplicidade!
+            if (isMatrix) currencyToggles.classList.add("hidden");
+            else currencyToggles.classList.remove("hidden");
+        }
+
+        for (let i = 1; i <= 3; i++) {
+            const chartKey = `chart${i}`;
+            const ccy = state.chartMatrixCcys[chartKey] || "USD";
+            const titleEl = document.getElementById(`chart${i}Title`);
+            const iconEl = document.getElementById(`chart${i}Icon`);
+            const matrixWrapper = document.getElementById(`matrixSelectWrapper${i}`);
+            const selectEl = document.getElementById(`matrixCcySelect${i}`);
+
+            if (titleEl) titleEl.textContent = isMatrix ? `Matriz de Pares (${ccy})` : "CSS Flow";
+            if (iconEl) iconEl.textContent = isMatrix ? "🕸️" : "📈";
+            if (matrixWrapper) {
+                if (isMatrix) matrixWrapper.classList.remove("hidden");
+                else matrixWrapper.classList.add("hidden");
+            }
+            if (selectEl) {
+                selectEl.value = ccy;
+            }
+        }
+
+        renderAllCharts();
+    }
+
+    if (btnSwitchFlow) {
+        btnSwitchFlow.addEventListener("click", () => updateChartTypeUI("flow"));
+    }
+    if (btnSwitchMatrix) {
+        btnSwitchMatrix.addEventListener("click", () => updateChartTypeUI("matrix"));
+    }
+
+    // 2.2 Seletor Dropdown de Moeda da Matriz (independente em cada gráfico)
+    document.querySelectorAll(".matrix-ccy-select").forEach(sel => {
+        sel.addEventListener("change", (e) => {
+            const chartKey = sel.dataset.chart;
+            const ccy = sel.value;
+            state.chartMatrixCcys[chartKey] = ccy;
+            if (chartKey === "chart1") state.matrixActiveCcy = ccy;
+
+            const titleEl = document.getElementById(`${chartKey}Title`);
+            if (titleEl && state.chartType === "matrix") {
+                titleEl.textContent = `Matriz de Pares (${ccy})`;
+            }
+
+            renderChart(chartKey);
         });
     });
 
@@ -280,22 +352,29 @@ function updateHeaderStatus(data) {
     const statusTitle = document.getElementById("mt5StatusText");
     const statusTime = document.getElementById("lastUpdateTime");
 
-    if (data.mt5_connected) {
-        statusDot.className = "status-dot online";
-        statusTitle.textContent = "MT5 LIVE";
+    const now = new Date();
+    const dayOfWeek = now.getDay(); // 0 = Domingo, 6 = Sábado
+    const isWeekend = (dayOfWeek === 6) || (dayOfWeek === 0 && now.getHours() < 18);
+
+    if (isWeekend) {
+        if (statusDot) statusDot.className = "status-dot weekend";
+        if (statusTitle) statusTitle.textContent = "FECHAMENTO SEXTA";
+    } else if (data.mt5_connected) {
+        if (statusDot) statusDot.className = "status-dot online";
+        if (statusTitle) statusTitle.textContent = "MT5 LIVE";
     } else {
-        statusDot.className = "status-dot offline";
-        statusTitle.textContent = "CACHE OFFLINE";
+        if (statusDot) statusDot.className = "status-dot offline";
+        if (statusTitle) statusTitle.textContent = "CACHE OFFLINE";
     }
 
-    if (data.timestamp) {
+    if (data.timestamp && statusTime) {
         statusTime.textContent = data.timestamp.split(" ")[1] || data.timestamp;
     }
 }
 
 function updateStrongSignalsCount(pairs) {
     if (!pairs) return;
-    const strongCount = pairs.filter(p => p.conviction.includes("MÁXIMA") || p.recommendation.includes("STRONG")).length;
+    const strongCount = pairs.filter(p => p.is_alicate || p.conviction.includes("MÁXIMA") || p.conviction.includes("ALICATE") || p.recommendation.includes("STRONG")).length;
     const badge = document.getElementById("strongSignalsCount");
     if (badge) badge.textContent = strongCount;
 }
@@ -314,10 +393,17 @@ function renderAllCharts() {
 }
 
 function renderChart(chartKey) {
-    if (!state.data || !state.data.charts) return;
+    if (!state.data) return;
 
     const tf = state.chartTFs[chartKey];
-    const chartData = state.data.charts[tf];
+    const isMatrix = state.chartType === "matrix";
+
+    if (isMatrix) {
+        renderMatrixOnMainChart(chartKey, tf);
+        return;
+    }
+
+    const chartData = state.data.charts ? state.data.charts[tf] : null;
     if (!chartData) return;
 
     const canvasId = chartKey === "chart1" ? "cssCanvas1" : chartKey === "chart2" ? "cssCanvas2" : "cssCanvas3";
@@ -433,6 +519,121 @@ function renderChart(chartKey) {
     });
 
     // 3. Renderizar Badges Laterais Flutuantes no Eixo Direito com Conectores
+    renderRightSideBadges(ctx, overlay, lastPoints, height, width, padding);
+}
+
+// RENDERIZAÇÃO DA MATRIZ DE PARES DIRETAMENTE NO GRÁFICO PRINCIPAL
+function renderMatrixOnMainChart(chartKey, tf) {
+    if (!state.data || !state.data.pair_charts) return;
+
+    const allPairCharts = state.data.pair_charts[tf];
+    if (!allPairCharts) return;
+
+    const ccy = state.chartMatrixCcys[chartKey] || state.matrixActiveCcy || "USD";
+    const canvasId = chartKey === "chart1" ? "cssCanvas1" : chartKey === "chart2" ? "cssCanvas2" : "cssCanvas3";
+    const overlayId = chartKey === "chart1" ? "badgesOverlay1" : chartKey === "chart2" ? "badgesOverlay2" : "badgesOverlay3";
+
+    const canvas = document.getElementById(canvasId);
+    const overlay = document.getElementById(overlayId);
+    if (!canvas || !overlay) return;
+
+    const ctx = canvas.getContext("2d");
+    const rect = canvas.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    ctx.scale(dpr, dpr);
+
+    const width = rect.width;
+    const height = rect.height;
+    ctx.clearRect(0, 0, width, height);
+
+    // Identificar os pares relacionados à moeda selecionada
+    const activePairs = [];
+    Object.keys(allPairCharts).forEach(sym => {
+        if (sym.includes(ccy)) {
+            activePairs.push(sym);
+        }
+    });
+
+    if (activePairs.length === 0) return;
+
+    const times = state.data.charts ? (state.data.charts[tf]?.times || []) : [];
+    const numPoints = times.length;
+    if (numPoints < 2) return;
+
+    let minVal = -0.05;
+    let maxVal = 0.05;
+
+    activePairs.forEach(sym => {
+        const arr = allPairCharts[sym] || [];
+        minVal = Math.min(minVal, ...arr);
+        maxVal = Math.max(maxVal, ...arr);
+    });
+
+    minVal -= 0.05;
+    maxVal += 0.05;
+
+    const isMobile = window.innerWidth <= 768;
+    const isSmall = window.innerWidth <= 480;
+    const padding = { 
+        top: 25, 
+        bottom: 25, 
+        left: isSmall ? 8 : 15, 
+        right: isSmall ? 85 : (isMobile ? 110 : 180) 
+    };
+    const chartW = width - padding.left - padding.right;
+    const chartH = height - padding.top - padding.bottom;
+
+    const getY = (val) => padding.top + chartH * (1 - (val - minVal) / (maxVal - minVal));
+    const getX = (idx) => padding.left + (idx / (numPoints - 1)) * chartW;
+
+    drawInstitutionalLevels(ctx, width, getX, getY, minVal, maxVal, padding);
+    drawTimeAxis(ctx, width, height, times, getX, padding, tf);
+
+    const lastPoints = [];
+
+    activePairs.forEach(sym => {
+        const arr = allPairCharts[sym] || [];
+        const base = sym.substring(0, 3);
+        const quote = sym.substring(3, 6);
+        const otherCcy = base === ccy ? quote : base;
+        const color = CCY_COLORS[otherCcy] || "#FFF";
+        const flag = CCY_FLAGS[otherCcy] || "🏳️";
+
+        ctx.save();
+        ctx.beginPath();
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2.2;
+        ctx.lineJoin = "round";
+        ctx.lineCap = "round";
+        ctx.shadowColor = color;
+        ctx.shadowBlur = 4;
+
+        for (let i = 0; i < arr.length; i++) {
+            const x = getX(i);
+            const y = getY(arr[i]);
+            if (i === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+        ctx.restore();
+
+        const lastVal = arr[arr.length - 1] || 0;
+        const lastX = getX(arr.length - 1);
+        const lastY = getY(lastVal);
+        lastPoints.push({
+            ccy: sym,
+            val: lastVal,
+            targetY: lastY,
+            y: lastY,
+            lastX: lastX,
+            color: color,
+            flag: flag
+        });
+    });
+
     renderRightSideBadges(ctx, overlay, lastPoints, height, width, padding);
 }
 
@@ -811,10 +1012,10 @@ function setupModals() {
         });
     }
 
-    // Filtros de pares
-    document.querySelectorAll(".filter-pill").forEach(pill => {
+    // Filtros de pares (Operações Alicate)
+    document.querySelectorAll("#pairFilters .filter-pill").forEach(pill => {
         pill.addEventListener("click", () => {
-            document.querySelectorAll(".filter-pill").forEach(p => p.classList.remove("active"));
+            document.querySelectorAll("#pairFilters .filter-pill").forEach(p => p.classList.remove("active"));
             pill.classList.add("active");
             state.pairsFilter = pill.dataset.filter;
             renderPairsTable();
@@ -1009,7 +1210,7 @@ function renderMatrixChart() {
     renderRightSideBadges(ctx, overlay, lastPoints, height, width, padding);
 }
 
-// SCREENER DOS 28 PARES
+// SCREENER DOS 28 PARES (OPERAÇÕES ALICATE)
 function renderPairsTable() {
     const tbody = document.getElementById("pairsTableBody");
     if (!tbody || !state.data || !state.data.pairs) return;
@@ -1017,20 +1218,26 @@ function renderPairsTable() {
     let list = state.data.pairs;
 
     // Aplicar filtros
-    if (state.pairsFilter === "RECENT_4H") {
+    if (state.pairsFilter === "ALICATE") {
+        list = list.filter(p => p.is_alicate || p.conviction.includes("ALICATE") || p.recommendation.includes("ALICATE"));
+    } else if (state.pairsFilter === "ALICATE_SYNC") {
+        list = list.filter(p => p.alicate_status === "SYNC" || p.conviction.includes("TRIPLO") || p.conviction.includes("SINCRONIZADO") || p.recommendation.includes("ALICATE TRIPLO"));
+    } else if (state.pairsFilter === "ALICATE_OP") {
+        list = list.filter(p => p.alicate_status === "OP" || p.recommendation.includes("ALICATE H4/H1") || p.recommendation.includes("ALICATE OPERACIONAL") || p.conviction.includes("INTRADAY"));
+    } else if (state.pairsFilter === "ALICATE_WAIT") {
+        list = list.filter(p => p.alicate_status === "WAIT_OP" || p.recommendation.includes("AGUARDAR H1") || p.conviction.includes("TRANSIÇÃO") || p.conviction.includes("AGUARDAR"));
+    } else if (state.pairsFilter === "BUY") {
+        list = list.filter(p => p.recommendation.includes("BUY") || p.recommendation.includes("COMPRA"));
+    } else if (state.pairsFilter === "SELL") {
+        list = list.filter(p => p.recommendation.includes("SELL") || p.recommendation.includes("VENDA"));
+    } else if (state.pairsFilter === "RECENT_4H") {
         list = list.filter(p => {
             const cross = state.data?.crossovers?.timeframes?.H1?.crossovers?.find(c => c.pair === p.pair);
             const bars = cross ? cross.bars_ago : (p.bars_ago !== undefined ? p.bars_ago : 0);
             return bars <= 4;
         });
-    } else if (state.pairsFilter === "BUY") {
-        list = list.filter(p => p.recommendation.includes("BUY"));
-    } else if (state.pairsFilter === "SELL") {
-        list = list.filter(p => p.recommendation.includes("SELL"));
-    } else if (state.pairsFilter === "STRONG") {
-        list = list.filter(p => p.conviction.includes("MÁXIMA") || p.recommendation.includes("STRONG"));
     } else if (state.pairsFilter === "BOX") {
-        list = list.filter(p => p.recommendation.includes("NEUTRO") || p.recommendation.includes("BOX"));
+        list = list.filter(p => p.recommendation.includes("NEUTRO") || p.recommendation.includes("BOX") || p.conviction.includes("NEUTRA"));
     }
 
     if (state.pairsSearch) {
@@ -1040,7 +1247,7 @@ function renderPairsTable() {
     tbody.innerHTML = "";
 
     if (list.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="9" class="loading-cell" style="padding: 30px; text-align: center; color: var(--text-muted);">⏱️ Nenhuma operação ou cruzamento confirmado nas últimas 4 horas.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="10" class="loading-cell" style="padding: 30px; text-align: center; color: var(--text-muted);">✂️ Nenhuma operação correspondente ao filtro selecionado.</td></tr>`;
         return;
     }
 
@@ -1048,7 +1255,10 @@ function renderPairsTable() {
         const tr = document.createElement("tr");
 
         let recClass = "neutral";
-        if (item.badge_type === "STRONG_BUY") recClass = "strong-buy";
+        if (item.badge_type === "ALICATE_SYNC") recClass = "alicate-sync";
+        else if (item.badge_type === "ALICATE_WAIT") recClass = "alicate-wait";
+        else if (item.badge_type === "ALICATE_OP") recClass = "alicate-op";
+        else if (item.badge_type === "STRONG_BUY") recClass = "strong-buy";
         else if (item.badge_type === "BUY") recClass = "buy";
         else if (item.badge_type === "STRONG_SELL") recClass = "strong-sell";
         else if (item.badge_type === "SELL") recClass = "sell";
@@ -1070,7 +1280,6 @@ function renderPairsTable() {
         }
 
         const timeDisplay = signalTime ? signalTime.replace(/.*(\d{2}:\d{2}).*/, '$1') : '18:00';
-        const fullTime = signalTime || '';
         const recencyStr = (bars === 0 || bars === undefined) ? '🔥 Barra Atual' : `${bars}h atrás (${bars}b)`;
 
         tr.innerHTML = `
@@ -1092,7 +1301,7 @@ function renderPairsTable() {
                 </div>
             </td>
             <td><span class="rec-badge ${recClass}">${item.recommendation}</span></td>
-            <td style="font-weight: 700; color: ${item.conviction.includes('MÁXIMA') ? '#00FF88' : '#94A3B8'}">${item.conviction}</td>
+            <td style="font-weight: 700; color: ${item.conviction.includes('MÁXIMA') || item.conviction.includes('ALICATE') ? '#00FF88' : '#94A3B8'}">${item.conviction}</td>
             <td class="score-cell ${item.total_score > 0 ? 'positive' : item.total_score < 0 ? 'negative' : 'neutral'}">
                 ${(item.total_score >= 0 ? "+" : "") + item.total_score.toFixed(2)}
             </td>
@@ -1101,7 +1310,7 @@ function renderPairsTable() {
             <td style="font-size: 11.5px; color: var(--text-secondary);">${item.thesis}</td>
             <td>
                 <button class="btn-deep-dive" style="padding: 3px 8px; font-size: 10.5px; border-radius: 4px; display: inline-flex; align-items: center; gap: 4px;" onclick="openDeepDive('${item.pair}')">
-                    <span>🔍</span> <span>Raio-X 5-TF</span>
+                    <span>🔍</span> <span>Raio-X 3-TF</span>
                 </button>
             </td>
         `;
@@ -1269,11 +1478,11 @@ window.openDeepDive = function(target) {
 
         document.getElementById("deepDiveFlag").textContent = `${baseFlag}${quoteFlag}`;
         document.getElementById("deepDiveTitle").textContent = `Par ${target}`;
-        document.getElementById("deepDiveSubtitle").textContent = pairItem ? pairItem.thesis : `Raio-X de Confluência Multi-Timeframe nos 5 TFs entre ${base} e ${quote}`;
+        document.getElementById("deepDiveSubtitle").textContent = pairItem ? pairItem.thesis : `Raio-X de Confluência Intraday nos 3 TFs (D1, H4, H1) entre ${base} e ${quote}`;
 
         verdictCard.innerHTML = `
             <div>
-                <div style="font-size: 11px; color: var(--text-muted); text-transform: uppercase;">Confluência Institucional do Par:</div>
+                <div style="font-size: 11px; color: var(--text-muted); text-transform: uppercase;">Confluência Institucional Intraday (3-TF):</div>
                 <div style="font-size: 14px; font-weight: 800; color: #FFFFFF;">${pairItem ? pairItem.recommendation : target} — Convicção: ${pairItem ? pairItem.conviction : 'ALTA'}</div>
             </div>
             <div>
@@ -1284,7 +1493,7 @@ window.openDeepDive = function(target) {
         `;
 
         triadsGrid.innerHTML = "";
-        const tfs = ["MN1", "W1", "D1", "H4", "H1"];
+        const tfs = ["D1", "H4", "H1"];
 
         tfs.forEach(tf => {
             const card = document.createElement("div");
@@ -1636,14 +1845,14 @@ window.exportDeepDiveImage = function() {
     const target = state.selectedDeepDiveTarget || "USD";
     const flag = CCY_FLAGS[target] || "";
     const isPair = target.length === 6 && !state.currencies.includes(target);
-    const tfs = ["MN1", "W1", "D1", "H4", "H1"];
+    const tfs = isPair ? ["D1", "H4", "H1"] : ["MN1", "W1", "D1", "H4", "H1"];
 
-    // Redesenhar os 5 mini canvas
+    // Redesenhar os mini canvas
     tfs.forEach(tf => drawTriadMiniChart(`deepDiveCanvas_${tf}`, target, tf));
 
     const exportCanvas = document.createElement("canvas");
     const width = 1200;
-    const height = 1580;
+    const height = isPair ? 1040 : 1580;
     exportCanvas.width = width;
     exportCanvas.height = height;
     const ctx = exportCanvas.getContext("2d");
@@ -1665,7 +1874,8 @@ window.exportDeepDiveImage = function() {
 
     ctx.fillStyle = "#8899A6";
     ctx.font = "13px 'Inter', sans-serif";
-    ctx.fillText("Diagnóstico Cíclico e Tríade Analítica nos 5 Timeframes (MN1, W1, D1, H4, H1) — CSS PRO", 40, 85);
+    const subText = isPair ? "Raio-X de Confluência Intraday nos 3 Timeframes (D1, H4, H1) — CSS PRO" : "Diagnóstico Cíclico e Tríade Analítica nos 5 Timeframes (MN1, W1, D1, H4, H1) — CSS PRO";
+    ctx.fillText(subText, 40, 85);
 
     const timeStr = state.data?.timestamp || new Date().toLocaleString();
     ctx.textAlign = "right";
@@ -1760,7 +1970,6 @@ window.exportDeepDiveImage = function() {
             ctx.textAlign = "right";
             ctx.fillText(`${triad.score_str} ${triad.dir} — ${triad.angle}`, width - 35, y + 26);
             ctx.textAlign = "left";
-        }
         }
 
         // Gráfico (renderizado a partir do canvas existente)
@@ -2305,7 +2514,7 @@ function renderLiveTab(session) {
     if (!session) return;
 
     const portfolios = session.portfolios || [];
-    const totalPairsCount = session.total_pairs_count || 0;
+    const totalPairsCount = session.total_open_pairs !== undefined ? session.total_open_pairs : (session.total_pairs_count || 0);
     const totalPnL = session.total_pnl_usd || 0;
     const totalPips = session.total_pips || 0;
 
@@ -2317,6 +2526,7 @@ function renderLiveTab(session) {
     const pairsCountEl = document.getElementById("liveActivePairsCount");
     const badgeTab = document.getElementById("livePortfoliosBadge");
     const timerBadge = document.getElementById("liveElapsedTimer");
+    const dateBadge = document.getElementById("liveDecisionDateBadge");
 
     const isLive = !!session.is_in_progress;
 
@@ -2326,22 +2536,27 @@ function renderLiveTab(session) {
     const pulseRing = document.querySelector(".pulse-ring-live");
     const kpiTitleEl = document.querySelector(".live-kpi-card.highlight .kpi-title");
 
+    if (dateBadge && session.date) {
+        dateBadge.textContent = `Sessão: ${session.date} (Abertura 21:05 ➔ 08:00)`;
+    }
+
     if (statusTextEl) {
-        statusTextEl.textContent = isLive ? "🔴 PREGÃO DA MADRUGADA AO VIVO" : "🟢 SESSÃO ENCERRADA ÀS 08H00 BRT";
+        statusTextEl.textContent = isLive ? "🔴 PREGÃO DA MADRUGADA AO VIVO" : "🟢 SESSÃO ENCERRADA (AGUARDANDO 21:05 BRT)";
     }
     if (timeInfoEl) {
-        timeInfoEl.textContent = session.session_info_str || (isLive ? "📅 Sessão Ao Vivo | Início: 21h00 ➔ Encerramento: 08h00 BRT" : "✅ Sessão da Madrugada Concluída às 08h00 BRT | Próxima Abertura às 21h00 BRT");
+        timeInfoEl.textContent = session.session_info_str || (isLive ? "📅 Sessão Ao Vivo | Início: 21h05 ➔ Encerramento: 08h00 BRT" : "✅ Sessão Concluída às 08h00 BRT | Próxima Abertura às 21h05 BRT");
     }
     if (timerBadge) {
-        timerBadge.textContent = isLive ? `⏱️ Em andamento (${session.time_remaining_str || '21h➔08h'})` : `⏳ Fechado às 08h00 | Próxima às 21h00 (${session.next_session_in || ''})`;
+        timerBadge.textContent = isLive ? `⏱️ Em andamento (${session.time_remaining_str || '21h➔08h'})` : `⏳ Fechado às 08h00 | Próxima às 21h05 (${session.time_remaining_str || ''})`;
         timerBadge.style.background = isLive ? "rgba(255, 51, 75, 0.2)" : "rgba(0, 230, 118, 0.15)";
         timerBadge.style.color = isLive ? "#FF334B" : "#00E676";
         timerBadge.style.borderColor = isLive ? "rgba(255, 51, 75, 0.4)" : "rgba(0, 230, 118, 0.4)";
     }
     if (badgeTab) {
-        badgeTab.textContent = isLive ? `${portfolios.length} Cestas Ativas` : `Fechada às 08h (${portfolios.length} Cestas)`;
-        badgeTab.style.background = isLive ? "rgba(255, 51, 75, 0.2)" : "rgba(0, 230, 118, 0.15)";
-        badgeTab.style.color = isLive ? "#FF334B" : "#00E676";
+        const activeCount = portfolios.filter(p => p.decision?.direction !== "NEUTRAL" && p.decision?.direction).length;
+        badgeTab.textContent = isLive ? `${activeCount} Cestas Ativas` : `Decisões Gravadas (${activeCount} Ativas)`;
+        badgeTab.style.background = isLive ? "rgba(255, 51, 75, 0.2)" : "rgba(0, 229, 255, 0.15)";
+        badgeTab.style.color = isLive ? "#FF334B" : "#00E5FF";
     }
     if (pulseRing) {
         pulseRing.style.borderColor = isLive ? "var(--color-red)" : "var(--color-green)";
@@ -2357,46 +2572,74 @@ function renderLiveTab(session) {
     if (pipsEl) pipsEl.textContent = `${(totalPips >= 0 ? "+" : "") + totalPips.toFixed(1)} pips ${isLive ? 'flutuantes' : 'realizados'}`;
     if (mfeEl) mfeEl.textContent = `+$${(session.mfe_usd || 0).toFixed(2)}`;
     if (maeEl) maeEl.textContent = `-$${Math.abs(session.mae_usd || 0).toFixed(2)}`;
-    if (countEl) countEl.textContent = `${portfolios.length} Cestas`;
-    if (pairsCountEl) pairsCountEl.textContent = `${totalPairsCount} pares ${isLive ? 'operados' : 'encerrados'}`;
+    if (countEl) countEl.textContent = `${session.active_portfolios_count || portfolios.filter(p=>p.execution?.is_trading).length} Operando`;
+    if (pairsCountEl) pairsCountEl.textContent = `${totalPairsCount} ordens no MT5`;
 
-    // 1. Renderizar Cards de Cestas Ativas
+    // 1. RENDERIZAR AS DECISÕES DAS 21:02 (OS 8 CARDS DE MOEDAS)
+    const decisionsGrid = document.getElementById("liveDecisionsCardsGrid");
+    if (decisionsGrid) {
+        decisionsGrid.innerHTML = portfolios.map(port => {
+            const dec = port.decision || { direction: port.bias || "NEUTRAL", reason: port.reason || "" };
+            const dir = (dec.direction || "NEUTRAL").toUpperCase();
+            const dirClass = dir === "BUY" ? "buy" : (dir === "SELL" ? "sell" : "neutral");
+            const dirLabel = dir === "BUY" ? "🟢 COMPRA (FORÇA)" : (dir === "SELL" ? "🔴 VENDA (FRAQUEZA)" : "⚪ NEUTRO (SEM SINAL)");
+            const cardColor = CCY_COLORS[port.currency] || "#00E5FF";
+
+            return `
+                <div class="decision-card ${dirClass}" style="--card-color: ${cardColor};">
+                    <div class="decision-card-header">
+                        <div class="decision-ccy-badge">
+                            <span>${port.flag || CCY_FLAGS[port.currency] || '🏳️'}</span>
+                            <span>${port.currency}</span>
+                            <span style="font-size: 10px; font-weight: normal; color: var(--text-muted); font-family: var(--font-mono);">#${port.magic}</span>
+                        </div>
+                        <span class="decision-dir-badge ${dirClass}">${dirLabel}</span>
+                    </div>
+                    <div class="decision-scores">
+                        <span>D1: <b>${dec.d1_score !== undefined ? (dec.d1_score >= 0 ? "+" : "") + Number(dec.d1_score).toFixed(2) : '-'}</b></span>
+                        <span>H4: <b>${dec.h4_score !== undefined ? (dec.h4_score >= 0 ? "+" : "") + Number(dec.h4_score).toFixed(2) : '-'}</b></span>
+                    </div>
+                    <div class="decision-reason" title="${dec.reason}">
+                        ${dec.reason || 'Sem confluência'}
+                    </div>
+                </div>
+            `;
+        }).join("");
+    }
+
+    // 2. Renderizar Cards de Cestas Ativas (Execução MT5)
     const basketsContainer = document.getElementById("liveBasketsCardsContainer");
     if (basketsContainer) {
-        if (portfolios.length === 0) {
+        const tradingPorts = portfolios.filter(p => p.execution?.is_trading || p.pairs?.length > 0);
+        if (tradingPorts.length === 0) {
             basketsContainer.innerHTML = `
-                <div style="grid-column: 1 / -1; padding: 20px; background: #0C101A; border-radius: 8px; color: var(--text-muted); text-align: center;">
-                    🛡️ Nenhuma cesta atingiu 4+ TFs com ciclo válido às 21h00. Mercado sem alinhamento direcional (Preservação de Capital).
+                <div style="grid-column: 1 / -1; padding: 20px; background: #0C101A; border-radius: 8px; color: var(--text-muted); text-align: center; border: 1px dashed var(--border-color);">
+                    ⏳ Nenhuma ordem aberta no MT5 no momento. As ordens serão disparadas pontualmente às <strong>21:05 BRT</strong> pelos robôs baseadas nas decisões acima.
                 </div>
             `;
         } else {
-            basketsContainer.innerHTML = portfolios.map(port => {
-                const pnl = port.pnl_usd || 0;
+            basketsContainer.innerHTML = tradingPorts.map(port => {
+                const exec = port.execution || {};
+                const pnl = exec.pnl_usd || port.pnl_usd || 0;
                 const isPos = pnl >= 0;
+                const dec = port.decision || {};
                 return `
                     <div class="live-basket-card">
                         <div style="display: flex; align-items: center; justify-content: space-between;">
                             <div style="display: flex; align-items: center; gap: 8px;">
-                                <span style="font-size: 20px;">${port.flag || '🏳️'}</span>
+                                <span style="font-size: 20px;">${port.flag || CCY_FLAGS[port.currency] || '🏳️'}</span>
                                 <div>
                                     <span style="font-weight: 800; font-family: var(--font-mono); color: #FFF; font-size: 13px;">Cesta ${port.currency}</span>
-                                    <span class="region-badge ${port.bias === 'BUY' ? 'green' : 'red'}" style="margin-left: 6px; font-size: 9px; padding: 1px 5px;">${port.bias === 'BUY' ? 'COMPRA' : 'VENDA'}</span>
+                                    <span class="region-badge ${dec.direction === 'BUY' ? 'green' : 'red'}" style="margin-left: 6px; font-size: 9px; padding: 1px 5px;">${dec.direction === 'BUY' ? 'COMPRA' : 'VENDA'}</span>
                                 </div>
                             </div>
-                            <div class="leds-container">
-                                <span class="led-dot ${port.leds?.MN1 || 'yellow'}" title="MN1"></span>
-                                <span class="led-dot ${port.leds?.W1 || 'yellow'}" title="W1"></span>
-                                <span class="led-dot ${port.leds?.D1 || 'yellow'}" title="D1"></span>
-                                <span class="led-dot ${port.leds?.H4 || 'yellow'}" title="H4"></span>
-                                <span class="led-dot ${port.leds?.H1 || 'yellow'}" title="H1"></span>
-                            </div>
+                            <span style="font-size: 10px; font-family: var(--font-mono); color: var(--text-muted);">Magic #${port.magic}</span>
                         </div>
                         <div style="font-size: 10.5px; color: var(--text-muted);">
-                            📌 <em>${port.reason || 'Confluência Multi-TF'}</em>
+                            📌 <em>${dec.reason || 'Execução Multi-TF'}</em>
                         </div>
                         <div style="display: flex; align-items: center; justify-content: space-between; padding-top: 6px; border-top: 1px solid rgba(255,255,255,0.06); font-family: var(--font-mono); font-size: 11px;">
-                            <span>MFE: <strong style="color: var(--color-green);">+$${(port.mfe_usd||0).toFixed(2)}</strong></span>
-                            <span>MAE: <strong style="color: var(--color-red);">-$${Math.abs(port.mae_usd||0).toFixed(2)}</strong></span>
+                            <span>Ordens MT5: <strong style="color: var(--color-cyan);">${exec.open_pairs_count || (port.pairs||[]).length} pares</strong></span>
                             <span style="font-weight: 800; font-size: 13px; color: ${isPos ? 'var(--color-green)' : 'var(--color-red)'};">
                                 ${(isPos ? "+$" : "-$") + Math.abs(pnl).toFixed(2)}
                             </span>
@@ -2407,25 +2650,26 @@ function renderLiveTab(session) {
         }
     }
 
-    // 2. Renderizar Tabela Live dos 28 Pares
+    // 3. Renderizar Tabela Live das Ordens Reais no MT5
     const tbody = document.getElementById("livePairsTableBody");
     if (tbody) {
         const allLivePairs = [];
         portfolios.forEach(port => {
-            (port.pairs || []).forEach(p => {
-                allLivePairs.push({ ...p, basket: port.currency, basketFlag: port.flag });
+            const pairsList = port.execution?.pairs || port.pairs || [];
+            pairsList.forEach(p => {
+                allLivePairs.push({ ...p, basket: port.currency, basketFlag: port.flag || CCY_FLAGS[port.currency] });
             });
         });
 
         if (allLivePairs.length === 0) {
-            tbody.innerHTML = `<tr><td colspan="10" class="loading-cell">Nenhum par em operação ativa nesta sessão.</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="10" class="loading-cell" style="padding: 24px; color: var(--text-muted);">Nenhuma posição aberta no MT5 neste momento. Aguardando disparo às 21:05 BRT.</td></tr>`;
         } else {
             tbody.innerHTML = allLivePairs.map(p => {
                 const pnl = p.pnl_usd || 0;
                 const pips = p.pips || 0;
                 const isPos = pnl >= 0;
                 const pnlClass = isPos ? "positive" : "negative";
-                const currPrice = p.current_price || p.exit_price || p.entry_price;
+                const currPrice = p.current_price || p.exit_price || p.entry_price || 0;
 
                 return `
                     <tr>
@@ -2440,7 +2684,7 @@ function renderLiveTab(session) {
                                 ${p.action}
                             </span>
                         </td>
-                        <td class="text-right" style="font-family: var(--font-mono);">${p.entry_price.toFixed(5)}</td>
+                        <td class="text-right" style="font-family: var(--font-mono);">${Number(p.entry_price || 0).toFixed(5)}</td>
                         <td class="text-right" style="font-family: var(--font-mono); font-weight: 700; color: #FFF;">${Number(currPrice).toFixed(5)}</td>
                         <td class="score-cell positive text-right">+${(p.mfe_usd || 0).toFixed(2)}</td>
                         <td class="score-cell negative text-right">-${Math.abs(p.mae_usd || 0).toFixed(2)}</td>
@@ -2928,6 +3172,7 @@ function renderAnalyticsTab(data) {
 
     setTimeout(() => {
         renderGlobalEquityCurve(data.equity_curve || []);
+        renderMultiPortfolioEquityCurve(data.portfolio_equity_curves || {});
         renderCurrencyBreakdownTable(sessions);
     }, 60);
 }
@@ -3012,6 +3257,135 @@ function renderGlobalEquityCurve(curveData) {
     ctx.fillText(`$0`, padding.left - 8, y0 + 3);
 }
 
+// Multi-Portfolio Equity State
+if (!state.multiPortfolioVisible) {
+    state.multiPortfolioVisible = {
+        USD: true, EUR: true, GBP: true, CHF: true,
+        JPY: true, AUD: true, CAD: true, NZD: true
+    };
+}
+
+function renderMultiPortfolioEquityCurve(portfolioCurves) {
+    const canvas = document.getElementById("equityCanvasMultiPortfolio");
+    if (!canvas || !portfolioCurves) return;
+
+    const ctx = canvas.getContext("2d");
+    const rect = canvas.parentElement.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    ctx.scale(dpr, dpr);
+
+    const width = rect.width;
+    const height = rect.height;
+    ctx.clearRect(0, 0, width, height);
+
+    const padding = { top: 25, bottom: 30, left: 60, right: 90 };
+    const chartW = width - padding.left - padding.right;
+    const chartH = height - padding.top - padding.bottom;
+
+    // Coletar todos os pontos das moedas visíveis para escala dinâmica
+    let allEquities = [0.0];
+    CURRENCIES.forEach(c => {
+        if (state.multiPortfolioVisible[c] && portfolioCurves[c]) {
+            portfolioCurves[c].forEach(pt => allEquities.push(pt.equity));
+        }
+    });
+
+    let minVal = Math.min(...allEquities, 0.0);
+    let maxVal = Math.max(...allEquities, 5.0);
+    const range = (maxVal - minVal) || 1.0;
+    minVal -= range * 0.12;
+    maxVal += range * 0.12;
+
+    const samplePts = portfolioCurves["USD"] || [];
+    const numPoints = Math.max(2, samplePts.length);
+
+    const getX = (i) => padding.left + (i / (numPoints - 1)) * chartW;
+    const getY = (val) => padding.top + chartH * (1 - (val - minVal) / (maxVal - minVal));
+
+    // Linha Zero 0.00
+    const y0 = getY(0.0);
+    ctx.save();
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.15)";
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    ctx.moveTo(padding.left, y0);
+    ctx.lineTo(width - padding.right, y0);
+    ctx.stroke();
+    ctx.restore();
+
+    // Desenhar a curva individual de cada moeda visível com sua cor institucional
+    CURRENCIES.forEach(c => {
+        if (!state.multiPortfolioVisible[c]) return;
+        const pts = portfolioCurves[c];
+        if (!pts || pts.length < 2) return;
+
+        const color = CCY_COLORS[c] || "#FFF";
+
+        ctx.save();
+        ctx.beginPath();
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2.2;
+        ctx.shadowColor = color;
+        ctx.shadowBlur = 5;
+
+        for (let i = 0; i < pts.length; i++) {
+            const x = getX(i);
+            const y = getY(pts[i].equity);
+            if (i === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+        ctx.restore();
+
+        // Badge / Label final da moeda à direita
+        const lastPt = pts[pts.length - 1];
+        const lastX = getX(pts.length - 1);
+        const lastY = getY(lastPt.equity);
+
+        ctx.save();
+        ctx.fillStyle = color;
+        ctx.font = "bold 9.5px JetBrains Mono";
+        ctx.textAlign = "left";
+        const pnlStr = (lastPt.equity >= 0 ? "+$" : "-$") + Math.abs(lastPt.equity).toFixed(1);
+        ctx.fillText(`${CCY_FLAGS[c] || ''} ${c} (${pnlStr})`, lastX + 6, lastY + 3);
+        ctx.restore();
+    });
+
+    // Escala no Eixo Y
+    ctx.fillStyle = "#94A3B8";
+    ctx.font = "10px JetBrains Mono";
+    ctx.textAlign = "right";
+    ctx.fillText(`$${maxVal.toFixed(1)}`, padding.left - 8, padding.top + 5);
+    ctx.fillText(`$${minVal.toFixed(1)}`, padding.left - 8, height - padding.bottom);
+    ctx.fillText(`$0`, padding.left - 8, y0 + 3);
+
+    // Datas no Eixo X
+    ctx.textAlign = "center";
+    for (let i = 0; i < numPoints; i += Math.max(1, Math.floor(numPoints / 5))) {
+        const dStr = samplePts[i] ? samplePts[i].date : "";
+        ctx.fillText(dStr, getX(i), height - 8);
+    }
+}
+
+// Inicializar listeners dos botões de filtro de portfólio
+document.addEventListener("DOMContentLoaded", () => {
+    document.querySelectorAll("#multiPortfolioLegendToggles button").forEach(btn => {
+        btn.addEventListener("click", () => {
+            const ccy = btn.dataset.ccy;
+            state.multiPortfolioVisible[ccy] = !state.multiPortfolioVisible[ccy];
+            btn.classList.toggle("active", state.multiPortfolioVisible[ccy]);
+            btn.style.opacity = state.multiPortfolioVisible[ccy] ? "1" : "0.35";
+            if (state.trackRecordData) {
+                renderMultiPortfolioEquityCurve(state.trackRecordData.portfolio_equity_curves);
+            }
+        });
+    });
+});
+
 function renderCurrencyBreakdownTable(sessions) {
     const tbody = document.getElementById("currencyAnalyticsTableBody");
     if (!tbody) return;
@@ -3067,6 +3441,98 @@ function renderCurrencyBreakdownTable(sessions) {
             </tr>
         `;
     }).join("");
+}
+
+function renderWeekdayAnalytics(sessions) {
+    const container = document.getElementById("weekdayAnalyticsContainer");
+    if (!container) return;
+
+    const days = [
+        { label: "Segunda-feira", key: 0, pnl: 0.0, count: 0, wins: 0 },
+        { label: "Terça-feira", key: 1, pnl: 0.0, count: 0, wins: 0 },
+        { label: "Quarta-feira", key: 2, pnl: 0.0, count: 0, wins: 0 },
+        { label: "Quinta-feira", key: 3, pnl: 0.0, count: 0, wins: 0 },
+        { label: "Sexta-feira", key: 4, pnl: 0.0, count: 0, wins: 0 }
+    ];
+
+    sessions.forEach(sess => {
+        if (!sess.date) return;
+        const d = new Date(sess.date + "T12:00:00Z");
+        const wd = d.getUTCDay(); // 0=Dom, 1=Seg...
+        const idx = wd - 1;
+        if (idx >= 0 && idx < 5) {
+            days[idx].count += 1;
+            days[idx].pnl += (sess.total_pnl_usd || 0);
+            if ((sess.total_pnl_usd || 0) > 0) days[idx].wins += 1;
+        }
+    });
+
+    if (sessions.length === 0) {
+        container.innerHTML = `<div style="color: var(--text-muted); font-size: 11px; text-align: center; padding: 20px;">Aguardando histórico de sessões reais do MT5 para cálculo por dia da semana.</div>`;
+        return;
+    }
+
+    container.innerHTML = days.map(d => {
+        const wr = d.count > 0 ? Math.round((d.wins / d.count) * 100) : 0;
+        const isPos = d.pnl >= 0;
+        const color = d.count === 0 ? "var(--text-muted)" : (isPos ? "var(--color-green)" : "var(--color-red)");
+        const pnlStr = d.count === 0 ? "$0.00" : ((isPos ? "+$" : "-$") + Math.abs(d.pnl).toFixed(2));
+
+        return `
+            <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; background: rgba(255,255,255,0.02); border-radius: 6px; border: 1px solid rgba(255,255,255,0.05);">
+                <div style="display: flex; flex-direction: column;">
+                    <span style="font-size: 12px; font-weight: 700; color: #FFF;">${d.label}</span>
+                    <span style="font-size: 10px; color: var(--text-muted);">${d.count} sessões (${wr}% Win Rate)</span>
+                </div>
+                <div style="text-align: right;">
+                    <span style="font-family: var(--font-mono); font-size: 13px; font-weight: 800; color: ${color};">${pnlStr}</span>
+                </div>
+            </div>
+        `;
+    }).join("");
+}
+
+function renderRiskRewardAnalytics(sessions) {
+    const container = document.getElementById("riskRewardAnalyticsContainer");
+    if (!container) return;
+
+    let totalMFE = 0.0;
+    let totalMAE = 0.0;
+    let maxPeak = 0.0;
+    let count = 0;
+
+    sessions.forEach(sess => {
+        if (sess.portfolios_count > 0) {
+            totalMFE += (sess.mfe_usd || 0);
+            totalMAE += Math.abs(sess.mae_usd || 0);
+            maxPeak = Math.max(maxPeak, sess.mfe_usd || 0);
+            count += 1;
+        }
+    });
+
+    const avgMFE = count > 0 ? (totalMFE / count) : 0.0;
+    const avgMAE = count > 0 ? (totalMAE / count) : 0.0;
+    const ratio = avgMAE > 0 ? (avgMFE / avgMAE) : (avgMFE > 0 ? 9.9 : 1.0);
+
+    container.innerHTML = `
+        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 12px;">
+            <div style="background: rgba(46, 204, 113, 0.08); border: 1px solid rgba(46, 204, 113, 0.25); border-radius: 8px; padding: 10px;">
+                <span style="font-size: 10px; color: var(--color-green); text-transform: uppercase; font-weight: 700; display: block;">MFE Médio (Pico)</span>
+                <span style="font-size: 17px; font-weight: 800; font-family: var(--font-mono); color: #FFF;">+$${avgMFE.toFixed(2)}</span>
+            </div>
+            <div style="background: rgba(255, 59, 48, 0.08); border: 1px solid rgba(255, 59, 48, 0.25); border-radius: 8px; padding: 10px;">
+                <span style="font-size: 10px; color: var(--color-red); text-transform: uppercase; font-weight: 700; display: block;">MAE Médio (Drawdown)</span>
+                <span style="font-size: 17px; font-weight: 800; font-family: var(--font-mono); color: #FFF;">-$${avgMAE.toFixed(2)}</span>
+            </div>
+        </div>
+        <div style="background: rgba(0, 229, 255, 0.05); border: 1px solid rgba(0, 229, 255, 0.2); border-radius: 8px; padding: 10px; display: flex; justify-content: space-between; align-items: center;">
+            <div>
+                <span style="font-size: 11px; color: var(--color-cyan); font-weight: 700; display: block;">Índice de Eficiência R/R</span>
+                <span style="font-size: 10px; color: var(--text-muted);">Proporção de captura de lucro vs risco suportado</span>
+            </div>
+            <span style="font-size: 18px; font-weight: 800; font-family: var(--font-mono); color: var(--color-cyan);">${ratio.toFixed(2)}x</span>
+        </div>
+    `;
 }
 
 // ==========================================================================

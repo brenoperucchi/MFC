@@ -154,10 +154,48 @@ async def get_track_record_live():
 
 
 @app.post("/api/track-record/recalculate")
-async def recalculate_track_record(days: int = 45):
-    """Força o recálculo do backtest multi-portfólio a partir do MT5."""
-    res = history_engine.run_full_backtest(days=days)
+async def recalculate_track_record(days: int = 60):
+    """Sincroniza e audita as deals reais executadas no MT5 pelos 8 robôs com trava de segurança (1 a 180 dias)."""
+    clamped_days = min(max(1, int(days)), 180)
+    res = history_engine.sync_mt5_deals(days_back=clamped_days)
     return JSONResponse(content={"success": True, "summary": res.get("summary")})
+
+
+class PortfolioOpenPayload(BaseModel):
+    currency: str
+    bias: str # "BUY" (Força) ou "SELL" (Fraqueza)
+    lot: float = 0.01
+
+
+class PortfolioClosePayload(BaseModel):
+    currency: str = "ALL"
+
+
+@app.get("/api/portfolio-robots/telemetry")
+async def get_portfolio_robots_telemetry():
+    """Retorna a telemetria ao vivo das posições abertas no MT5 agrupadas pelos 8 Magic Numbers dos portfólios."""
+    from agents.portfolio_executor import get_live_portfolio_telemetry
+    data = get_live_portfolio_telemetry()
+    return JSONResponse(content=data)
+
+
+@app.post("/api/portfolio-robots/open")
+async def open_portfolio_robot(payload: PortfolioOpenPayload):
+    """Abre a cesta de 7 pares de uma moeda no MT5 com seu Magic Number exclusivo."""
+    from agents.portfolio_executor import open_portfolio_basket
+    res = open_portfolio_basket(payload.currency, payload.bias, payload.lot)
+    return JSONResponse(content=res)
+
+
+@app.post("/api/portfolio-robots/close")
+async def close_portfolio_robot(payload: PortfolioClosePayload):
+    """Fecha posições de um portfólio específico ou de todos os 8 portfólios no MT5."""
+    from agents.portfolio_executor import close_portfolio_basket, close_all_portfolios
+    if payload.currency.upper() == "ALL":
+        res = close_all_portfolios()
+    else:
+        res = close_portfolio_basket(payload.currency)
+    return JSONResponse(content=res)
 
 
 class TelegramRaioXPayload(BaseModel):

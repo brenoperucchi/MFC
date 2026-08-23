@@ -369,6 +369,12 @@ def run_daily_routine():
         ccy_summary_text = "\n".join(ccy_summary_lines)
 
         pairs_summary_lines = []
+        alicate_pairs = [p for p in pairs if p.get('is_alicate')][:3]
+        if alicate_pairs:
+            pairs_summary_lines.append("✂️ <b>OPERAÇÕES ALICATE (TRANSIÇÃO & EXTREMOS):</b>")
+            for p in alicate_pairs:
+                pairs_summary_lines.append(f"  • <b>{p['pair']}:</b> {p.get('recommendation')} | {p.get('conviction')}")
+
         if top_buys:
             pairs_summary_lines.append("🟢 <b>Melhores Oportunidades de COMPRA:</b>")
             for p in top_buys:
@@ -443,6 +449,14 @@ def run_daily_routine():
         print(f"[{datetime.now().strftime('%H:%M:%S')}] Todos os Raio-X e Briefings foram entregues no Telegram com sucesso!")
     else:
         print("[*] Envio ao Telegram desativado em data/telegram_config.json.")
+
+    # 3.1 Gravar arquivo oficial de sinais para os Robôs MT5 (FILE_COMMON) às 21:02 BRT
+    try:
+        from agents.portfolio_executor import generate_and_save_daily_signals
+        signals_res = generate_and_save_daily_signals(currencies)
+        print(f"[{datetime.now().strftime('%H:%M:%S')}] Sinais dos 8 Portfólios MT5 gravados com sucesso para a sessão noturna (21:05 -> 08:00)!")
+    except Exception as e:
+        print(f"[-] Erro ao gravar sinais dos portfólios: {e}")
 
     # 4. Salvar Relatório em Markdown e Histórico Local
     md_content = f"""# Relatório Diário de Confluência Multi-Agente CSS — {date_formatted}

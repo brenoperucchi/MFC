@@ -25,7 +25,7 @@
                 </div>
             </div>
 
-            <!-- CURRENCY FILTER TOGGLES -->
+            <!-- CURRENCY FILTER TOGGLES (CSS FLOW) -->
             <div class="currency-toggles" id="currencyToggles">
                 <div class="toggles-label">Moedas:</div>
                 <button class="ccy-btn active" data-ccy="USD" style="--ccy-color: #FF3B30;"><span class="flag">🇺🇸</span> USD</button>
@@ -40,48 +40,54 @@
             </div>
         </div>
 
-        <div class="header-right">
-            <!-- GAUSS MODE TOGGLE (NADARAYA-WATSON KERNEL) -->
-            <button class="mode-toggle-btn" id="btnToggleGaussMode" title="Alternar entre Cálculo Padrão (TMA) e Modo Gauss (Nadaraya-Watson Kernel Regression + Tanh)">
-                <span class="mode-badge-dot"></span>
-                <span class="btn-icon">🧠</span>
-                <span class="btn-text">MODO GAUSS</span>
-                <span class="mode-state-tag" id="gaussModeStateTag">OFF</span>
-            </button>
-
-            <!-- VIEW MODE SELECTOR -->
-            <div class="view-mode-selector">
-                <button class="mode-btn active" id="btnModeSingle" data-mode="single">Gráfico Único</button>
-                <button class="mode-btn" id="btnModeSplit2" data-mode="split2">Split 2X (H4 / H1)</button>
-                <button class="mode-btn" id="btnModeSplit3" data-mode="split3">Split 3X (D1 / H4 / H1)</button>
+        <div class="header-center">
+            <!-- ALTERNADOR DO GRÁFICO PRINCIPAL: CSS FLOW vs MATRIZ DE PARES -->
+            <div class="main-chart-switcher" id="chartTypeSelector">
+                <button class="switcher-btn active" id="btnSwitchFlow" data-type="flow">
+                    <span>📈</span> <span>CSS Flow</span>
+                </button>
+                <button class="switcher-btn" id="btnSwitchMatrix" data-type="matrix">
+                    <span>🕸️</span> <span>Matriz de Pares</span>
+                </button>
             </div>
 
+            <!-- VIEW MODE SELECTOR (1X, 2X, 3X) -->
+            <div class="view-mode-selector">
+                <button class="mode-btn active" id="btnModeSingle" data-mode="single" title="Gráfico Único">1X</button>
+                <button class="mode-btn" id="btnModeSplit2" data-mode="split2" title="Split 2X (H4 / H1)">2X</button>
+                <button class="mode-btn" id="btnModeSplit3" data-mode="split3" title="Split 3X (D1 / H4 / H1)">3X</button>
+            </div>
+        </div>
+
+        <div class="header-right">
             <!-- ACTION BUTTONS -->
-            <button class="action-btn glow-btn" id="btnOpenCrossoversModal" style="background: linear-gradient(135deg, rgba(255, 215, 0, 0.15), rgba(255, 140, 0, 0.15)); border-color: rgba(255, 215, 0, 0.4);">
+            <button class="action-btn glow-btn" id="btnOpenPairsModal">
+                <span class="btn-icon">✂️</span>
+                <span class="btn-text">OPERAÇÕES ALICATE</span>
+                <span class="badge-count" id="strongSignalsCount">0</span>
+            </button>
+
+            <button class="action-btn score-cross-btn" id="btnOpenCrossoversModal">
                 <span class="btn-icon">⚡</span>
-                <span class="btn-text">CRUZAMENTOS DE SCORE</span>
-                <span class="badge-count" id="crossoversFreshCount" style="background: #FFD700; color: #000; font-weight: 800;">0</span>
+                <span class="btn-text">CRUZAMENTOS</span>
+                <span class="badge-count" id="crossoversFreshCount">0</span>
             </button>
 
             <button class="action-btn track-record-btn" id="btnOpenTrackRecordModal">
                 <span class="btn-icon">📈</span>
-                <span class="btn-text">TRACK RECORD (21h-08h)</span>
+                <span class="btn-text">TRACK RECORD</span>
             </button>
 
-            <button class="action-btn secondary-btn" id="btnOpenMatrixModal">
-                <span class="btn-icon">🕸️</span>
-                <span class="btn-text">MATRIZ DE PARES</span>
+            <!-- GAUSS MODE TOGGLE -->
+            <button class="mode-toggle-btn" id="btnToggleGaussMode" title="Alternar Modo Gauss (Kernel Regression)">
+                <span class="mode-badge-dot"></span>
+                <span class="btn-icon">🧠</span>
+                <span class="btn-text">GAUSS</span>
+                <span class="mode-state-tag" id="gaussModeStateTag">OFF</span>
             </button>
 
-            <button class="action-btn glow-btn" id="btnOpenPairsModal">
-                <span class="btn-icon">⚡</span>
-                <span class="btn-text">OPERAÇÕES & SINAIS</span>
-                <span class="badge-count" id="strongSignalsCount">0</span>
-            </button>
-
-            <button class="action-btn secondary-btn" id="btnOpenHistoryModal">
+            <button class="action-btn secondary-btn compact-btn" id="btnOpenHistoryModal" title="Histórico de Sessões">
                 <span class="btn-icon">📖</span>
-                <span class="btn-text">HISTÓRICO</span>
             </button>
 
             <button class="action-btn icon-btn" id="btnRefresh" title="Recalcular Dados do MT5">
@@ -107,8 +113,24 @@
             <div class="chart-card-wrapper" id="chartCardWrapper1">
                 <div class="chart-header">
                     <div class="chart-header-left">
-                        <span class="chart-icon">📈</span>
+                        <span class="chart-icon" id="chart1Icon">📈</span>
                         <span class="chart-title" id="chart1Title">CSS Flow</span>
+                        
+                        <!-- MATRIX CURRENCY SELECT DROPDOWN (Visible when Matriz de Pares is active) -->
+                        <div class="matrix-select-wrapper hidden" id="matrixSelectWrapper1">
+                            <span class="matrix-select-label">Moeda:</span>
+                            <select class="matrix-ccy-select" id="matrixCcySelect1" data-chart="chart1">
+                                <option value="USD" selected>🇺🇸 USD</option>
+                                <option value="EUR">🇪🇺 EUR</option>
+                                <option value="GBP">🇬🇧 GBP</option>
+                                <option value="CHF">🇨🇭 CHF</option>
+                                <option value="JPY">🇯🇵 JPY</option>
+                                <option value="AUD">🇦🇺 AUD</option>
+                                <option value="CAD">🇨🇦 CAD</option>
+                                <option value="NZD">🇳🇿 NZD</option>
+                            </select>
+                        </div>
+
                         <!-- TF SELECTOR FOR CHART 1 -->
                         <div class="tf-tabs" id="chart1TFTabs">
                             <span class="tf-tabs-label">TF:</span>
@@ -138,8 +160,23 @@
             <div class="chart-card-wrapper hidden" id="chartCardWrapper2">
                 <div class="chart-header">
                     <div class="chart-header-left">
-                        <span class="chart-icon">📈</span>
+                        <span class="chart-icon" id="chart2Icon">📈</span>
                         <span class="chart-title" id="chart2Title">CSS Flow</span>
+                        
+                        <div class="matrix-select-wrapper hidden" id="matrixSelectWrapper2">
+                            <span class="matrix-select-label">Moeda:</span>
+                            <select class="matrix-ccy-select" id="matrixCcySelect2" data-chart="chart2">
+                                <option value="USD">🇺🇸 USD</option>
+                                <option value="EUR" selected>🇪🇺 EUR</option>
+                                <option value="GBP">🇬🇧 GBP</option>
+                                <option value="CHF">🇨🇭 CHF</option>
+                                <option value="JPY">🇯🇵 JPY</option>
+                                <option value="AUD">🇦🇺 AUD</option>
+                                <option value="CAD">🇨🇦 CAD</option>
+                                <option value="NZD">🇳🇿 NZD</option>
+                            </select>
+                        </div>
+
                         <div class="tf-tabs" id="chart2TFTabs">
                             <span class="tf-tabs-label">TF:</span>
                             <button class="tf-tab" data-tf="MN1">MN1</button>
@@ -168,8 +205,23 @@
             <div class="chart-card-wrapper hidden" id="chartCardWrapper3">
                 <div class="chart-header">
                     <div class="chart-header-left">
-                        <span class="chart-icon">📈</span>
+                        <span class="chart-icon" id="chart3Icon">📈</span>
                         <span class="chart-title" id="chart3Title">CSS Flow</span>
+                        
+                        <div class="matrix-select-wrapper hidden" id="matrixSelectWrapper3">
+                            <span class="matrix-select-label">Moeda:</span>
+                            <select class="matrix-ccy-select" id="matrixCcySelect3" data-chart="chart3">
+                                <option value="USD">🇺🇸 USD</option>
+                                <option value="EUR">🇪🇺 EUR</option>
+                                <option value="GBP" selected>🇬🇧 GBP</option>
+                                <option value="CHF">🇨🇭 CHF</option>
+                                <option value="JPY">🇯🇵 JPY</option>
+                                <option value="AUD">🇦🇺 AUD</option>
+                                <option value="CAD">🇨🇦 CAD</option>
+                                <option value="NZD">🇳🇿 NZD</option>
+                            </select>
+                        </div>
+
                         <div class="tf-tabs" id="chart3TFTabs">
                             <span class="tf-tabs-label">TF:</span>
                             <button class="tf-tab" data-tf="MN1">MN1</button>
@@ -234,15 +286,15 @@
         </section>
     </main>
 
-    <!-- MODAL: OPERAÇÕES & SINAIS (28 PARES FOREX SCREENER) -->
+    <!-- MODAL: OPERAÇÕES ALICATE (28 PARES FOREX SCREENER) -->
     <div class="modal-backdrop hidden" id="pairsModal">
         <div class="modal-dialog modal-xl">
             <div class="modal-header">
                 <div class="modal-title-group">
-                    <span class="modal-icon">⚡</span>
+                    <span class="modal-icon">✂️</span>
                     <div>
-                        <h3 class="modal-title">Radar de Confluência dos 28 Pares Forex</h3>
-                        <p class="modal-subtitle">Conexão do Motor Macro (MN1/W1/D1) com o Operacional (H4/H1) — Ordenado por Vantagem de Fluxo</p>
+                        <h3 class="modal-title">Radar de Operações Alicate (28 Pares Forex)</h3>
+                        <p class="modal-subtitle">Motor Intraday 3-TF (D1, H4, H1) — Especialista em Fechamento de Alicate e Arrancada Institucional</p>
                     </div>
                 </div>
                 <button class="modal-close" id="btnClosePairsModal">&times;</button>
@@ -250,12 +302,15 @@
 
             <div class="modal-toolbar">
                 <div class="filter-pills" id="pairFilters">
-                    <button class="filter-pill active" data-filter="RECENT_4H">Últimas 4 Horas (Recentes) ⏱️</button>
-                    <button class="filter-pill" data-filter="ALL">Todos os 28 Pares</button>
-                    <button class="filter-pill" data-filter="BUY">Oportunidades de Compra (BUY)</button>
-                    <button class="filter-pill" data-filter="SELL">Oportunidades de Venda (SELL)</button>
-                    <button class="filter-pill" data-filter="STRONG">Confluência Dupla Máxima 🔥</button>
-                    <button class="filter-pill" data-filter="BOX">Box / Neutro</button>
+                    <button class="filter-pill active" data-filter="ALICATE">✂️ Fechamento de Alicate 🔥</button>
+                    <button class="filter-pill" data-filter="ALICATE_SYNC">🔥 Alicate Triplo (3-TF)</button>
+                    <button class="filter-pill" data-filter="ALICATE_OP">⚡ Alicate Operacional (H4/H1)</button>
+                    <button class="filter-pill" data-filter="ALICATE_WAIT">⏳ Alicate D1 (Em Espera)</button>
+                    <button class="filter-pill" data-filter="BUY">🟢 Compra (BUY)</button>
+                    <button class="filter-pill" data-filter="SELL">🔴 Venda (SELL)</button>
+                    <button class="filter-pill" data-filter="ALL">🌐 Todos os 28 Pares</button>
+                    <button class="filter-pill" data-filter="RECENT_4H">⏱️ Últimas 4 Horas</button>
+                    <button class="filter-pill" data-filter="BOX">⚖️ Box / Neutro</button>
                 </div>
                 <div class="search-box">
                     <input type="text" id="pairSearchInput" placeholder="Buscar par (ex: EURAUD, USD)...">
@@ -479,6 +534,17 @@
                         </div>
                     </div>
 
+                    <!-- DECISIONS OF THE DAY (PERSISTED AT 21:02 BRT) -->
+                    <div class="decisions-summary-section" style="margin-bottom: 18px;">
+                        <div class="section-title-live">
+                            <span>🧠 Decisões Definidas às 21:02 BRT (Sinais para os 8 Robôs MT5)</span>
+                            <span style="font-size: 11px; color: var(--color-cyan); font-family: var(--font-mono);" id="liveDecisionDateBadge">Sessão Oficial</span>
+                        </div>
+                        <div class="decisions-cards-grid" id="liveDecisionsCardsGrid">
+                            <!-- 8 Currency Decision Cards injected dynamically via JS -->
+                        </div>
+                    </div>
+
                     <!-- ACTIVE BASKETS CARDS -->
                     <div class="live-baskets-section">
                         <div class="section-title-live">
@@ -604,16 +670,39 @@
                         </div>
                     </div>
 
-                    <!-- EXPANDED EQUITY CURVE -->
+                    <!-- EXPANDED GLOBAL MASTER EQUITY CURVE (ALL PORTFOLIOS TOGETHER) -->
                     <div class="equity-chart-wrapper" style="margin-bottom: 16px;">
                         <div class="equity-chart-header">
                             <div>
-                                <span style="font-weight: 700; font-family: var(--font-display); color: #FFF; font-size: 13px;">📈 Curva de Capital Consolidada (USD)</span>
-                                <span style="font-size: 11px; color: var(--text-muted); display: block;">Evolução de Saldo em Tempo Real ao Longo das Sessões</span>
+                                <span style="font-weight: 700; font-family: var(--font-display); color: #FFF; font-size: 13px;">📈 Curva de Capital Consolidada (Todos os Portfólios Juntos)</span>
+                                <span style="font-size: 11px; color: var(--text-muted); display: block;">Evolução patrimonial total de todas as cestas operando em conjunto</span>
                             </div>
                         </div>
-                        <div style="height: 260px; width: 100%; position: relative;">
+                        <div style="height: 250px; width: 100%; position: relative;">
                             <canvas id="equityCanvasGlobal"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- MULTI-PORTFOLIO OVERLAY EQUITY CURVES (8 INDIVIDUAL CURRENCIES) -->
+                    <div class="equity-chart-wrapper" style="margin-bottom: 16px;">
+                        <div class="equity-chart-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+                            <div>
+                                <span style="font-weight: 700; font-family: var(--font-display); color: #FFF; font-size: 13px;">🕸️ Curvas Individuais por Portfólio (8 Moedas Sobrepostas)</span>
+                                <span style="font-size: 11px; color: var(--text-muted); display: block;">Comparativo de performance nas cores institucionais de cada moeda</span>
+                            </div>
+                            <div class="filter-pills" id="multiPortfolioLegendToggles" style="display: flex; gap: 4px; flex-wrap: wrap;">
+                                <button class="filter-pill active" data-ccy="USD" style="border-color: #FF3B30; color: #FF3B30; font-size: 10px; padding: 2px 7px;">🇺🇸 USD</button>
+                                <button class="filter-pill active" data-ccy="EUR" style="border-color: #2ECC71; color: #2ECC71; font-size: 10px; padding: 2px 7px;">🇪🇺 EUR</button>
+                                <button class="filter-pill active" data-ccy="GBP" style="border-color: #3872FF; color: #3872FF; font-size: 10px; padding: 2px 7px;">🇬🇧 GBP</button>
+                                <button class="filter-pill active" data-ccy="CHF" style="border-color: #00E5FF; color: #00E5FF; font-size: 10px; padding: 2px 7px;">🇨🇭 CHF</button>
+                                <button class="filter-pill active" data-ccy="JPY" style="border-color: #9932CC; color: #9932CC; font-size: 10px; padding: 2px 7px;">🇯🇵 JPY</button>
+                                <button class="filter-pill active" data-ccy="AUD" style="border-color: #FF8C00; color: #FF8C00; font-size: 10px; padding: 2px 7px;">🇦🇺 AUD</button>
+                                <button class="filter-pill active" data-ccy="CAD" style="border-color: #E74C3C; color: #E74C3C; font-size: 10px; padding: 2px 7px;">🇨🇦 CAD</button>
+                                <button class="filter-pill active" data-ccy="NZD" style="border-color: #D2B48C; color: #D2B48C; font-size: 10px; padding: 2px 7px;">🇳🇿 NZD</button>
+                            </div>
+                        </div>
+                        <div style="height: 280px; width: 100%; position: relative;">
+                            <canvas id="equityCanvasMultiPortfolio"></canvas>
                         </div>
                     </div>
 
@@ -640,6 +729,31 @@
                                     <!-- Injected dynamically via JS -->
                                 </tbody>
                             </table>
+                        </div>
+                    </div>
+
+                    <!-- OPTIMIZATION & STATISTICAL INTELLIGENCE GRID -->
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; margin-top: 16px;">
+                        <!-- DIA DA SEMANA PERFORMANCE -->
+                        <div class="track-sessions-wrapper" style="margin-bottom: 0;">
+                            <div class="track-sessions-header">
+                                <span style="font-weight: 700; font-family: var(--font-display); color: #FFF; font-size: 13px;">📅 Performance por Dia da Semana</span>
+                                <span style="font-size: 11px; color: var(--text-muted);">Identificação estatística dos melhores dias operacionais</span>
+                            </div>
+                            <div id="weekdayAnalyticsContainer" style="padding: 16px; display: flex; flex-direction: column; gap: 10px;">
+                                <!-- Rendered dynamically via JS -->
+                            </div>
+                        </div>
+
+                        <!-- EFICIÊNCIA DE CAPTURA DE MFE / RISCO MAE -->
+                        <div class="track-sessions-wrapper" style="margin-bottom: 0;">
+                            <div class="track-sessions-header">
+                                <span style="font-weight: 700; font-family: var(--font-display); color: #FFF; font-size: 13px;">⚖️ Eficiência de Risco/Retorno (MFE vs MAE)</span>
+                                <span style="font-size: 11px; color: var(--text-muted);">Aproveitamento de pico favorável vs drawdown suportado</span>
+                            </div>
+                            <div id="riskRewardAnalyticsContainer" style="padding: 16px;">
+                                <!-- Rendered dynamically via JS -->
+                            </div>
                         </div>
                     </div>
                 </div>

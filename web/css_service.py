@@ -568,9 +568,11 @@ class CSSDataEngine:
             base = item["base"]
             quote = item["quote"]
             
-            # Sinal visual
-            rec = item["rec"]
-            badge_type = "STRONG_BUY" if "STRONG BUY" in rec else "BUY" if "BUY" in rec else "STRONG_SELL" if "STRONG SELL" in rec else "SELL" if "SELL" in rec else "NEUTRAL"
+            # Sinal visual (preserva o badge_type definido no confluence engine se existir)
+            badge_type = item.get("badge_type")
+            if not badge_type:
+                rec = item["rec"]
+                badge_type = "STRONG_BUY" if "STRONG BUY" in rec else "BUY" if "BUY" in rec else "STRONG_SELL" if "STRONG SELL" in rec else "SELL" if "SELL" in rec else "NEUTRAL"
 
             cross_info = h1_cross_map.get(pair)
             default_t = tf_charts.get("H1", {}).get("times", [""])[-1] if tf_charts.get("H1") else ""
@@ -586,9 +588,12 @@ class CSSDataEngine:
                 "total_score": round(item["total_score"], 2),
                 "macro_diff": round(item["macro_diff"], 2),
                 "op_diff": round(item["op_diff"], 2),
-                "recommendation": rec,
+                "recommendation": item["rec"],
                 "badge_type": badge_type,
                 "conviction": item["conviction"],
+                "is_alicate": item.get("is_alicate", False),
+                "alicate_status": item.get("alicate_status", "NONE"),
+                "alicate_tfs": item.get("alicate_tfs", []),
                 "thesis": item["thesis"],
                 "signal_time": signal_time,
                 "bars_ago": bars_ago
