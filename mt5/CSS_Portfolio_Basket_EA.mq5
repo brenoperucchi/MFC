@@ -45,6 +45,7 @@ input int                 InpEntryHour       = 21;             // Hora de Entrad
 input int                 InpEntryMinute     = 5;              // Minuto de Entrada (BRT)
 input int                 InpExitHour        = 8;              // Hora de Encerramento (BRT)
 input int                 InpExitMinute      = 0;              // Minuto de Encerramento (BRT)
+input int                 InpCloseGraceMin   = 15;             // Minutos antes da entrada em que o guardião NÃO fecha (folga contra skew de relógio)
 input int                 InpGmtOffset       = -3;             // Horas a SOMAR ao horário do servidor pra obter BRT (medido 24/08: servidor Exness = UTC+0, BRT = UTC-3)
 
 input group "=== CORRETORA ==="
@@ -248,11 +249,28 @@ void OnTimer()
    //    depende de acertar a hora exata — se falhar (ou o terminal ficou
    //    fora do ar durante o horário certo), tenta de novo no próximo tick
    //    de 3s, pra sempre, até CountOpenPositions() voltar a zero.
-   if(!in_operational_window && open_positions > 0)
+   // Zona de folga imediatamente ANTES da entrada: o Python abre às 21:05 pelo
+   // relógio do Windows, o EA lê TimeCurrent() (timestamp da última cotação do
+   // servidor). São dois relógios de fontes diferentes comparados em resolução
+   // de minuto — bastava o do servidor estar alguns segundos atrás na virada
+   // pra o EA ainda ler 21:04, se julgar "fora da janela" e liquidar a cesta
+   // recém-aberta em até 3s. Aqui o fechamento fica suspenso nos
+   // InpCloseGraceMin minutos que antecedem a entrada.
+   int minutes_to_entry = (entry_min - now_min + 1440) % 1440;
+   bool in_close_grace = (InpCloseGraceMin > 0 && minutes_to_entry > 0
+                          && minutes_to_entry <= InpCloseGraceMin);
+
+   if(!in_operational_window && !in_close_grace && open_positions > 0)
    {
       PrintFormat("[CSS ROBOT %s] Fora da janela operacional (%02d:%02d BRT) com %d posições abertas. Fechando...",
                   g_ccy_str, dt.hour, dt.min, open_positions);
       CloseBasket();
+   }
+   else if(in_close_grace && open_positions > 0)
+   {
+      PrintFormat("[CSS ROBOT %s] %02d:%02d BRT — dentro da folga de %d min antes da entrada; "
+                  "NÃO fechando as %d posições (proteção contra skew de relógio).",
+                  g_ccy_str, dt.hour, dt.min, InpCloseGraceMin, open_positions);
    }
 
    // 3. EXPORTAÇÃO DE TELEMETRIA

@@ -65,6 +65,13 @@ KILL_SWITCH_FILE = os.path.join(DATA_DIR, "CSS_KILL.flag")
 # a pior excursão histórica real por perna antes de qualquer conta real.
 CATASTROPHIC_SL_PIPS = int(os.environ.get("CSS_CATASTROPHIC_SL_PIPS", "150"))
 
+# Tetos de exposição. Nenhum deles altera a estratégia nos valores padrão
+# (lote fixo 0.01, até 8 cestas — uma por moeda): existem pra impedir que um
+# erro de chamada, um payload de API malformado ou uma mudança acidental de
+# parâmetro vire uma posição muito maior que a pretendida.
+MAX_LOT = float(os.environ.get("CSS_MAX_LOT", "0.01"))
+MAX_CONCURRENT_BASKETS = int(os.environ.get("CSS_MAX_CONCURRENT_BASKETS", "8"))
+
 # Contas em modo netting não têm posição isolada por magic number — duas
 # cestas que compartilham um par (ex.: USD e EUR podem operar EURUSD) se
 # fundem numa posição líquida só. Sem uma regra de consolidação desenhada,
@@ -343,6 +350,32 @@ def open_portfolio_basket(currency: str, bias: str, lot: float = 0.01, deviation
         return {"success": False, "error": gate["error"], "message": gate["message"], "account": safety}
 
     ccy = currency.upper()
+
+    # Direção precisa ser exatamente BUY ou SELL. get_portfolio_pairs trata
+    # QUALQUER valor diferente de "BUY" como fraqueza, então um "LONG" vindo
+    # do endpoint HTTP montava a cesta INVERTIDA sem erro nenhum.
+    bias_norm = (bias or "").strip().upper()
+    if bias_norm not in ("BUY", "SELL"):
+        msg = (f"Direção inválida: {bias!r}. Só BUY ou SELL são aceitos — "
+               f"qualquer outro valor montaria a cesta invertida em silêncio.")
+        print(f"[PORTFOLIO ROBOT {ccy}] {msg}")
+        return {"success": False, "error": "invalid_bias", "message": msg}
+    bias = bias_norm
+
+    # Teto de lote: o "lote fixo 0.01" da estratégia era só um default de
+    # parâmetro, não uma trava — o endpoint HTTP aceitava qualquer valor.
+    try:
+        lot = float(lot)
+    except (TypeError, ValueError):
+        msg = f"Lote inválido: {lot!r}."
+        print(f"[PORTFOLIO ROBOT {ccy}] {msg}")
+        return {"success": False, "error": "invalid_lot", "message": msg}
+    if lot <= 0 or lot > MAX_LOT:
+        msg = (f"Lote {lot} fora do teto permitido (0 < lote <= {MAX_LOT}). "
+               f"Ajuste CSS_MAX_LOT se a mudança for deliberada.")
+        print(f"[PORTFOLIO ROBOT {ccy}] {msg}")
+        return {"success": False, "error": "lot_above_cap", "message": msg}
+
     magic = PORTFOLIO_MAGICS.get(ccy, 801000)
     pairs = get_portfolio_pairs(ccy, bias)
 
@@ -358,6 +391,14 @@ def open_portfolio_basket(currency: str, bias: str, lot: float = 0.01, deviation
         msg = f"Cesta {ccy} (magic {magic}) já tem posição aberta — recusando reabrir (idempotência)."
         print(f"[PORTFOLIO ROBOT {ccy}] {msg}")
         return {"success": False, "error": "already_open", "message": msg}
+
+    # Teto de cestas simultâneas: no padrão (8) não muda nada, mas permite
+    # limitar a exposição total numa primeira sessão real sem mexer no código.
+    if len(open_magics) >= MAX_CONCURRENT_BASKETS:
+        msg = (f"Já há {len(open_magics)} cestas abertas (teto: {MAX_CONCURRENT_BASKETS}) — "
+               f"abertura de {ccy} recusada. Ajuste CSS_MAX_CONCURRENT_BASKETS se for deliberado.")
+        print(f"[PORTFOLIO ROBOT {ccy}] {msg}")
+        return {"success": False, "error": "basket_cap_reached", "message": msg}
 
     if safety.get("margin_mode") == "netting":
         target_symbols = {p["pair"] for p in pairs}

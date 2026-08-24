@@ -467,6 +467,69 @@ class TestSymbolResolution(unittest.TestCase):
         print("[✓] Um único par sem cotação recusa a cesta inteira — zero perna aberta")
 
 
+class TestExposureCaps(unittest.TestCase):
+    """Travas de tamanho. Nos valores padrão não mudam a estratégia (lote
+    fixo 0.01, até 8 cestas): existem contra erro de chamada e payload de
+    API malformado."""
+
+    def _demo(self, positions=()):
+        fake = make_fake_mt5()
+        fake.account_info.return_value = SimpleNamespace(
+            login=999, server="Broker-Demo", trade_mode="DEMO",
+            trade_allowed=True, margin_mode="HEDGING")
+        fake.positions_get.return_value = positions
+        fake.symbol_info.return_value = SimpleNamespace(visible=True)
+        fake.symbol_info_tick.return_value = SimpleNamespace(ask=1.1, bid=1.0998)
+        fake.order_send.return_value = SimpleNamespace(
+            retcode=fake.TRADE_RETCODE_DONE, order=1, price=1.1, comment="ok")
+        return fake
+
+    def test_invalid_bias_refused_instead_of_inverting_basket(self):
+        """Regressão: get_portfolio_pairs trata qualquer valor != 'BUY' como
+        fraqueza, então bias='LONG' montava a cesta INVERTIDA em silêncio."""
+        fake_mt5 = self._demo()
+        with patch.dict(os.environ, DEMO_GATE_ENV), \
+             patch.object(pe, "MT5_AVAILABLE", True), patch.object(pe, "mt5", fake_mt5):
+            result = pe.open_portfolio_basket("CAD", "LONG")
+        self.assertFalse(result["success"])
+        self.assertEqual(result["error"], "invalid_bias")
+        fake_mt5.order_send.assert_not_called()
+        print("[✓] bias inválido ('LONG') recusa em vez de abrir a cesta invertida")
+
+    def test_lot_above_cap_refused(self):
+        fake_mt5 = self._demo()
+        with patch.dict(os.environ, DEMO_GATE_ENV), \
+             patch.object(pe, "MT5_AVAILABLE", True), patch.object(pe, "mt5", fake_mt5):
+            result = pe.open_portfolio_basket("CAD", "BUY", lot=10.0)
+        self.assertFalse(result["success"])
+        self.assertEqual(result["error"], "lot_above_cap")
+        fake_mt5.order_send.assert_not_called()
+        print("[✓] Lote acima do teto recusado (o 0.01 era só um default, não trava)")
+
+    def test_default_lot_still_allowed(self):
+        """O teto não pode quebrar a operação normal."""
+        fake_mt5 = self._demo()
+        with patch.dict(os.environ, DEMO_GATE_ENV), \
+             patch.object(pe, "MT5_AVAILABLE", True), patch.object(pe, "mt5", fake_mt5):
+            result = pe.open_portfolio_basket("CAD", "BUY")
+        self.assertTrue(result["success"])
+        self.assertEqual(result["opened_count"], 7)
+        print("[✓] Lote padrão 0.01 continua passando (teto não muda a estratégia)")
+
+    def test_basket_cap_refuses_beyond_limit(self):
+        magics = list(pe.PORTFOLIO_MAGICS.values())[:3]
+        positions = [SimpleNamespace(magic=m, symbol="EURUSDm") for m in magics]
+        fake_mt5 = self._demo(positions=positions)
+        with patch.dict(os.environ, DEMO_GATE_ENV), \
+             patch.object(pe, "MT5_AVAILABLE", True), patch.object(pe, "mt5", fake_mt5), \
+             patch.object(pe, "MAX_CONCURRENT_BASKETS", 3):
+            result = pe.open_portfolio_basket("NZD", "BUY")
+        self.assertFalse(result["success"])
+        self.assertEqual(result["error"], "basket_cap_reached")
+        fake_mt5.order_send.assert_not_called()
+        print("[✓] Teto de cestas simultâneas recusa a abertura seguinte")
+
+
 class TestCloseFailsClosed(unittest.TestCase):
     """O pior modo de falha do sistema: anunciar 'encerramento concluído' com
     a cesta viva atravessando o dia sem stop."""
