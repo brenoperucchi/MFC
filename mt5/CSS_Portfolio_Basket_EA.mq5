@@ -59,6 +59,7 @@ input group "=== SEGURANÇA ==="
 input int                 InpCatastrophicSLPips = 150;          // Stop-loss catastrófico em pips (0 = desligado; NÃO deixar 0 em conta real)
 
 input group "=== ARQUITETURA DE EXECUÇÃO (revisão 3 lentes independentes, 23/08) ==="
+input long                InpExpectedLogin   = 0;               // Conta MT5 esperada (0 = não checar). Esta máquina roda vários terminais em contas diferentes.
 input bool                InpEaOpensBasket   = false;           // EA abre a cesta? (false = Python abre, EA só garante o fechamento — recomendado. true = comportamento original)
 
 //--- OBJETOS DE NEGOCIAÇÃO
@@ -116,10 +117,25 @@ int OnInit()
    // Desenhar Painel On-Chart Inicial
    UpdateChartDashboard();
    
-   PrintFormat("[CSS ROBOT %s] Inicializado com Sucesso! Magic: %d | Lote: %.2f | Janela: %02d:%02d ➔ %02d:%02d | Modo: %s | SL catastrófico: %d pips",
+   PrintFormat("[CSS ROBOT %s] Inicializado com Sucesso! Magic: %I64u | Lote: %.2f | Janela: %02d:%02d ➔ %02d:%02d | Modo: %s | SL catastrófico: %d pips",
                g_ccy_str, g_magic, InpLotSize, InpEntryHour, InpEntryMinute, InpExitHour, InpExitMinute,
                (InpEaOpensBasket ? "EA ABRE E FECHA (legado)" : "GUARDIÃO — só fecha, Python abre"),
                InpCatastrophicSLPips);
+
+   // Trava de identidade de conta: o Python já recusa operar fora da conta
+   // esperada, mas o EA não tinha checagem nenhuma — arrastado pro terminal
+   // errado, ele fecharia a mercado qualquer posição com magic 8010xx daquela
+   // conta. Aqui é só ALERTA (não impede de carregar): o guardião precisa
+   // subir mesmo com o input em branco, senão a trava viraria um jeito novo
+   // de deixar posição sem fechador.
+   long acc_login = AccountInfoInteger(ACCOUNT_LOGIN);
+   if(InpExpectedLogin > 0 && acc_login != InpExpectedLogin)
+      PrintFormat("[CSS ROBOT %s] ALERTA: conta conectada (%I64d) é diferente da esperada (%I64d). "
+                  "Confira se este EA está no terminal certo.", g_ccy_str, acc_login, InpExpectedLogin);
+   if(AccountInfoInteger(ACCOUNT_TRADE_MODE) != ACCOUNT_TRADE_MODE_DEMO)
+      PrintFormat("[CSS ROBOT %s] ALERTA: esta conta NÃO é demo (login %I64d).", g_ccy_str, acc_login);
+   if(!TerminalInfoInteger(TERMINAL_TRADE_ALLOWED) || !MQLInfoInteger(MQL_TRADE_ALLOWED))
+      PrintFormat("[CSS ROBOT %s] ALERTA: AutoTrading DESLIGADO — o guardião não conseguirá fechar!", g_ccy_str);
 
    // Prova de fuso na inicialização: um InpGmtOffset errado desloca a janela
    // inteira em silêncio (com o antigo default 0, o fechamento das 08:00 BRT
@@ -490,6 +506,28 @@ ENUM_EXEC_BIAS ReadAutoBiasFromJson(string ccy, MqlDateTime &brt_now)
       // Correção: o sinal grava "date"/"session_id"/"timestamp", mas isso
       // nunca era conferido — se o lado Python não rodasse às 21:02, o EA
       // podia operar tranquilamente a direção do dia anterior.
+      // O lado Python exige status == "ACTIVE" pra operar; o EA só lia
+      // "direction". Hoje o gravador mantém os dois correlacionados, mas a
+      // divergência de contrato ficava latente — ler os dois elimina isso.
+      string signal_status = ExtractJsonStringField(content, "status");
+      if(signal_status != "" && signal_status != "ACTIVE")
+      {
+         PrintFormat("[CSS ROBOT %s] Sinal com status '%s' (esperado ACTIVE) — tratando como NEUTRO.",
+                     ccy, signal_status);
+         return BIAS_AUTO;
+      }
+
+      // Procedência: sinal derivado de cache/série simulada nunca vira ordem.
+      // mt5_connected é booleano JSON (sem aspas), então ExtractJsonStringField
+      // não serve — procura direta pelo literal false, tolerando o espaço que
+      // o json.dump(indent=2) do Python coloca depois dos dois-pontos.
+      if(StringFind(content, "\"mt5_connected\": false") >= 0
+         || StringFind(content, "\"mt5_connected\":false") >= 0)
+      {
+         PrintFormat("[CSS ROBOT %s] Sinal marcado como NÃO-live (mt5_connected=false) — tratando como NEUTRO.", ccy);
+         return BIAS_AUTO;
+      }
+
       string signal_date = ExtractJsonStringField(content, "date");
       string today_str = StringFormat("%04d-%02d-%02d", brt_now.year, brt_now.mon, brt_now.day);
       if(signal_date == "" || signal_date != today_str)
@@ -642,13 +680,21 @@ void CreateOrUpdateLabel(string tag, string text, int x, int y, color col, int f
 //+------------------------------------------------------------------+
 void ExportTelemetryJson()
 {
-   int handle = FileOpen("CSS_Live_Portfolio_" + g_ccy_str + ".json", FILE_WRITE | FILE_TXT | FILE_ANSI);
+   // Escrita atômica: FILE_WRITE trunca o arquivo antes de escrever, então um
+   // leitor concorrente pegaria conteúdo vazio ou pela metade. Grava num
+   // temporário e renomeia — mesma garantia do lado Python (_atomic_write_json).
+   string tmp_name = "CSS_Live_Portfolio_" + g_ccy_str + ".tmp";
+   string final_name = "CSS_Live_Portfolio_" + g_ccy_str + ".json";
+   int handle = FileOpen(tmp_name, FILE_WRITE | FILE_TXT | FILE_ANSI);
    if(handle != INVALID_HANDLE)
    {
-      string json = StringFormat("{\"currency\":\"%s\",\"magic\":%d,\"open_positions\":%d,\"floating_pnl_usd\":%.2f,\"floating_pips\":%.1f,\"mfe_usd\":%.2f,\"mae_usd\":%.2f,\"timestamp\":\"%s\"}",
+      string json = StringFormat("{\"currency\":\"%s\",\"magic\":%I64u,\"open_positions\":%d,\"floating_pnl_usd\":%.2f,\"floating_pips\":%.1f,\"mfe_usd\":%.2f,\"mae_usd\":%.2f,\"timestamp\":\"%s\"}",
                                  g_ccy_str, g_magic, g_open_orders_count, g_floating_pnl, g_floating_pips, g_mfe_today, g_mae_today, TimeToString(TimeCurrent(), TIME_DATE|TIME_SECONDS));
       FileWriteString(handle, json);
       FileClose(handle);
+      // FileMove com FILE_REWRITE substitui o destino de uma vez.
+      if(!FileMove(tmp_name, 0, final_name, FILE_REWRITE))
+         FileDelete(tmp_name);
    }
 }
 

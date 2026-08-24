@@ -57,7 +57,48 @@ python scripts/build_firebase_bundle.py
 firebase deploy               # separate, manual step — do not run without being asked
 ```
 
-There is no test suite in this repository.
+Run the test suite (no external test runner config — plain `unittest`/`pytest`):
+
+```bash
+python -m pytest tests/ -q          # all
+python -m pytest tests/test_portfolio_safety.py -q   # execution safety gates
+```
+
+**Caveat:** `tests/test_score_unification.py` calls `generate_and_save_daily_signals()`
+for real, so a full run rewrites `data/portfolio_signals_live.json`. Restore it after
+(`git checkout -- data/portfolio_signals_live.json`) or the diff carries an unrelated change.
+
+## Live MT5 execution (branch `fase-1-hibrido`)
+
+Real order sending lives in `agents/portfolio_executor.py`. Python decides and opens
+the basket (21:05 BRT, via `scripts/scheduler_daemon.py`); the MQL5 EA
+(`mt5/CSS_Portfolio_Basket_EA.mq5`) is the closing guardian — `InpEaOpensBasket=true`
+reverts to the EA doing both, without recompiling.
+
+Every safety gate is checked inside `open_portfolio_basket()`, in order: kill switch →
+account identity (`CSS_MT5_EXPECTED_LOGIN`) → demo lock (`CSS_LIVE_TRADING`) →
+idempotency → netting symbol collision → exposure caps → symbol/tick preflight
+(all-or-nothing) → broker-side catastrophic stop-loss. All configured via `.env`
+(see `.env.example`); a missing/invalid value fails closed, never open.
+
+**Kill switch:** `touch data/CSS_KILL.flag` blocks any NEW basket. Closing is never
+blocked — reducing risk always proceeds. The EA reads the same file name from the
+instance's own `MQL5/Files`.
+
+The broker symbols carry a suffix (`EURUSDm` on the Exness demo in use): set
+`CSS_MT5_SYMBOL_SUFFIX`, and go through `to_broker_symbol()`/`from_broker_symbol()`
+in `web/css_service.py` at every MT5 boundary — without it nothing resolves and the
+track record silently falls back to simulated history.
+
+Compile the EA against the dedicated terminal (over SSH, no GUI):
+
+```bash
+scripts/compile_ea_remote.sh                 # exits non-zero on compile errors
+python scripts/setup_mt5_portfolios.py       # writes the 8 charts (MQL5/Profiles/Charts/Default)
+```
+
+`deploy/systemd/` holds the unit that keeps that terminal alive; read its README before
+touching it — the WSL interop makes `systemctl stop` leave the Windows process orphaned.
 
 ## Architecture
 

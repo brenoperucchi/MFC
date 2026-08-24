@@ -467,6 +467,51 @@ class TestSymbolResolution(unittest.TestCase):
         print("[✓] Um único par sem cotação recusa a cesta inteira — zero perna aberta")
 
 
+class TestReconciler(unittest.TestCase):
+    """Reconciliador das 08:10 — a rede que transforma 'ninguém percebeu' em
+    alarme. O valor dele está em ALERTAR, não em fechar."""
+
+    def _run(self, magics_abertos, close_result=None, raise_query=False):
+        import scripts.scheduler_daemon as daemon
+        enviados = []
+
+        def fake_get():
+            if raise_query:
+                raise pe.MT5QueryError("consulta falhou")
+            return magics_abertos
+
+        with patch.object(pe, "get_open_magics_and_symbols", fake_get), \
+             patch.object(daemon, "close_all_portfolios",
+                          lambda: close_result or {"success": True, "total_closed": 7}), \
+             patch("web.telegram_service.send_telegram_message",
+                   lambda text, **kw: enviados.append(text)):
+            daemon.execute_phase_0810()
+        return enviados
+
+    def test_silent_when_nothing_open(self):
+        self.assertEqual(self._run({}), [])
+        print("[✓] Reconciliação limpa não gera alarme falso")
+
+    def test_alerts_when_orphan_positions_found(self):
+        enviados = self._run({801007: {"USDCAD"}})
+        self.assertTrue(any("ainda ABERTA" in t for t in enviados))
+        print("[✓] Posição órfã às 08:10 dispara alerta")
+
+    def test_escalates_when_close_fails(self):
+        enviados = self._run({801007: {"USDCAD"}},
+                             close_result={"success": False, "error": "partial_close",
+                                           "message": "não fechou"})
+        self.assertTrue(any("INTERVENÇÃO MANUAL" in t for t in enviados))
+        print("[✓] Falha no fechamento da reconciliação escala pra intervenção manual")
+
+    def test_alerts_when_broker_query_itself_fails(self):
+        """Não conseguir CONSULTAR é tão grave quanto achar posição aberta:
+        não dá pra afirmar que está tudo fechado."""
+        enviados = self._run({}, raise_query=True)
+        self.assertTrue(any("não foi possível CONSULTAR" in t for t in enviados))
+        print("[✓] Consulta falhando às 08:10 também alerta (não assume 'tudo fechado')")
+
+
 class TestExposureCaps(unittest.TestCase):
     """Travas de tamanho. Nos valores padrão não mudam a estratégia (lote
     fixo 0.01, até 8 cestas): existem contra erro de chamada e payload de

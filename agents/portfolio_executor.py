@@ -63,14 +63,28 @@ KILL_SWITCH_FILE = os.path.join(DATA_DIR, "CSS_KILL.flag")
 # (deep-reasoner, fable-reasoner, codex) concordaram que isso é mais importante
 # que a escolha de arquitetura em si. Valor de partida amplo — recalibrar com
 # a pior excursão histórica real por perna antes de qualquer conta real.
-CATASTROPHIC_SL_PIPS = int(os.environ.get("CSS_CATASTROPHIC_SL_PIPS", "150"))
+def _env_number(name, default, cast=int):
+    """Lê variável numérica sem derrubar o IMPORT do módulo se vier lixo.
+    Um valor inválido aqui tirava do ar o servidor e o daemon inteiros, de
+    forma silenciosa quando rodando sob o Task Scheduler."""
+    raw = os.environ.get(name)
+    if raw is None or raw.strip() == "":
+        return default
+    try:
+        return cast(raw.strip())
+    except (TypeError, ValueError):
+        print(f"[!] {name}={raw!r} inválido — usando o padrão {default}.")
+        return default
+
+
+CATASTROPHIC_SL_PIPS = _env_number("CSS_CATASTROPHIC_SL_PIPS", 150, int)
 
 # Tetos de exposição. Nenhum deles altera a estratégia nos valores padrão
 # (lote fixo 0.01, até 8 cestas — uma por moeda): existem pra impedir que um
 # erro de chamada, um payload de API malformado ou uma mudança acidental de
 # parâmetro vire uma posição muito maior que a pretendida.
-MAX_LOT = float(os.environ.get("CSS_MAX_LOT", "0.01"))
-MAX_CONCURRENT_BASKETS = int(os.environ.get("CSS_MAX_CONCURRENT_BASKETS", "8"))
+MAX_LOT = _env_number("CSS_MAX_LOT", 0.01, float)
+MAX_CONCURRENT_BASKETS = _env_number("CSS_MAX_CONCURRENT_BASKETS", 8, int)
 
 # Contas em modo netting não têm posição isolada por magic number — duas
 # cestas que compartilham um par (ex.: USD e EUR podem operar EURUSD) se
@@ -252,6 +266,41 @@ def _compute_catastrophic_sl(symbol: str, order_type_is_buy: bool, entry_price: 
         return 0.0
     distance = CATASTROPHIC_SL_PIPS * _pip_size(symbol)
     return round(entry_price - distance, 5) if order_type_is_buy else round(entry_price + distance, 5)
+
+
+# Retcodes em que NÃO dá pra saber se a ordem executou: a resposta se perdeu,
+# mas o servidor pode ter preenchido. Reenviar às cegas dobraria a perna.
+_AMBIGUOUS_RETCODE_NAMES = (
+    "TRADE_RETCODE_TIMEOUT",
+    "TRADE_RETCODE_CONNECTION",
+    "TRADE_RETCODE_DONE_PARTIAL",
+    "TRADE_RETCODE_PLACED",
+)
+
+
+def _ambiguous_retcodes():
+    codes = set()
+    if MT5_AVAILABLE and mt5 is not None:
+        for name in _AMBIGUOUS_RETCODE_NAMES:
+            v = getattr(mt5, name, None)
+            if v is not None:
+                codes.add(v)
+    return codes
+
+
+def _position_exists(broker_symbol: str, magic: int):
+    """True/False se há posição desse magic nesse símbolo; None se não deu pra
+    consultar. None é distinto de False de propósito: 'não sei' nunca pode
+    virar 'não abriu' num caminho que decide reenviar ordem."""
+    if not MT5_AVAILABLE or mt5 is None:
+        return None
+    try:
+        positions = mt5.positions_get(symbol=broker_symbol)
+    except Exception:
+        return None
+    if positions is None:
+        return None
+    return any(p.magic == magic for p in positions)
 
 
 def _atomic_write_json(path: str, payload: dict):
@@ -511,7 +560,36 @@ def open_portfolio_basket(currency: str, bias: str, lot: float = 0.01, deviation
             })
             print(f"  [+] {pair_sym} {action} {lot} @ {res.price or price:.5f} | Ticket: {res.order}")
         else:
-            # Tentar fallback com filling RETURN caso IOC falhe
+            # Retry SÓ quando a falha é inequivocamente "não executou".
+            # Um timeout/erro de conexão é AMBÍGUO: a ordem pode ter sido
+            # preenchida no servidor e só a resposta ter se perdido — reenviar
+            # nesse caso dobra o volume da perna. Nesses casos, confirma no
+            # broker antes de decidir.
+            retcode = res.retcode if res else None
+            ambiguous = (res is None or retcode in _ambiguous_retcodes())
+            if ambiguous:
+                filled = _position_exists(broker_sym, magic)
+                if filled is None:
+                    results.append({
+                        "pair": pair_sym, "action": action, "status": "ERROR",
+                        "error_code": retcode,
+                        "message": "Resposta ambígua e confirmação indisponível — "
+                                   "NÃO reenviado (evita dobrar a perna). Revisar manualmente."})
+                    print(f"  [!] {pair_sym} {action}: resposta ambígua ({retcode}) e sem confirmação "
+                          f"— não reenviado. REVISAR MANUALMENTE.")
+                    continue
+                if filled:
+                    success_count += 1
+                    results.append({
+                        "pair": pair_sym, "action": action, "lot": lot,
+                        "entry_price": price, "status": "OPENED",
+                        "message": f"Resposta ambígua ({retcode}), mas posição confirmada no broker"})
+                    print(f"  [+] {pair_sym} {action}: resposta ambígua, posição CONFIRMADA no broker")
+                    continue
+                # Confirmado que não abriu — seguro reenviar.
+
+            # Fallback de filling: só faz sentido quando a rejeição foi do
+            # modo de preenchimento, não pra qualquer erro.
             request["type_filling"] = mt5.ORDER_FILLING_RETURN
             res2 = mt5.order_send(request)
             if res2 and res2.retcode == mt5.TRADE_RETCODE_DONE:
@@ -692,9 +770,18 @@ def close_all_portfolios(deviation: int = 15):
     summary_by_ccy = {}
     failures = []
 
-    for ccy in PORTFOLIO_MAGICS:
+    # Só itera as moedas que REALMENTE têm posição: antes chamava
+    # close_portfolio_basket pras 8 sempre, cada uma refazendo positions_get.
+    magics_abertos = {p.magic for p in positions}
+    moedas_com_posicao = [c for c, m in PORTFOLIO_MAGICS.items() if m in magics_abertos]
+    if not moedas_com_posicao:
+        print("[ENCERRAMENTO 08:00 BRT] Nenhuma posição dos portfólios aberta.")
+        return {"success": True, "total_closed": 0, "currencies_closed": {},
+                "failures": [], "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+
+    for ccy in moedas_com_posicao:
         # Isolamento por moeda: uma falha não pode impedir o fechamento das
-        # outras 7 cestas — fechar é redutor de risco, sempre segue adiante.
+        # outras cestas — fechar é redutor de risco, sempre segue adiante.
         try:
             res = close_portfolio_basket(ccy, deviation=deviation)
         except Exception as e:

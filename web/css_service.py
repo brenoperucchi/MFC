@@ -28,16 +28,34 @@ def _load_dotenv_if_present(env_path=None):
     env_path = env_path or os.path.join(BASE_DIR, ".env")
     if not os.path.exists(env_path):
         return
-    with open(env_path, "r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            key, _, value = line.partition("=")
-            key = key.strip()
-            value = value.strip().strip('"').strip("'")
-            if key and key not in os.environ:
-                os.environ[key] = value
+    try:
+        # utf-8-sig remove BOM (que corromperia o nome da primeira chave);
+        # errors="replace" evita que um .env salvo em ANSI/Windows-1252
+        # derrube o IMPORT deste módulo — e com ele o servidor e o daemon.
+        with open(env_path, "r", encoding="utf-8-sig", errors="replace") as f:
+            lines = f.readlines()
+    except OSError as e:
+        print(f"[!] Não foi possível ler {env_path}: {e} — seguindo sem ele.")
+        return
+
+    for raw in lines:
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        value = value.strip()
+        # Comentário no fim da linha: só fora de aspas. Sem isto,
+        # "CSS_CATASTROPHIC_SL_PIPS=150 # nota" virava o valor literal
+        # "150 # nota" e o int() dele explodia no import.
+        if value[:1] in ("'", '"'):
+            quote = value[0]
+            end = value.find(quote, 1)
+            value = value[1:end] if end > 0 else value[1:]
+        elif "#" in value:
+            value = value.split("#", 1)[0].strip()
+        if key and key not in os.environ:
+            os.environ[key] = value
 
 
 _load_dotenv_if_present()
@@ -83,15 +101,23 @@ def to_broker_symbol(pair: str) -> str:
         return _SYMBOL_RESOLUTION_CACHE[pair]
 
     resolved = pair + MT5_SYMBOL_SUFFIX
+    confirmed = False
     if MT5_AVAILABLE and mt5 is not None:
         try:
-            if mt5.symbol_info(pair) is not None:
-                resolved = pair
-            elif MT5_SYMBOL_SUFFIX and mt5.symbol_info(pair + MT5_SYMBOL_SUFFIX) is not None:
-                resolved = pair + MT5_SYMBOL_SUFFIX
+            # Sufixo configurado tem PRECEDÊNCIA sobre o nome puro: corretoras
+            # que listam as duas séries (padrão e micro/cent) fariam a cesta
+            # misturar contratos de nocional diferente por perna.
+            if MT5_SYMBOL_SUFFIX and mt5.symbol_info(pair + MT5_SYMBOL_SUFFIX) is not None:
+                resolved, confirmed = pair + MT5_SYMBOL_SUFFIX, True
+            elif mt5.symbol_info(pair) is not None:
+                resolved, confirmed = pair, True
         except Exception:
             pass
-    _SYMBOL_RESOLUTION_CACHE[pair] = resolved
+    # Só memoriza resolução CONFIRMADA contra o servidor. Cachear o palpite
+    # feito antes do MT5 conectar congelaria um nome possivelmente errado pelo
+    # resto da vida do processo.
+    if confirmed:
+        _SYMBOL_RESOLUTION_CACHE[pair] = resolved
     return resolved
 
 

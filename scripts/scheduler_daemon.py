@@ -2,10 +2,11 @@
 DAEMON DE AGENDAMENTO AUTOMÁTICO INSTITUCIONAL (CSS PORTFOLIOS & TRACK RECORD)
 Ciclo Diário Rigoroso:
 - 21:00:00 BRT: Rotina de Análise CSS Multi-Timeframe e Raio-X
-- 21:02:00 BRT: Gravação dos Sinais Oficiais dos 8 Portfólios em FILE_COMMON
-- 21:05:00 BRT: Disparo das ordens pelo MT5 (Executado pelos robôs locais)
-- 08:00:00 BRT: Encerramento compulsório a mercado
+- 21:02:00 BRT: Gravação dos Sinais Oficiais dos 8 Portfólios (MQL5/Files da instância)
+- 21:05:00 BRT: Abertura das cestas pelo lado Python (o EA é guardião do fechamento)
+- 08:00:00 BRT: Encerramento compulsório a mercado (Python + EA, redundantes)
 - 08:05:00 BRT: Sincronização da Auditoria de Deals Reais e Auto-Deploy no Firebase Hosting
+- 08:10:00 BRT: Reconciliação — alerta no Telegram se sobrou posição órfã
 """
 
 import os
@@ -28,10 +29,14 @@ from web.real_portfolio_audit import real_audit_engine
 import json
 
 
-def run_command(cmd, desc=""):
+def run_command(cmd, desc="", timeout=120):
+    """timeout configurável: a rotina das 21h faz ~17 uploads de PNG com sleeps,
+    140 séries do MT5 e 9 figuras matplotlib — 120s a mata no meio, e o passo
+    que grava o arquivo de sinais fica pra trás. Chamadas com trabalho pesado
+    devem passar um teto próprio."""
     print(f"[{datetime.now().strftime('%H:%M:%S')}] Iniciando: {desc} -> {cmd}")
     try:
-        res = subprocess.run(cmd, shell=True, cwd=BASE_DIR, capture_output=True, text=True, timeout=120)
+        res = subprocess.run(cmd, shell=True, cwd=BASE_DIR, capture_output=True, text=True, timeout=timeout)
         if res.returncode == 0:
             print(f"[{datetime.now().strftime('%H:%M:%S')}] [OK] {desc}")
             return True
@@ -49,13 +54,15 @@ def execute_phase_2100():
     print(f"  [ROUTINE 21:00 BRT] EXECUTANDO ANÁLISE CSS MULTI-TIMEFRAME")
     print("="*70)
     cmd = f'"{sys.executable}" "{os.path.join(BASE_DIR, "daily_css_routine.py")}"'
-    run_command(cmd, "Rotina Diária CSS 21h")
+    # 10 min: a rotina tem que caber inteira, senão o passo 3.1 (gravação do
+    # arquivo de sinais) é cortado e o 21:02/21:05 opera sobre sinal velho.
+    run_command(cmd, "Rotina Diária CSS 21h", timeout=600)
 
 
 def execute_phase_2102():
     """21:02 BRT - Grava os Sinais dos 8 Portfólios para o MT5."""
     print("\n" + "="*70)
-    print(f"  [ROUTINE 21:02 BRT] GRAVAÇÃO DOS SINAIS DE PORTFÓLIO (FILE_COMMON)")
+    print(f"  [ROUTINE 21:02 BRT] GRAVAÇÃO DOS SINAIS DE PORTFÓLIO (MQL5/Files)")
     print("="*70)
     try:
         signals = generate_and_save_daily_signals()
@@ -165,6 +172,70 @@ def execute_phase_0800():
     return False
 
 
+def execute_phase_0810():
+    """08:10 BRT - Reconciliador: última rede antes do dia começar.
+
+    Às 08:00 o Python tenta fechar e o EA tenta fechar. Se as duas falharem
+    (terminal fora do ar, AutoTrading desligado, conta errada, ordem rejeitada
+    repetidamente), uma cesta direcional atravessa o dia inteiro protegida só
+    pelo stop catastrófico — e ninguém fica sabendo, porque o único sinal era
+    uma linha de print que ninguém lê às 08h.
+
+    Este passo existe pra transformar esse silêncio em alarme: reconsulta o
+    broker, tenta fechar o que sobrou e ALERTA no Telegram se ainda houver
+    posição órfã. Alertar é o ponto — o fechamento aqui é a terceira
+    tentativa, não a principal."""
+    print("\n" + "="*70)
+    print(f"  [ROUTINE 08:10 BRT] RECONCILIAÇÃO — POSIÇÕES ÓRFÃS")
+    print("="*70)
+
+    from agents.portfolio_executor import get_open_magics_and_symbols, MT5QueryError
+
+    def alerta(texto):
+        print(texto)
+        try:
+            from web.telegram_service import send_telegram_message
+            send_telegram_message(texto)
+        except Exception as e:
+            print(f"[-] Falha ao enviar alerta no Telegram: {e}")
+
+    try:
+        abertos = get_open_magics_and_symbols()
+    except MT5QueryError as e:
+        alerta(f"🚨 <b>MFC 08:10</b> — não foi possível CONSULTAR o broker ({e}). "
+               f"Impossível confirmar se há posição aberta. Verificar manualmente.")
+        return
+
+    if not abertos:
+        print("[+] Nenhuma posição órfã — reconciliação limpa.")
+        return
+
+    total = sum(len(v) for v in abertos.values())
+    alerta(f"⚠️ <b>MFC 08:10</b> — {total} posição(ões) ainda ABERTA(S) após o "
+           f"encerramento das 08:00: { {m: sorted(v) for m, v in abertos.items()} }. "
+           f"Tentando fechar de novo...")
+
+    try:
+        res = close_all_portfolios()
+    except Exception as e:
+        alerta(f"🚨 <b>MFC 08:10</b> — exceção ao tentar fechar: {e}. INTERVENÇÃO MANUAL NECESSÁRIA.")
+        return
+
+    if res.get("success"):
+        alerta(f"✅ <b>MFC 08:10</b> — reconciliação fechou {res.get('total_closed', 0)} posição(ões). "
+               f"Nada mais aberto.")
+        return
+
+    try:
+        restantes = get_open_magics_and_symbols()
+    except MT5QueryError:
+        restantes = {"?": ["consulta falhou"]}
+    alerta(f"🚨 <b>MFC 08:10</b> — reconciliação NÃO conseguiu fechar tudo. "
+           f"Restam: { {m: sorted(v) for m, v in restantes.items()} }. "
+           f"Erro: {res.get('error')} — {res.get('message')}. "
+           f"INTERVENÇÃO MANUAL NECESSÁRIA (posição sem fechador, só com stop catastrófico).")
+
+
 def execute_phase_0805():
     """08:05 BRT - Auditoria Noturna dos Deals Reais e Auto-Deploy no Firebase."""
     print("\n" + "="*70)
@@ -189,7 +260,7 @@ def run_daemon_loop(test_mode=False):
     print("  DAEMON DE AGENDAMENTO INSTITUCIONAL ATIVO (CSS PORTFOLIOS)      ")
     print("===================================================================")
     print(f"[*] Horário Local Atual: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print("[*] Monitorando horários: 21:00:00 | 21:02:00 | 21:05:00 | 08:00:00 | 08:05:00 BRT\n")
+    print("[*] Monitorando horários: 21:00:00 | 21:02:00 | 21:05:00 | 08:00:00 | 08:05:00 | 08:10:00 BRT\n")
 
     if test_mode:
         print("[*] MODO DE TESTE: rotinas que NÃO enviam ordem, em sequência.")
@@ -247,7 +318,15 @@ def run_daemon_loop(test_mode=False):
                 if execute_phase_0800():
                     last_trigger[key] = True
 
-        # 4. Gatilho 08:05
+        # 4. Gatilho 08:10 — reconciliação (ver execute_phase_0810).
+        # Só marca como feito se rodou; assim uma exceção não o cancela.
+        if cur_hour == 8 and cur_min == 10:
+            key = f"{cur_date}_0810"
+            if key not in last_trigger:
+                execute_phase_0810()
+                last_trigger[key] = True
+
+        # 5. Gatilho 08:05
         if cur_hour == 8 and cur_min == 5:
             key = f"{cur_date}_0805"
             if key not in last_trigger:

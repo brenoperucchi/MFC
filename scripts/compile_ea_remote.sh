@@ -46,11 +46,34 @@ ssh -o BatchMode=yes -o ConnectTimeout=60 "$SSH_HOST" bash -s <<REMOTE_SCRIPT
 REMOTE_SCRIPT
 
 echo "[3/3] Aguardando compile.log e imprimindo (o MetaEditor grava em UTF-16LE):"
+log_found=0
 for i in 1 2 3 4 5 6 7 8 9 10; do
   if ssh "${SSH_OPTS[@]}" "$SSH_HOST" "test -s '$REMOTE_EA_DIR/compile.log'"; then
+    log_found=1
     break
   fi
   sleep 1
 done
-ssh "${SSH_OPTS[@]}" "$SSH_HOST" \
-  "iconv -f UTF-16LE -t UTF-8 '$REMOTE_EA_DIR/compile.log' 2>/dev/null || cat '$REMOTE_EA_DIR/compile.log' 2>/dev/null || echo '(compile.log não apareceu — MetaEditor pode ter falhado ao iniciar)'"
+
+if [ "$log_found" -eq 0 ]; then
+  echo "ERRO: compile.log não apareceu — o MetaEditor pode ter falhado ao iniciar." >&2
+  exit 1
+fi
+
+COMPILE_LOG="$(ssh "${SSH_OPTS[@]}" "$SSH_HOST" \
+  "iconv -f UTF-16LE -t UTF-8 '$REMOTE_EA_DIR/compile.log' 2>/dev/null || cat '$REMOTE_EA_DIR/compile.log'")"
+printf '%s\n' "$COMPILE_LOG"
+
+# O script precisa FALHAR quando a compilação falha: antes o `|| true` do
+# heredoc anulava o exit code do MetaEditor (que retorna o nº de erros) e o
+# `|| cat || echo` mascarava a última chance — um erro de sintaxe saía com
+# código 0 e só era percebido por alguém lendo o log com atenção.
+if printf '%s' "$COMPILE_LOG" | grep -qE 'Result: [1-9][0-9]* errors?'; then
+  echo "ERRO: compilação falhou (ver 'Result:' acima)." >&2
+  exit 1
+fi
+if ! printf '%s' "$COMPILE_LOG" | grep -q 'Result: 0 errors'; then
+  echo "ERRO: não foi possível confirmar 'Result: 0 errors' no log." >&2
+  exit 1
+fi
+echo "[OK] Compilação limpa."

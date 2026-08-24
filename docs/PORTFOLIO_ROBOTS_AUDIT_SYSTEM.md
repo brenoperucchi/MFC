@@ -10,7 +10,7 @@ flowchart TD
         A["Rotina CSS Multi-TF (21:00)"] --> B["Tríade Analítica & Confluência"]
         B --> C["Gerador de Sinais (21:02)"]
         C --> D["data/portfolio_signals_live.json (Local)"]
-        C --> E["FILE_COMMON/CSS_Portfolio_Signals.json (MT5 Bridge)"]
+        C --> E["MQL5/Files/CSS_Portfolio_Signals.json (MT5 Bridge)"]
     end
 
     subgraph MT5_Execution [2. Execução Automatizada — 21:05 às 08:00 BRT]
@@ -37,7 +37,7 @@ flowchart TD
 | Horário (BRT) | Evento / Ação | Descrição |
 | :--- | :--- | :--- |
 | **21:00:00** | **Cálculo CSS Multi-TF** | Leitura de preços e inclinações nos 5 timeframes (*MN1, W1, D1, H4, H1*). |
-| **21:02:00** | **Gravação dos Sinais Oficiais** | Geração e gravação atômica do arquivo `CSS_Portfolio_Signals.json` em `FILE_COMMON`. |
+| **21:02:00** | **Gravação dos Sinais Oficiais** | Geração e gravação atômica do arquivo `CSS_Portfolio_Signals.json` em `MQL5/Files` da instância dedicada. |
 | **21:05:00** | **Abertura das Cestas** | Os robôs lêem os sinais de suas moedas. Se `BUY` ou `SELL`, abrem simultaneamente os 7 pares a mercado. |
 | **21:05 ➔ 07:59** | **Monitoramento e HUD** | Atualização contínua de PnL flutuante, pips acumulados, pico favorável (**MFE**) e drawdown máximo (**MAE**). |
 | **08:00:00** | **Encerramento da Sessão** | Fechamento automático de todas as ordens abertas a mercado pelo Magic Number. |
@@ -72,8 +72,8 @@ Cada portfólio opera com **Magic Number exclusivo**, garantindo isolamento tota
 
 ## 4. Ponte de Comunicação Segura (Ida e Volta)
 
-### Ponte de IDA (Python ➔ MT5 via `FILE_COMMON`)
-* **Local:** `C:\Users\ryzen\AppData\Roaming\MetaQuotes\Terminal\Common\Files\CSS_Portfolio_Signals.json`
+### Ponte de IDA (Python ➔ MT5 via `MQL5/Files` da instância dedicada)
+* **Local:** `D:\MetaTradersWSL\mfc\MQL5\Files\CSS_Portfolio_Signals.json`
 * **Formato JSON:**
 ```json
 {
@@ -92,7 +92,10 @@ Cada portfólio opera com **Magic Number exclusivo**, garantindo isolamento tota
 }
 ```
 * **Leitura no MQL5:**
-  O robô lê o arquivo via `FileOpen("CSS_Portfolio_Signals.json", FILE_READ | FILE_TXT | FILE_COMMON)` às 21:05. Se a moeda for `NEUTRAL`, nenhuma ordem é aberta.
+  O robô lê o arquivo via `FileOpen("CSS_Portfolio_Signals.json", FILE_READ | FILE_TXT | FILE_ANSI)` às 21:05.
+  Sem `FILE_COMMON`: a instância MT5 é `/portable` e dedicada ao MFC, então Python e EA
+  compartilham a `MQL5/Files` dela — a pasta Common seria compartilhada com as outras
+  estratégias da máquina. Se a moeda for `NEUTRAL`, nenhuma ordem é aberta.
 
 ### Ponte de VOLTA (MT5 ➔ Motor de Auditoria Real)
 * **Auditoria de Deals:** O motor `web/real_portfolio_audit.py` consulta `mt5.history_deals_get()` filtrando estritamente pelos Magic Numbers `801001` a `801008`.
