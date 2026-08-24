@@ -13,6 +13,7 @@ import os
 import sys
 import time
 import subprocess
+import re
 from datetime import datetime, timedelta
 
 sys.stdout.reconfigure(encoding='utf-8')
@@ -26,6 +27,11 @@ from agents.portfolio_executor import (
     SIGNALS_FILE
 )
 from web.real_portfolio_audit import real_audit_engine
+
+DATA_DIR = os.path.join(BASE_DIR, "data")
+# Estado atual (some quando resolve) e histórico da reconciliação.
+RECONCILE_ALERT = os.path.join(DATA_DIR, "RECONCILE_ALERT.json")
+RECONCILE_LOG = os.path.join(DATA_DIR, "reconcile_alerts.log")
 import json
 
 
@@ -191,13 +197,39 @@ def execute_phase_0810():
 
     from agents.portfolio_executor import get_open_magics_and_symbols, MT5QueryError
 
-    def alerta(texto):
+    def alerta(texto, resolvido=False):
+        """Alerta em três canais, do mais confiável pro mais conveniente.
+
+        O arquivo vem PRIMEIRO e não depende de nada: o Telegram ainda é uma
+        decisão em aberto e pode estar desligado, e um alerta que existe só
+        como print no stdout de um daemon é o mesmo silêncio que este passo
+        foi criado pra eliminar. RECONCILE_ALERT.json é o estado atual (some
+        quando resolve); o .log guarda o histórico."""
         print(texto)
+        limpo = re.sub(r"<[^>]+>", "", texto)
+        stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        try:
+            with open(RECONCILE_LOG, "a", encoding="utf-8") as f:
+                f.write(f"[{stamp}] {limpo}\n")
+        except OSError as e:
+            print(f"[-] Falha ao gravar {RECONCILE_LOG}: {e}")
+        try:
+            if resolvido:
+                if os.path.exists(RECONCILE_ALERT):
+                    os.remove(RECONCILE_ALERT)
+            else:
+                with open(RECONCILE_ALERT, "w", encoding="utf-8") as f:
+                    json.dump({"timestamp": stamp, "message": limpo}, f,
+                              indent=2, ensure_ascii=False)
+        except OSError as e:
+            print(f"[-] Falha ao atualizar {RECONCILE_ALERT}: {e}")
+        # Telegram é best-effort: decisão em aberto, e nunca pode ser o único
+        # canal nem derrubar o reconciliador se estiver fora.
         try:
             from web.telegram_service import send_telegram_message
             send_telegram_message(texto)
         except Exception as e:
-            print(f"[-] Falha ao enviar alerta no Telegram: {e}")
+            print(f"[-] Telegram indisponível ({e}) — alerta segue em {RECONCILE_ALERT}.")
 
     try:
         abertos = get_open_magics_and_symbols()
@@ -208,6 +240,10 @@ def execute_phase_0810():
 
     if not abertos:
         print("[+] Nenhuma posição órfã — reconciliação limpa.")
+        # Limpa alerta de um dia anterior que tenha sido resolvido na mão.
+        if os.path.exists(RECONCILE_ALERT):
+            alerta("✅ <b>MFC 08:10</b> — reconciliação limpa; alerta anterior resolvido.",
+                   resolvido=True)
         return
 
     total = sum(len(v) for v in abertos.values())
@@ -223,7 +259,7 @@ def execute_phase_0810():
 
     if res.get("success"):
         alerta(f"✅ <b>MFC 08:10</b> — reconciliação fechou {res.get('total_closed', 0)} posição(ões). "
-               f"Nada mais aberto.")
+               f"Nada mais aberto.", resolvido=True)
         return
 
     try:

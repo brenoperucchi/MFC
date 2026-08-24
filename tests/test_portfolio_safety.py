@@ -472,6 +472,9 @@ class TestReconciler(unittest.TestCase):
     alarme. O valor dele está em ALERTAR, não em fechar."""
 
     def _run(self, magics_abertos, close_result=None, raise_query=False):
+        """Isola os arquivos de alerta num tmpdir: o reconciliador grava
+        RECONCILE_ALERT.json/reconcile_alerts.log de verdade, e sem isso a
+        suíte sujava data/ e um teste contaminava o outro."""
         import scripts.scheduler_daemon as daemon
         enviados = []
 
@@ -480,13 +483,36 @@ class TestReconciler(unittest.TestCase):
                 raise pe.MT5QueryError("consulta falhou")
             return magics_abertos
 
-        with patch.object(pe, "get_open_magics_and_symbols", fake_get), \
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch.object(daemon, "RECONCILE_ALERT", os.path.join(tmp, "RECONCILE_ALERT.json")), \
+             patch.object(daemon, "RECONCILE_LOG", os.path.join(tmp, "reconcile_alerts.log")), \
+             patch.object(pe, "get_open_magics_and_symbols", fake_get), \
              patch.object(daemon, "close_all_portfolios",
                           lambda: close_result or {"success": True, "total_closed": 7}), \
              patch("web.telegram_service.send_telegram_message",
                    lambda text, **kw: enviados.append(text)):
             daemon.execute_phase_0810()
         return enviados
+
+    def test_alert_file_written_even_without_telegram(self):
+        """O Telegram é decisão em aberto: o alerta não pode depender dele."""
+        import scripts.scheduler_daemon as daemon
+        with tempfile.TemporaryDirectory() as tmp:
+            alert = os.path.join(tmp, "RECONCILE_ALERT.json")
+            with patch.object(daemon, "RECONCILE_ALERT", alert), \
+                 patch.object(daemon, "RECONCILE_LOG", os.path.join(tmp, "r.log")), \
+                 patch.object(pe, "get_open_magics_and_symbols",
+                              lambda: {801007: {"USDCAD"}}), \
+                 patch.object(daemon, "close_all_portfolios",
+                              lambda: {"success": False, "error": "x", "message": "y"}), \
+                 patch("web.telegram_service.send_telegram_message",
+                       lambda *a, **k: (_ for _ in ()).throw(RuntimeError("telegram off"))):
+                daemon.execute_phase_0810()
+            self.assertTrue(os.path.exists(alert),
+                            "alerta precisa existir em arquivo mesmo com o Telegram fora")
+            with open(alert, encoding="utf-8") as f:
+                self.assertIn("INTERVENÇÃO MANUAL", json.load(f)["message"])
+        print("[✓] Alerta persiste em arquivo mesmo com o Telegram indisponível")
 
     def test_silent_when_nothing_open(self):
         self.assertEqual(self._run({}), [])

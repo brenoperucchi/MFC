@@ -27,3 +27,7 @@ ENV/
 # Firebase
 .firebase/
 *.tmp
+
+# Estado/histórico do reconciliador das 08:10 (runtime, não versionar)
+data/RECONCILE_ALERT.json
+data/reconcile_alerts.log
