@@ -288,10 +288,13 @@ def _ambiguous_retcodes():
     return codes
 
 
-def _position_exists(broker_symbol: str, magic: int):
-    """True/False se há posição desse magic nesse símbolo; None se não deu pra
-    consultar. None é distinto de False de propósito: 'não sei' nunca pode
-    virar 'não abriu' num caminho que decide reenviar ordem."""
+def _confirmed_position_volume(broker_symbol: str, magic: int):
+    """Soma o volume das posições abertas com esse magic+símbolo, ou None se
+    não deu pra consultar ou não achou nenhuma. Volume, não só existência
+    (achado em revisão): uma checagem que só confirma 'existe alguma posição'
+    contava um DONE_PARTIAL como perna CHEIA, mesmo quando só uma fração do
+    lote pedido de fato executou — quem chama usa o volume real pra reportar
+    o que realmente abriu, não o que foi pedido."""
     if not MT5_AVAILABLE or mt5 is None:
         return None
     try:
@@ -300,7 +303,62 @@ def _position_exists(broker_symbol: str, magic: int):
         return None
     if positions is None:
         return None
-    return any(p.magic == magic for p in positions)
+    total = sum(p.volume for p in positions if p.magic == magic)
+    return total if total > 0 else None
+
+
+# Tentativas de confirmar a posição depois de um retcode ambíguo, e o
+# intervalo entre elas. Existem porque uma checagem ÚNICA e IMEDIATA pode não
+# encontrar a posição só porque ela ainda não propagou no lado do broker —
+# isso NÃO é o mesmo que "confirmado que não abriu". TRADE_RETCODE_PLACED em
+# particular significa "aceita, ainda processando": consultar milissegundos
+# depois e não achar nada é "ainda não", não "nunca".
+#
+# Clamp deliberado (achado em revisão): _env_number só garante que o valor
+# CASTOU pro tipo certo, não que faz sentido. Sem limite, um typo tipo
+# CSS_AMBIGUOUS_CONFIRM_ATTEMPTS=300000 travaria a abertura da cesta inteira
+# por horas dentro do laço de envio, e um delay negativo/NaN faz time.sleep()
+# lançar ValueError no meio da cesta, abortando as pernas restantes sem
+# nenhum rollback. Faixa escolhida: generosa o bastante pra absorver
+# propagação normal do broker, pequena o bastante pra nunca travar por muito
+# tempo um caminho que já é síncrono e envia dinheiro real.
+def _clamp(value, lo, hi):
+    if value != value:  # NaN nunca é igual a si mesmo
+        return lo
+    return max(lo, min(hi, value))
+
+
+_AMBIGUOUS_CONFIRM_ATTEMPTS = _clamp(_env_number("CSS_AMBIGUOUS_CONFIRM_ATTEMPTS", 3, int), 1, 10)
+_AMBIGUOUS_CONFIRM_DELAY_SEC = _clamp(_env_number("CSS_AMBIGUOUS_CONFIRM_DELAY_SEC", 1.0, float), 0.0, 10.0)
+
+
+def _confirm_position_after_ambiguous_retcode(broker_symbol: str, magic: int):
+    """Confirma se a perna abriu depois de uma resposta ambígua, tentando
+    algumas vezes com espera entre elas em vez de uma única checagem
+    imediata. Uma falha de consulta (None) numa tentativa NÃO encerra a
+    confirmação — conta como 'ainda não confirmado' e tenta de novo, porque
+    uma falha de consulta costuma ser tão transitória quanto a própria
+    ambiguidade que estamos tentando resolver; só desiste (None) depois de
+    esgotar todas as tentativas. Esta função nunca reenvia ordem — só quem
+    chama decide o que fazer com o resultado.
+
+    Retorna o VOLUME real confirmado (float > 0), não um bool — quem chama
+    usa isso pra reportar o que de fato abriu (pode ser menos que o lote
+    pedido, num DONE_PARTIAL) em vez de assumir que qualquer posição
+    encontrada é a perna inteira.
+
+    Limitação conhecida (ainda não resolvida): correlaciona só por
+    símbolo+magic, sem ticket/deal — mas como open_portfolio_basket() já
+    recusa a cesta inteira de saída se o magic tiver QUALQUER posição prévia
+    (idempotência), uma posição encontrada aqui só pode ser a que ESTA
+    própria chamada acabou de enviar, não uma sobra de outra sessão."""
+    for attempt in range(_AMBIGUOUS_CONFIRM_ATTEMPTS):
+        volume = _confirmed_position_volume(broker_symbol, magic)
+        if volume:
+            return volume
+        if attempt < _AMBIGUOUS_CONFIRM_ATTEMPTS - 1:
+            time.sleep(_AMBIGUOUS_CONFIRM_DELAY_SEC)
+    return None
 
 
 def _atomic_write_json(path: str, payload: dict):
@@ -322,6 +380,15 @@ def _atomic_write_json(path: str, payload: dict):
 
 
 def ensure_mt5():
+    """Nunca inicializa 'com o que estiver disponível' (mt5.initialize() sem
+    path) quando MT5_PATH não resolve pra um terminal64.exe real — essa
+    máquina roda vários terminais MT5 pra estratégias/contas diferentes, e um
+    CSS_MT5_TERMINAL_PATH mal configurado silenciosamente anexando a
+    QUALQUER outro terminal já rodando seria pior que simplesmente falhar
+    (achado ALTO em revisão: combinado com get_mt5_files_dir() também
+    falhando fechado no mesmo cenário, a 2ª localização do kill switch fica
+    inatingível — mas com esta trava, nenhuma ordem chega a ser considerada
+    de qualquer forma, porque MT5 nunca inicializa)."""
     if not MT5_AVAILABLE:
         return False
     try:
@@ -329,9 +396,9 @@ def ensure_mt5():
             return True
     except Exception:
         pass
-    if os.path.exists(MT5_PATH):
-        return mt5.initialize(path=MT5_PATH)
-    return mt5.initialize()
+    if not MT5_PATH or not os.path.isfile(MT5_PATH):
+        return False
+    return mt5.initialize(path=MT5_PATH)
 
 
 def get_portfolio_pairs(currency: str, bias: str):
@@ -568,28 +635,44 @@ def open_portfolio_basket(currency: str, bias: str, lot: float = 0.01, deviation
             retcode = res.retcode if res else None
             ambiguous = (res is None or retcode in _ambiguous_retcodes())
             if ambiguous:
-                filled = _position_exists(broker_sym, magic)
-                if filled is None:
-                    results.append({
-                        "pair": pair_sym, "action": action, "status": "ERROR",
-                        "error_code": retcode,
-                        "message": "Resposta ambígua e confirmação indisponível — "
-                                   "NÃO reenviado (evita dobrar a perna). Revisar manualmente."})
-                    print(f"  [!] {pair_sym} {action}: resposta ambígua ({retcode}) e sem confirmação "
-                          f"— não reenviado. REVISAR MANUALMENTE.")
-                    continue
-                if filled:
+                confirmed_volume = _confirm_position_after_ambiguous_retcode(broker_sym, magic)
+                if confirmed_volume:
                     success_count += 1
+                    # Reporta o volume REAL confirmado no broker, não o lote
+                    # pedido — um DONE_PARTIAL abre menos do que foi pedido, e
+                    # reportar o pedido como se fosse o executado escondia a
+                    # exposição real da cesta (achado em revisão).
+                    partial_note = ""
+                    if abs(confirmed_volume - lot) > 1e-9:
+                        partial_note = (f" — ATENÇÃO: volume confirmado ({confirmed_volume}) "
+                                         f"é diferente do lote pedido ({lot}); possível preenchimento parcial")
                     results.append({
-                        "pair": pair_sym, "action": action, "lot": lot,
+                        "pair": pair_sym, "action": action, "lot": confirmed_volume,
                         "entry_price": price, "status": "OPENED",
-                        "message": f"Resposta ambígua ({retcode}), mas posição confirmada no broker"})
-                    print(f"  [+] {pair_sym} {action}: resposta ambígua, posição CONFIRMADA no broker")
+                        "message": f"Resposta ambígua ({retcode}), mas posição confirmada no broker "
+                                   f"(volume real: {confirmed_volume}){partial_note}"})
+                    print(f"  [+] {pair_sym} {action}: resposta ambígua, posição CONFIRMADA no broker "
+                          f"(volume {confirmed_volume}){partial_note}")
                     continue
-                # Confirmado que não abriu — seguro reenviar.
+                # Não confirmada aberta mesmo após várias tentativas — NUNCA
+                # reenviar. "Não vista após N tentativas" não é o mesmo que
+                # "confirmado que não abriu", e reenviar às cegas pode dobrar
+                # uma perna que só ainda não propagou no broker (bug real,
+                # achado em revisão — ver docs da reconciliação com o upstream).
+                results.append({
+                    "pair": pair_sym, "action": action, "status": "ERROR",
+                    "error_code": retcode,
+                    "message": "Resposta ambígua e não confirmada aberta — "
+                               "NÃO reenviado (evita dobrar a perna). Revisar manualmente."})
+                print(f"  [!] {pair_sym} {action}: resposta ambígua ({retcode}), não confirmada "
+                      f"— não reenviado. REVISAR MANUALMENTE.")
+                continue
 
-            # Fallback de filling: só faz sentido quando a rejeição foi do
-            # modo de preenchimento, não pra qualquer erro.
+            # Fallback de filling: alcançado pra qualquer rejeição NÃO
+            # ambígua (retcode ambíguo já foi resolvido/recusado acima, sem
+            # chegar aqui) — não filtra por retcode específico de modo de
+            # preenchimento, tenta de novo com ORDER_FILLING_RETURN pra
+            # qualquer rejeição não ambígua.
             request["type_filling"] = mt5.ORDER_FILLING_RETURN
             res2 = mt5.order_send(request)
             if res2 and res2.retcode == mt5.TRADE_RETCODE_DONE:
@@ -605,8 +688,16 @@ def open_portfolio_basket(currency: str, bias: str, lot: float = 0.01, deviation
                 })
                 print(f"  [+] {pair_sym} {action} {lot} @ {res2.price or price:.5f} | Ticket: {res2.order}")
             else:
-                err_code = res.retcode if res else "N/A"
-                err_desc = res.comment if res else "Falha de envio"
+                # Usa a resposta do REENVIO (res2), não da tentativa original
+                # (res) — reportar o erro da 1ª tentativa quando quem falhou
+                # foi a 2ª confunde o diagnóstico. Nota: se res2 também vier
+                # com um retcode ambíguo, ele NÃO passa por confirmação (só a
+                # 1ª tentativa passa) — fica ERROR mesmo que possa ter
+                # executado; não há um 3º envio automático, então não há
+                # risco de dobrar, só de um falso ERROR. Ver docs da
+                # reconciliação com o upstream.
+                err_code = res2.retcode if res2 else "N/A"
+                err_desc = res2.comment if res2 else "Falha de envio"
                 results.append({
                     "pair": pair_sym,
                     "action": action,
@@ -936,8 +1027,17 @@ def get_mt5_files_dir():
     instância mantém seus próprios arquivos localmente — como essa instância é
     exclusiva do MFC (não compartilhada com outras estratégias/contas na mesma
     máquina), não há necessidade de FILE_COMMON pra Python e o EA guardião
-    enxergarem o mesmo arquivo; o diretório local já basta."""
-    if not MT5_PATH:
+    enxergarem o mesmo arquivo; o diretório local já basta.
+
+    Exige que MT5_PATH aponte pra um terminal64.exe que REALMENTE existe em
+    disco antes de criar qualquer diretório. Sem essa checagem, um
+    CSS_MT5_TERMINAL_PATH mal configurado (typo, instância errada) fazia
+    os.makedirs criar uma árvore MQL5/Files "fantasma" embaixo de um caminho
+    que não é o terminal de verdade — kill switch e sinais eram gravados lá,
+    reportando sucesso, e o EA (que lê a pasta do terminal real) nunca via
+    nada. Falhar fechado aqui (None) é melhor que sincronizar com o lugar
+    errado em silêncio."""
+    if not MT5_PATH or not os.path.isfile(MT5_PATH):
         return None
     terminal_dir = os.path.dirname(MT5_PATH)
     if not terminal_dir:
@@ -1056,13 +1156,21 @@ def generate_and_save_daily_signals(currencies_data=None, mt5_connected=None):
     
     # 1. Salvar no projeto local (data/) — escrita atômica: quem lê nunca vê
     #    um arquivo pela metade (relevante pro EA, que lê a cada 3s).
-    try:
-        _atomic_write_json(SIGNALS_FILE, signals_payload)
-        print(f"[+] Sinais de Portfólio gravados localmente em: {SIGNALS_FILE}")
-    except Exception as e:
-        print(f"[-] Erro ao gravar sinais locais: {e}")
+    #
+    # NÃO engole exceção aqui (achado ALTO em revisão): SIGNALS_FILE é a
+    # fonte que execute_phase_2105 realmente lê pra decidir se abre a cesta.
+    # Engolir e devolver o payload normalmente mesmo com a escrita falhada
+    # fazia execute_phase_2102() "ter sucesso" e liberar 21:05 com o que já
+    # estivesse em disco antes (sinal de mais cedo hoje, ou de ontem) —
+    # quem chama precisa saber que isso falhou pra NÃO liberar a abertura.
+    _atomic_write_json(SIGNALS_FILE, signals_payload)
+    print(f"[+] Sinais de Portfólio gravados localmente em: {SIGNALS_FILE}")
 
-    # 2. Salvar na pasta MQL5/Files da instância MT5 dedicada — mesma garantia atômica.
+    # 2. Salvar na pasta MQL5/Files da instância MT5 dedicada — mesma
+    #    garantia atômica. Best-effort (só o EA em modo legado,
+    #    InpEaOpensBasket=true, lê isso diretamente — o caminho Python já
+    #    tem o payload em memória): uma falha aqui não invalida o sinal
+    #    que 21:05 usa, por isso continua sendo capturada, não propagada.
     files_dir = get_mt5_files_dir()
     if files_dir:
         mt5_signals_path = os.path.join(files_dir, "CSS_Portfolio_Signals.json")

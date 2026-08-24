@@ -38,7 +38,7 @@ flowchart TD
 | :--- | :--- | :--- |
 | **21:00:00** | **Cálculo CSS Multi-TF** | Leitura de preços e inclinações nos 5 timeframes (*MN1, W1, D1, H4, H1*). |
 | **21:02:00** | **Gravação dos Sinais Oficiais** | Geração e gravação atômica do arquivo `CSS_Portfolio_Signals.json` em `MQL5/Files` da instância dedicada. |
-| **21:05:00** | **Abertura das Cestas** | Os robôs lêem os sinais de suas moedas. Se `BUY` ou `SELL`, abrem simultaneamente os 7 pares a mercado. |
+| **21:05:00** | **Abertura das Cestas** | **Fase 1 (arquitetura híbrida atual):** `scripts/scheduler_daemon.py` lê os sinais e abre as cestas pelo lado Python (`agents/portfolio_executor.py::open_portfolio_basket`); o EA guardião (`InpEaOpensBasket=false` por padrão) só fecha. `InpEaOpensBasket=true` reverte ao modelo original descrito no diagrama acima, sem recompilar. |
 | **21:05 ➔ 07:59** | **Monitoramento e HUD** | Atualização contínua de PnL flutuante, pips acumulados, pico favorável (**MFE**) e drawdown máximo (**MAE**). |
 | **08:00:00** | **Encerramento da Sessão** | Fechamento automático de todas as ordens abertas a mercado pelo Magic Number. |
 | **08:05:00** | **Auditoria de Deals** | O motor de auditoria consolida os tickets reais do MT5 no journal oficial. |

@@ -38,6 +38,14 @@ ENTRY_SERVER_HOUR = (21 - GMT_OFFSET) % 24
 
 
 def ensure_mt5_connected():
+    """Nunca inicializa 'com o que estiver disponível' (mt5.initialize() sem
+    path) quando MT5_PATH não resolve pra um terminal64.exe real — mesma
+    trava aplicada em agents/portfolio_executor.py::ensure_mt5(),
+    web/css_service.py::connect_mt5() e web/real_portfolio_audit.py::
+    ensure_mt5() (achado ALTO em revisão, mesmo bug duplicado nos 4
+    módulos). Usada só por TrackRecordEngine (scripts/backtest_selection_rules.py),
+    não pelo caminho de execução ao vivo, mas o risco de anexar num terminal
+    errado da máquina é o mesmo."""
     if not MT5_AVAILABLE:
         return False
     try:
@@ -45,9 +53,9 @@ def ensure_mt5_connected():
             return True
     except Exception:
         pass
-    if os.path.exists(MT5_PATH):
-        return mt5.initialize(path=MT5_PATH)
-    return mt5.initialize()
+    if not MT5_PATH or not os.path.isfile(MT5_PATH):
+        return False
+    return mt5.initialize(path=MT5_PATH)
 
 
 def convert_pnl_to_usd(pair, action, entry_price, exit_price, lot_size=0.01, rates_dict=None):

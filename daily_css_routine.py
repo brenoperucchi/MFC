@@ -450,18 +450,23 @@ def run_daily_routine():
     else:
         print("[*] Envio ao Telegram desativado em data/telegram_config.json.")
 
-    # 3.1 Gravar arquivo oficial de sinais para os Robôs MT5 às 21:02 BRT.
-    # A procedência (data["mt5_connected"], obtido no update_data lá em cima)
-    # PRECISA ser propagada: é ela que decide se esse sinal pode virar ordem
-    # real. Antes era descartada aqui, e tudo saía carimbado como live.
-    try:
-        from agents.portfolio_executor import generate_and_save_daily_signals
-        signals_res = generate_and_save_daily_signals(
-            currencies, mt5_connected=data.get("mt5_connected", False)
-        )
-        print(f"[{datetime.now().strftime('%H:%M:%S')}] Sinais dos 8 Portfólios MT5 gravados com sucesso para a sessão noturna (21:05 -> 08:00)!")
-    except Exception as e:
-        print(f"[-] Erro ao gravar sinais dos portfólios: {e}")
+    # 3.1 REMOVIDO (achado em revisão, condição de corrida real): esta rotina
+    # gravava aqui o mesmo arquivo de sinais que scripts/scheduler_daemon.py
+    # ::execute_phase_2102() também grava, de forma independente, exatamente
+    # às 21:02 BRT. Enquanto execute_phase_2100 (esta rotina) rodava SÍNCRONO
+    # dentro do loop do scheduler, a ordem entre as duas escritas era
+    # garantida (esta sempre terminava antes do scheduler sequer checar
+    # 21:02). Depois da correção que passou a rodar esta rotina numa THREAD
+    # em segundo plano (pra não travar o relógio do scheduler — ver
+    # execute_phase_2100 em scripts/scheduler_daemon.py), as duas escritas
+    # viraram genuinamente concorrentes: como esta rotina só chega até aqui
+    # DEPOIS de gerar 9 gráficos e despachar Telegram (pode levar minutos), a
+    # escrita ATRASADA e OBSOLETA daqui podia sobrescrever o sinal FRESCO das
+    # 21:02, e o sistema abriria a cesta com dados de minutos atrás. A
+    # gravação de sinal oficial agora vive só em execute_phase_2102 — esta
+    # rotina fica só com relatório/dashboard/Telegram, que não decidem ordem.
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] (Gravação do sinal oficial fica a cargo de "
+          f"scheduler_daemon.py::execute_phase_2102, às 21:02 BRT — não duplicada aqui.)")
 
     # 4. Salvar Relatório em Markdown e Histórico Local
     md_content = f"""# Relatório Diário de Confluência Multi-Agente CSS — {date_formatted}

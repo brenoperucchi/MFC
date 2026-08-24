@@ -180,7 +180,23 @@ class PortfolioClosePayload(BaseModel):
 PORTFOLIO_API_KEY = os.environ.get("CSS_PORTFOLIO_API_KEY")
 
 
+def _portfolio_api_key_matches(x_css_api_key: str) -> bool:
+    """True se a chave provida bate com a configurada. Sempre False se
+    nenhuma chave estiver configurada (nada pra comparar contra).
+
+    Compara em BYTES: compare_digest com str lança TypeError se houver
+    caractere não-ASCII (o Starlette decodifica headers em latin-1, então um
+    byte alto no header viraria 500 em vez de 401)."""
+    if not PORTFOLIO_API_KEY:
+        return False
+    provided = (x_css_api_key or "").encode("utf-8", "surrogateescape")
+    expected = str(PORTFOLIO_API_KEY).encode("utf-8", "surrogateescape")
+    return hmac.compare_digest(provided, expected)
+
+
 def _require_portfolio_api_key(x_css_api_key: str = Header(default=None)):
+    """Pro endpoint que ABRE ordem real: fail-closed completo. Sem chave
+    configurada, recusa TUDO — nunca abre cesta sem barreira nenhuma."""
     if not PORTFOLIO_API_KEY:
         raise HTTPException(
             status_code=503,
@@ -188,12 +204,22 @@ def _require_portfolio_api_key(x_css_api_key: str = Header(default=None)):
                    "real desabilitado por padrão (fail closed). Configure a variável de ambiente "
                    "pra habilitar."
         )
-    # Compara em BYTES: compare_digest com str lança TypeError se houver
-    # caractere não-ASCII (o Starlette decodifica headers em latin-1, então um
-    # byte alto no header viraria 500 em vez de 401).
-    provided = (x_css_api_key or "").encode("utf-8", "surrogateescape")
-    expected = str(PORTFOLIO_API_KEY).encode("utf-8", "surrogateescape")
-    if not hmac.compare_digest(provided, expected):
+    if not _portfolio_api_key_matches(x_css_api_key):
+        raise HTTPException(status_code=401, detail="Chave de API inválida ou ausente.")
+
+
+def _require_portfolio_api_key_for_close(x_css_api_key: str = Header(default=None)):
+    """Pro endpoint que FECHA posição: NUNCA bloqueia por falta de chave
+    configurada (achado em revisão, F10) — fechar reduz risco, mesma regra
+    que já vale pro kill switch em agents/portfolio_executor.py ("fechar
+    nunca é bloqueado"). Uma CSS_PORTFOLIO_API_KEY esquecida/vazia não pode
+    trancar o operador fora numa emergência. Se uma chave ESTIVER
+    configurada, ainda exige a chave certa: sem isso, qualquer aba na rede
+    local poderia fechar cestas à força e interromper a estratégia antes da
+    hora — dano real, só que menor que ficar sem conseguir fechar."""
+    if not PORTFOLIO_API_KEY:
+        return
+    if not _portfolio_api_key_matches(x_css_api_key):
         raise HTTPException(status_code=401, detail="Chave de API inválida ou ausente.")
 
 
@@ -221,9 +247,10 @@ async def open_portfolio_robot(payload: PortfolioOpenPayload, x_css_api_key: str
 @app.post("/api/portfolio-robots/close")
 async def close_portfolio_robot(payload: PortfolioClosePayload, x_css_api_key: str = Header(default=None)):
     """Fecha posições de um portfólio específico ou de todos os 8 portfólios no MT5.
-    Também exige a chave — fechar é sempre seguro em relação a risco novo, mas
-    ainda é uma ação real numa conta, então não fica aberto sem chave nenhuma."""
-    _require_portfolio_api_key(x_css_api_key)
+    Exige a chave só se uma estiver configurada — sem chave configurada, o
+    endpoint fica aberto (fechar reduz risco, nunca é bloqueado por
+    configuração ausente; ver _require_portfolio_api_key_for_close)."""
+    _require_portfolio_api_key_for_close(x_css_api_key)
     from agents.portfolio_executor import close_portfolio_basket, close_all_portfolios
     if payload.currency.upper() == "ALL":
         res = close_all_portfolios()
@@ -269,10 +296,14 @@ async def send_raio_x_telegram(payload: TelegramRaioXPayload):
 async def trigger_daily_routine_endpoint(x_css_api_key: str = Header(default=None)):
     """Dispara a rotina diária das 21h em background gerando os 8 Raio-X e enviando para o Telegram.
 
-    Exige a chave de API porque run_daily_routine() SOBRESCREVE o arquivo de
-    sinais (data/portfolio_signals_live.json e a cópia em MQL5/Files) — que é
-    exatamente o que a fase 21:05 lê pra decidir o que operar. Sem a trava,
-    qualquer aba aberta na máquina (CORS é "*") reescreve o sinal do dia."""
+    Exige a chave de API porque run_daily_routine() gera 9 gráficos e
+    despacha várias mensagens/fotos reais pro Telegram configurado — sem a
+    trava, qualquer aba aberta na máquina (CORS é "*") dispararia isso à
+    vontade. NÃO grava mais o sinal oficial de execução (data/
+    portfolio_signals_live.json): essa gravação foi removida daqui (achado
+    em revisão — corria com scripts/scheduler_daemon.py::execute_phase_2102,
+    que já grava esse sinal de forma independente às 21:02 BRT). Disparar
+    este endpoint manualmente NÃO substitui nem reforça o sinal do dia."""
     _require_portfolio_api_key(x_css_api_key)
     try:
         import threading

@@ -539,13 +539,24 @@ class CSSDataEngine:
             print(f"[!] Erro ao salvar banco {filepath}: {e}")
 
     def connect_mt5(self):
+        """Nunca inicializa 'com o que estiver disponível' (mt5.initialize()
+        sem path) quando MT5_PATH não resolve pra um terminal64.exe real —
+        essa máquina roda vários terminais MT5 pra estratégias/contas
+        diferentes (achado ALTO em revisão), e anexar silenciosamente a
+        QUALQUER outro terminal já em execução é pior que simplesmente
+        falhar. Sem terminal certo, cai no fallback simulado/cache já
+        existente (ver update_data) em vez de mostrar dado de conta errada
+        como se fosse ao vivo. Mesma trava em
+        agents/portfolio_executor.py::ensure_mt5() — MT5_PATH é a mesma
+        variável nos dois módulos."""
         if not MT5_AVAILABLE:
             self.last_error = "MetaTrader5 Python module not installed."
             return False
-        if os.path.exists(MT5_PATH):
-            connected = mt5.initialize(path=MT5_PATH)
-        else:
-            connected = mt5.initialize()
+        if not MT5_PATH or not os.path.isfile(MT5_PATH):
+            self.is_mt5_connected = False
+            self.last_error = f"MT5_PATH inválido ou inexistente: {MT5_PATH!r}"
+            return False
+        connected = mt5.initialize(path=MT5_PATH)
         self.is_mt5_connected = connected
         if not connected:
             self.last_error = str(mt5.last_error())

@@ -64,9 +64,9 @@ python -m pytest tests/ -q          # all
 python -m pytest tests/test_portfolio_safety.py -q   # execution safety gates
 ```
 
-**Caveat:** `tests/test_score_unification.py` calls `generate_and_save_daily_signals()`
-for real, so a full run rewrites `data/portfolio_signals_live.json`. Restore it after
-(`git checkout -- data/portfolio_signals_live.json`) or the diff carries an unrelated change.
+`tests/test_score_unification.py` calls `generate_and_save_daily_signals()` for real (to
+compare its computed scores against the live dashboard engine), but patches the file-write
+step so it never touches `data/portfolio_signals_live.json` on disk.
 
 ## Live MT5 execution (branch `fase-1-hibrido`)
 

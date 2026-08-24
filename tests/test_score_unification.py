@@ -11,6 +11,7 @@ import os
 import sys
 import unittest
 from datetime import datetime
+from unittest.mock import patch
 
 sys.stdout.reconfigure(encoding='utf-8')
 
@@ -20,6 +21,7 @@ if BASE_DIR not in sys.path:
 
 from web.css_service import css_engine, CURRENCIES, MT5_AVAILABLE, mt5
 from agents.triad_analyzer import analyze_tf_triad
+import agents.portfolio_executor as pe
 from agents.portfolio_executor import generate_and_save_daily_signals, PORTFOLIO_MAGICS
 
 
@@ -27,7 +29,11 @@ class TestScoreUnification(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         if MT5_AVAILABLE:
-            mt5.initialize()
+            # Via css_engine.connect_mt5() (não mt5.initialize() direto) —
+            # reusa a mesma trava de MT5_PATH corrigida ali (achado ALTO em
+            # revisão), em vez de duplicar aqui um 5º ponto que anexaria a
+            # qualquer terminal disponível na máquina sem validar nada.
+            css_engine.connect_mt5()
 
     def test_single_source_of_truth(self):
         """Verifica se todos os módulos consomem rigorosamente o mesmo cálculo."""
@@ -40,7 +46,15 @@ class TestScoreUnification(unittest.TestCase):
         self.assertIsNotNone(web_data, "Falha ao obter dados do CSS Engine")
         
         # 2. Obter Sinais de Portfólio (portfolio_executor / MT5)
-        signals_payload = generate_and_save_daily_signals()
+        # Neutraliza só a ESCRITA em disco (achado F11): sem isso, esta
+        # chamada reescreve de verdade data/portfolio_signals_live.json (e a
+        # pasta MQL5/Files do MT5, se configurada) toda vez que a suíte roda,
+        # sujando o sinal real do operador mesmo fora de produção. O CÁLCULO
+        # que este teste precisa comparar continua real — não mocka
+        # currencies_data nem mt5_connected.
+        with patch.object(pe, "_atomic_write_json", lambda *a, **k: None), \
+             patch.object(pe, "get_mt5_files_dir", lambda: None):
+            signals_payload = generate_and_save_daily_signals()
         self.assertIn("portfolios", signals_payload)
         portfolios = signals_payload["portfolios"]
         

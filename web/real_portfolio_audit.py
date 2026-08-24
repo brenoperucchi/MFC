@@ -46,6 +46,18 @@ os.makedirs(BACKUPS_DIR, exist_ok=True)
 
 
 def ensure_mt5():
+    """Nunca inicializa 'com o que estiver disponível' (mt5.initialize() sem
+    path) quando MT5_PATH não resolve pra um terminal64.exe real — essa
+    máquina roda vários terminais MT5 pra estratégias/contas diferentes
+    (achado ALTO em revisão). Crítico aqui em particular: real_audit_engine
+    é instanciado no IMPORT do módulo (`real_audit_engine =
+    RealPortfolioAuditEngine()` mais abaixo), então esta função roda antes
+    de qualquer outra checagem de MT5 no processo — se ela anexar num
+    terminal errado primeiro, ensure_mt5()/connect_mt5() dos outros módulos
+    (já corrigidos) veem 'já conectado' e nunca chegam a validar nada.
+    Mesma trava em agents/portfolio_executor.py::ensure_mt5() e
+    web/css_service.py::connect_mt5() — MT5_PATH é a mesma variável nos
+    três módulos."""
     if not MT5_AVAILABLE:
         return False
     try:
@@ -53,9 +65,9 @@ def ensure_mt5():
             return True
     except Exception:
         pass
-    if os.path.exists(MT5_PATH):
-        return mt5.initialize(path=MT5_PATH)
-    return mt5.initialize()
+    if not MT5_PATH or not os.path.isfile(MT5_PATH):
+        return False
+    return mt5.initialize(path=MT5_PATH)
 
 
 def get_broker_gmt_offset():

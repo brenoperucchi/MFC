@@ -11,6 +11,7 @@ Ciclo Diário Rigoroso:
 
 import os
 import sys
+import threading
 import time
 import subprocess
 import re
@@ -43,9 +44,8 @@ import json
 
 def run_command(cmd, desc="", timeout=120):
     """timeout configurável: a rotina das 21h faz ~17 uploads de PNG com sleeps,
-    140 séries do MT5 e 9 figuras matplotlib — 120s a mata no meio, e o passo
-    que grava o arquivo de sinais fica pra trás. Chamadas com trabalho pesado
-    devem passar um teto próprio."""
+    140 séries do MT5 e 9 figuras matplotlib — 120s mata isso no meio.
+    Chamadas com trabalho pesado devem passar um teto próprio."""
     print(f"[{datetime.now().strftime('%H:%M:%S')}] Iniciando: {desc} -> {cmd}")
     try:
         res = subprocess.run(cmd, shell=True, cwd=BASE_DIR, capture_output=True, text=True, timeout=timeout)
@@ -66,21 +66,31 @@ def execute_phase_2100():
     print(f"  [ROUTINE 21:00 BRT] EXECUTANDO ANÁLISE CSS MULTI-TIMEFRAME")
     print("="*70)
     cmd = f'"{sys.executable}" "{os.path.join(BASE_DIR, "daily_css_routine.py")}"'
-    # 10 min: a rotina tem que caber inteira, senão o passo 3.1 (gravação do
-    # arquivo de sinais) é cortado e o 21:02/21:05 opera sobre sinal velho.
+    # 10 min: teto generoso pra 17 uploads de PNG + 140 séries MT5 + 9
+    # figuras matplotlib. Esta rotina só gera relatório/dashboard/Telegram —
+    # não grava mais o sinal oficial (isso é execute_phase_2102, abaixo,
+    # independente e mais rápido). Ver Trilha A, achado F3.
     run_command(cmd, "Rotina Diária CSS 21h", timeout=600)
 
 
 def execute_phase_2102():
-    """21:02 BRT - Grava os Sinais dos 8 Portfólios para o MT5."""
+    """21:02 BRT - Grava os Sinais dos 8 Portfólios para o MT5.
+
+    Retorna True só se a gravação teve êxito de ponta a ponta — usado por
+    run_daemon_loop pra decidir se é seguro abrir a cesta das 21:05 com o
+    sinal recém-gravado (achado em revisão: um Event que só sinalizava 'a
+    thread terminou', sem checar sucesso, deixaria 21:05 seguir em frente
+    mesmo que a gravação tivesse lançado exceção)."""
     print("\n" + "="*70)
     print(f"  [ROUTINE 21:02 BRT] GRAVAÇÃO DOS SINAIS DE PORTFÓLIO (MQL5/Files)")
     print("="*70)
     try:
         signals = generate_and_save_daily_signals()
         print(f"[+] Sinais gerados e sincronizados com MT5! Portfólios: {len(signals.get('portfolios', {}))}")
+        return True
     except Exception as e:
         print(f"[-] Erro ao gravar sinais: {e}")
+        return False
 
 
 def execute_phase_2105():
@@ -230,10 +240,17 @@ def execute_phase_0810():
         except OSError as e:
             print(f"[-] Falha ao atualizar {RECONCILE_ALERT}: {e}")
         # Telegram é best-effort: decisão em aberto, e nunca pode ser o único
-        # canal nem derrubar o reconciliador se estiver fora.
+        # canal nem derrubar o reconciliador se estiver fora. Checa o retorno
+        # (achado em revisão) — send_telegram_message() não lança em falha,
+        # devolve {"success": False, ...} silenciosamente; sem checar isso,
+        # um envio que falhou (token/chat_id ausente, erro de rede) parecia
+        # ter dado certo nos logs.
         try:
             from web.telegram_service import send_telegram_message
-            send_telegram_message(texto)
+            tg_res = send_telegram_message(texto)
+            if not tg_res.get("success"):
+                print(f"[-] Telegram não confirmou o envio ({tg_res.get('error')}) — "
+                      f"alerta segue em {RECONCILE_ALERT} e {RECONCILE_LOG}.")
         except Exception as e:
             print(f"[-] Telegram indisponível ({e}) — alerta segue em {RECONCILE_ALERT}.")
 
@@ -314,39 +331,100 @@ def run_daemon_loop(test_mode=False):
 
     last_trigger = {}
 
+    # Sinaliza quando execute_phase_2102 (gravação do sinal oficial) de HOJE
+    # terminou COM ÊXITO — o gatilho de 21:05 espera nisso em vez de confiar
+    # numa janela de relógio fixa (achado em revisão: uma janela larga o
+    # suficiente pra absorver qualquer atraso não existe, porque
+    # execute_phase_2102 pode demorar de forma imprevisível sob contenção de
+    # MT5 com o subprocesso da 21:00). Só seta em SUCESSO (achado em revisão,
+    # rodada 6): setar incondicionalmente no finally faria 21:05 seguir em
+    # frente mesmo que a gravação tivesse lançado exceção — a checagem de
+    # frescor dentro de execute_phase_2105 cobre "sinal de outro dia", não
+    # "gravação de hoje que falhou". Limpo a cada novo disparo de 21:02 E a
+    # cada virada de dia (abaixo), pra nunca herdar estado de ontem se o
+    # minuto exato de 21:02 for perdido por algum motivo.
+    phase_2102_done = threading.Event()
+    last_seen_date = None
+
+    def _run_phase_2102():
+        ok = False
+        try:
+            ok = execute_phase_2102()
+        finally:
+            if ok:
+                phase_2102_done.set()
+            else:
+                print("[!] 21:02: gravação do sinal FALHOU — 21:05 não vai abrir cesta "
+                      "com sinal não confirmado hoje (vai esperar até 21:59 e alertar).")
+
     while True:
         now = datetime.now()
         cur_date = now.strftime("%Y-%m-%d")
         cur_hour = now.hour
         cur_min = now.minute
 
-        # 1. Gatilho 21:00
+        if cur_date != last_seen_date:
+            phase_2102_done.clear()
+            last_seen_date = cur_date
+
+        # 1. Gatilho 21:00 — despachado numa thread separada (achado F3): a
+        # rotina inteira (~140 séries do MT5, matplotlib, uploads no
+        # Telegram) pode passar de alguns minutos, e rodar isso SÍNCRONO
+        # aqui travava o relógio do loop inteiro — perdendo os gatilhos
+        # exatos de 21:02 e 21:05 sem nenhum aviso, se a rotina ainda
+        # estivesse rodando quando esses minutos chegassem. O sinal que
+        # 21:02/21:05 realmente usam vem de generate_and_save_daily_signals()
+        # rodando de novo, de forma independente, dentro de execute_phase_2102
+        # — não depende desta thread ter terminado.
         if cur_hour == 21 and cur_min == 0:
             key = f"{cur_date}_2100"
             if key not in last_trigger:
-                execute_phase_2100()
+                threading.Thread(target=execute_phase_2100, name="phase_2100",
+                                  daemon=True).start()
                 last_trigger[key] = True
 
-        # 2. Gatilho 21:02
+        # 2. Gatilho 21:02 — despachado em thread própria (mesmo padrão do
+        # achado F3 pra 21:00), com um Event de conclusão em vez de só uma
+        # janela de relógio (achado em revisão, rodada 5): execute_phase_2102
+        # recalcula 140 séries via MT5 e PODE demorar de forma imprevisível,
+        # principalmente sob contenção com o subprocesso da 21:00 batendo no
+        # MESMO terminal MT5 ao mesmo tempo — nenhuma janela fixa cobre isso
+        # com garantia. O gatilho de 21:05 abaixo só abre quando
+        # phase_2102_done confirma que o sinal de HOJE terminou de gravar.
         if cur_hour == 21 and cur_min == 2:
             key = f"{cur_date}_2102"
             if key not in last_trigger:
-                execute_phase_2102()
+                # (Não precisa de phase_2102_done.clear() aqui: a virada de
+                # dia acima já garante que começa limpo todo santo dia.)
+                threading.Thread(target=_run_phase_2102, name="phase_2102",
+                                  daemon=True).start()
                 last_trigger[key] = True
 
         # 2b. Gatilho 21:05 — abertura das cestas pelo lado Python (ver
-        # execute_phase_2105 e Seção 1 de PLANO_IMPLEMENTACAO_MFC.md). Com o
-        # EA no modo padrão (InpEaOpensBasket=false), este é o único caminho
-        # que efetivamente abre posição — se o EA estiver com
-        # InpEaOpensBasket=true em algum gráfico, os dois tentariam abrir; a
-        # idempotência dentro de open_portfolio_basket() e o
-        # CountOpenPositions()==0 do lado EA evitam duplicar, mas os dois
+        # execute_phase_2105 e Seção 1 de PLANO_IMPLEMENTACAO_MFC.md). Não é
+        # minuto exato nem janela fixa: fica reavaliando a cada 25s, do
+        # minuto 5 até o 59 (mesma janela tolerante que o upstream/Miquéias
+        # já usa), até phase_2102_done confirmar que o sinal de hoje está
+        # pronto. Se chegar em 21:59 sem confirmação, desiste e ALERTA — sinal
+        # nunca confirmado é mais seguro que abrir com sinal desconhecido, e
+        # a checagem de frescor dentro de execute_phase_2105 (compara a data
+        # do sinal com hoje) é a rede secundária pro caso de o sinal em disco
+        # ser de ontem. Com o EA no modo padrão (InpEaOpensBasket=false),
+        # este é o único caminho que efetivamente abre posição — se o EA
+        # estiver com InpEaOpensBasket=true em algum gráfico, os dois
+        # tentariam abrir; a idempotência dentro de open_portfolio_basket() e
+        # o CountOpenPositions()==0 do lado EA evitam duplicar, mas os dois
         # caminhos não devem ficar ativos ao mesmo tempo por design.
-        if cur_hour == 21 and cur_min == 5:
+        if cur_hour == 21 and cur_min >= 5:
             key = f"{cur_date}_2105"
             if key not in last_trigger:
-                execute_phase_2105()
-                last_trigger[key] = True
+                if phase_2102_done.is_set():
+                    execute_phase_2105()
+                    last_trigger[key] = True
+                elif cur_min >= 59:
+                    print(f"[!] 21:59 BRT — sinal das 21:02 nunca confirmou conclusão "
+                          f"({cur_date}). NENHUMA cesta será aberta hoje. Revisar manualmente.")
+                    last_trigger[key] = True
 
         # 3. Gatilho 08:00 — encerramento compulsório pelo lado Python.
         # Segunda rede ao EA guardião (ver execute_phase_0800).
@@ -360,19 +438,37 @@ def run_daemon_loop(test_mode=False):
                 if execute_phase_0800():
                     last_trigger[key] = True
 
-        # 4. Gatilho 08:10 — reconciliação (ver execute_phase_0810).
-        # Só marca como feito se rodou; assim uma exceção não o cancela.
-        if cur_hour == 8 and cur_min == 10:
+        # 4. Gatilho 08:10 — reconciliação (ver execute_phase_0810). Janela
+        # ABERTA (10 até o fim da hora), não mais fechada em 5 min (achado
+        # em revisão, rodada 6): esta é a REDE DE SEGURANÇA contra posição
+        # órfã, e o fechamento das 08:00 pode retornar depois de 08:04 (seu
+        # próprio retry só tenta até cur_min<5) — uma janela estreita aqui
+        # podia ser inteiramente engolida por um fechamento lento, deixando
+        # a rede de segurança sem disparar E sem alertar. Este gatilho não
+        # depende de 08:00 nem de 08:05 terem terminado (nenhum dos dois
+        # produz algo que a reconciliação precise ler) — só precisa que o
+        # loop chegue a checar o relógio, o que ele faz a cada 25s desde que
+        # nada mais o bloqueie synchronamente. Só marca como feito se rodou;
+        # assim uma exceção não o cancela.
+        if cur_hour == 8 and cur_min >= 10:
             key = f"{cur_date}_0810"
             if key not in last_trigger:
                 execute_phase_0810()
                 last_trigger[key] = True
 
-        # 5. Gatilho 08:05
+        # 5. Gatilho 08:05 — despachado numa thread separada (mesmo padrão
+        # do achado F3 pra 21:00, achado em revisão): sync_mt5_deals(60 dias)
+        # + build do bundle Firebase + deploy (dois run_command com até 120s
+        # cada, default) podiam levar minutos rodando SÍNCRONO aqui,
+        # empurrando o relógio do loop pra além do minuto exato de 08:10 e
+        # fazendo o reconciliador (a rede de segurança de verdade) nunca
+        # disparar. 08:05 não produz nada que 08:10 precise ler — auditoria/
+        # deploy e reconciliação de posição são independentes.
         if cur_hour == 8 and cur_min == 5:
             key = f"{cur_date}_0805"
             if key not in last_trigger:
-                execute_phase_0805()
+                threading.Thread(target=execute_phase_0805, name="phase_0805",
+                                  daemon=True).start()
                 last_trigger[key] = True
 
         # Dormir 25 segundos
