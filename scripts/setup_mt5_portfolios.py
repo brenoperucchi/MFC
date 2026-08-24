@@ -1,50 +1,71 @@
 """
-SCRIPT DE CONFIGURAÇÃO AUTOMÁTICA DO META TRADER 5:
-1. Copia o EA CSS_Portfolio_Basket_EA.mq5 para MQL5/Experts/
-2. Compila via MetaEditor CLI
-3. Cria o Profile 'CSS_Portfolios' com 8 Gráficos (1 para cada moeda: USD, EUR, GBP, CHF, JPY, AUD, CAD, NZD)
-4. Configura os inputs exatos de cada robô (Moeda, Magic Number, Lote, Horários 21:05 -> 08:00)
+CONFIGURAÇÃO DOS 8 GRÁFICOS DO MT5 (um robô de portfólio por moeda).
+
+Gera o profile "CSS_Portfolios" com 8 arquivos .chr — cada um já com o EA
+anexado e os inputs corretos —, mais os templates .tpl. O terminal carrega
+esse profile no boot, o que torna o setup inteiro scriptável: não é preciso
+arrastar o EA pra gráfico nenhum na mão.
+
+MIRA UMA INSTÂNCIA SÓ, a portable dedicada ao MFC (derivada de
+CSS_MT5_TERMINAL_PATH). A versão anterior deste script varria
+%APPDATA%\\MetaQuotes\\Terminal\\ e instalava o EA em TODOS os terminais
+encontrados — nesta máquina são 5, de outras estratégias e outras contas.
+Nunca reintroduzir essa varredura.
+
+O .ex5 precisa existir. Compile antes com scripts/compile_ea_remote.sh
+(sync + MetaEditor /portable /compile via SSH).
 """
 
 import os
 import sys
 import shutil
-import subprocess
-import time
-
-TERMINAL_ID = "53785E099C927DB68A545C249CDBCE06"
-APPDATA = os.environ.get("APPDATA")
-TERMINAL_BASE = os.path.join(APPDATA, "MetaQuotes", "Terminal", TERMINAL_ID)
-MQL5_DIR = os.path.join(TERMINAL_BASE, "MQL5")
-EXPERTS_DIR = os.path.join(MQL5_DIR, "Experts")
 
 PROJECT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-SOURCE_EA = os.path.join(PROJECT_DIR, "mt5", "CSS_Portfolio_Basket_EA.mq5")
+if PROJECT_DIR not in sys.path:
+    sys.path.insert(0, PROJECT_DIR)
 
-# Definir as 8 moedas, pares representativos e Magic Numbers
+from web.css_service import MT5_PATH, MT5_SYMBOL_SUFFIX
+
+# Onde o compile_ea_remote.sh deposita o EA compilado, relativo ao MQL5/.
+EXPERTS_SUBDIR = os.path.join("Experts", "MFC")
+EA_NAME = "CSS_Portfolio_Basket_EA"
+BOM_CHAR = "\ufeff"
+
+SOURCE_EA = os.path.join(PROJECT_DIR, "mt5", f"{EA_NAME}.mq5")
+
+# Moeda, gráfico representativo e magic. O símbolo do gráfico é só o pano de
+# fundo visual — o EA opera os 7 pares da moeda, não o símbolo do gráfico.
 PORTFOLIO_CONFIGS = [
-    {"index": 0, "ccy": "USD", "symbol": "EURUSD", "magic": 801001, "color": "255"},
-    {"index": 1, "ccy": "EUR", "symbol": "EURGBP", "magic": 801002, "color": "16760576"},
-    {"index": 2, "ccy": "GBP", "symbol": "GBPJPY", "magic": 801003, "color": "14772545"},
-    {"index": 3, "ccy": "CHF", "symbol": "USDCHF", "magic": 801004, "color": "16776960"},
-    {"index": 4, "ccy": "JPY", "symbol": "USDJPY", "magic": 801005, "color": "13382297"},
-    {"index": 5, "ccy": "AUD", "symbol": "AUDUSD", "magic": 801006, "color": "33023"},
-    {"index": 6, "ccy": "CAD", "symbol": "USDCAD", "magic": 801007, "color": "139"},
-    {"index": 7, "ccy": "NZD", "symbol": "NZDUSD", "magic": 801008, "color": "9221330"}
+    {"index": 0, "ccy": "USD", "symbol": "EURUSD", "magic": 801001},
+    {"index": 1, "ccy": "EUR", "symbol": "EURGBP", "magic": 801002},
+    {"index": 2, "ccy": "GBP", "symbol": "GBPJPY", "magic": 801003},
+    {"index": 3, "ccy": "CHF", "symbol": "USDCHF", "magic": 801004},
+    {"index": 4, "ccy": "JPY", "symbol": "USDJPY", "magic": 801005},
+    {"index": 5, "ccy": "AUD", "symbol": "AUDUSD", "magic": 801006},
+    {"index": 6, "ccy": "CAD", "symbol": "USDCAD", "magic": 801007},
+    {"index": 7, "ccy": "NZD", "symbol": "NZDUSD", "magic": 801008},
 ]
 
 
-def generate_chart_chr_content(cfg, chart_id):
-    """Gera o conteúdo de um arquivo de gráfico .chr do MT5 com o Expert Advisor anexado."""
-    ccy_enum = cfg["index"]
-    magic = cfg["magic"]
-    symbol = cfg["symbol"]
-    ccy_name = cfg["ccy"]
+def terminal_base():
+    """Diretório de dados da instância portable (mesma pasta do terminal64.exe)."""
+    if not MT5_PATH:
+        return None
+    base = os.path.dirname(MT5_PATH)
+    return base or None
 
-    chr_text = f"""<chart>
+
+def generate_chart_chr_content(cfg, chart_id):
+    """Conteúdo de um .chr do MT5 com o EA anexado e os inputs desta moeda."""
+    # O símbolo do gráfico também precisa do sufixo da corretora — sem ele o
+    # gráfico abre vazio (EURUSD não existe; EURUSDm sim).
+    symbol = cfg["symbol"] + MT5_SYMBOL_SUFFIX
+    ea_rel_path = os.path.join(EXPERTS_SUBDIR, f"{EA_NAME}.ex5").replace(os.sep, "\\")
+
+    return f"""<chart>
 id={chart_id}
 symbol={symbol}
-description=CSS Portfolio - {ccy_name} (Magic {magic})
+description=CSS Portfolio - {cfg['ccy']} (Magic {cfg['magic']})
 period_type=1
 period_size=60
 digits=5
@@ -77,21 +98,25 @@ grid_color=2960685
 windows_total=1
 
 <expert>
-name=CSS_Portfolio_Basket_EA
-path=Experts\\CSS_Portfolio_Basket_EA.ex5
+name={EA_NAME}
+path={ea_rel_path}
 expertmode=1
 <inputs>
-InpCurrency={ccy_enum}
-InpMagicNumber={magic}
+InpCurrency={cfg['index']}
+InpMagicNumber={cfg['magic']}
 InpLotSize=0.010000
 InpDirectionBias=0
 InpEntryHour=21
 InpEntryMinute=5
 InpExitHour=8
 InpExitMinute=0
+InpCloseGraceMin=15
 InpGmtOffset=-3
+InpSymbolSuffix={MT5_SYMBOL_SUFFIX}
 InpDeviation=15
 InpExportTelemetry=true
+InpCatastrophicSLPips=150
+InpEaOpensBasket=false
 </inputs>
 </expert>
 
@@ -117,129 +142,80 @@ fixed_height=-1
 </window>
 </chart>
 """
-    return chr_text
 
 
-def setup():
-    print("===================================================================")
-    print("  CONFIGURADOR AUTOMÁTICO DE PORTFÓLIOS MT5 (CSS INSTITUTIONAL)   ")
-    print("===================================================================")
+def _write_profile(profile_dir):
+    """Escreve os 8 .chr + order.wnd. Os .chr do MT5 sao UTF-16LE com BOM."""
+    os.makedirs(profile_dir, exist_ok=True)
+    base_id = 140000000000000000
+    chart_files = []
+    for i, cfg in enumerate(PORTFOLIO_CONFIGS):
+        chart_filename = f"chart{i + 1:02d}.chr"
+        chr_content = generate_chart_chr_content(cfg, base_id + i * 1000 + 101)
+        with open(os.path.join(profile_dir, chart_filename), "w", encoding="utf-16le") as f:
+            f.write(BOM_CHAR + chr_content)
+        chart_files.append(chart_filename)
+        print(f"  [+] {chart_filename}  {cfg['ccy']} (magic {cfg['magic']}) "
+              f"em {cfg['symbol']}{MT5_SYMBOL_SUFFIX}")
+    with open(os.path.join(profile_dir, "order.wnd"), "w", encoding="utf-16le") as f:
+        f.write(BOM_CHAR + "\n".join(chart_files) + "\n")
 
-    # 1. Compilar EA uma vez com MetaEditor
-    metaeditor_candidates = [
-        r"C:\Program Files\Tickmill MT5 Terminal\metaeditor64.exe",
-        r"C:\Program Files\Tickmill MT5 Terminal - Copia - Copia\metaeditor64.exe",
-        r"C:\Program Files\MetaTrader 5\metaeditor64.exe"
-    ]
-    metaeditor_path = None
-    for cand in metaeditor_candidates:
-        if os.path.exists(cand):
-            metaeditor_path = cand
-            break
 
-    ex5_source = os.path.join(PROJECT_DIR, "mt5", "CSS_Portfolio_Basket_EA.ex5")
-    if metaeditor_path:
-        print(f"[*] Compilando EA via MetaEditor CLI: {metaeditor_path}...")
-        log_file = os.path.join(PROJECT_DIR, "mt5", "compile.log")
-        cmd = f'"{metaeditor_path}" /compile:"{SOURCE_EA}" /log:"{log_file}"'
-        try:
-            res = subprocess.run(cmd, shell=True, capture_output=True, timeout=15)
-            time.sleep(1)
-            if os.path.exists(ex5_source):
-                print(f"[+] Compilação BEM-SUCEDIDA! Gerado: {ex5_source}")
-        except Exception as e:
-            print(f"[!] Erro ao compilar: {e}")
+def setup(out_dir=None):
+    """out_dir: gera o profile num diretorio qualquer em vez de dentro da
+    instancia — usado pra montar os arquivos aqui e enviar por SSH pra maquina
+    do MT5, sem precisar do repositorio inteiro la."""
+    print("=" * 67)
+    print("  CONFIGURADOR DOS 8 GRÁFICOS — INSTÂNCIA MT5 DEDICADA AO MFC")
+    print("=" * 67)
 
-    # 2. Descobrir todos os Terminais MT5 em AppData
-    terminals_dir = os.path.join(APPDATA, "MetaQuotes", "Terminal")
-    terminal_ids = []
-    if os.path.exists(terminals_dir):
-        for entry in os.listdir(terminals_dir):
-            full_p = os.path.join(terminals_dir, entry)
-            if os.path.isdir(full_p) and entry not in ["Common", "Community", "Help"]:
-                terminal_ids.append(entry)
+    if out_dir:
+        profile_dir = os.path.abspath(out_dir)
+        print(f"[*] Modo geracao: escrevendo o profile em {profile_dir}")
+        print(f"[*] Sufixo simbolo: {MT5_SYMBOL_SUFFIX!r}")
+        _write_profile(profile_dir)
+        return 0
 
-    # Priorizar o terminal ativo conectado
-    try:
-        import MetaTrader5 as mt5_mod
-        if mt5_mod.initialize():
-            t_info = mt5_mod.terminal_info()
-            if t_info and t_info.data_path:
-                active_id = os.path.basename(t_info.data_path)
-                if active_id in terminal_ids:
-                    terminal_ids.remove(active_id)
-                terminal_ids.insert(0, active_id)
-                print(f"[★] Terminal Ativo Detectado: {active_id}")
-    except Exception:
-        pass
+    base = terminal_base()
+    if not base or not os.path.isdir(base):
+        print(f"[-] Instância MT5 não encontrada a partir de MT5_PATH={MT5_PATH!r}.")
+        print("    Configure CSS_MT5_TERMINAL_PATH no .env (ver .env.example).")
+        return 1
 
-    print(f"[*] Terminais Encontrados: {terminal_ids}\n")
+    mql5_dir = os.path.join(base, "MQL5")
+    experts_dir = os.path.join(mql5_dir, EXPERTS_SUBDIR)
+    ex5_path = os.path.join(experts_dir, f"{EA_NAME}.ex5")
 
-    for t_id in terminal_ids:
-        t_base = os.path.join(terminals_dir, t_id)
-        mql5_dir = os.path.join(t_base, "MQL5")
-        experts_dir = os.path.join(mql5_dir, "Experts")
-        
-        if not os.path.exists(mql5_dir):
-            continue
+    print(f"[*] Instância    : {base}")
+    print(f"[*] Sufixo símbolo: {MT5_SYMBOL_SUFFIX!r}")
 
-        print(f"--- Configurando Terminal: {t_id} ---")
-        os.makedirs(experts_dir, exist_ok=True)
+    if not os.path.exists(ex5_path):
+        print(f"[-] EA compilado não encontrado: {ex5_path}")
+        print("    Rode antes: scripts/compile_ea_remote.sh")
+        return 1
+    print(f"[+] EA compilado : {ex5_path}")
 
-        # Copiar .mq5 e .ex5
-        shutil.copy2(SOURCE_EA, os.path.join(experts_dir, "CSS_Portfolio_Basket_EA.mq5"))
-        if os.path.exists(ex5_source):
-            shutil.copy2(ex5_source, os.path.join(experts_dir, "CSS_Portfolio_Basket_EA.ex5"))
-            print(f"  [+] EA .mq5 e .ex5 copiados para {experts_dir}")
+    # Mantém o .mq5 ao lado do .ex5 (conveniência pra abrir no MetaEditor).
+    os.makedirs(experts_dir, exist_ok=True)
+    if os.path.exists(SOURCE_EA):
+        shutil.copy2(SOURCE_EA, os.path.join(experts_dir, f"{EA_NAME}.mq5"))
 
-        # Criar Profile 'CSS_Portfolios'
-        profile_dirs = [
-            os.path.join(t_base, "profiles", "charts", "CSS_Portfolios"),
-            os.path.join(mql5_dir, "Profiles", "Charts", "CSS_Portfolios")
-        ]
+    # Build 6140 usa MQL5/Profiles/Charts/. O antigo <base>/profiles/charts/
+    # existe mas nao e' lido — escrever la nao surte efeito nenhum
+    # (verificado na instancia real: o terminal ignorou por completo).
+    profile_dir = os.path.join(mql5_dir, "Profiles", "Charts", "Default")
+    _write_profile(profile_dir)
 
-        for p_dir in profile_dirs:
-            os.makedirs(p_dir, exist_ok=True)
-            order_wnd_lines = []
-            base_id = 140000000000000000
-
-            for i, cfg in enumerate(PORTFOLIO_CONFIGS):
-                chart_num = i + 1
-                chart_filename = f"chart{chart_num:02d}.chr"
-                chart_file_path = os.path.join(p_dir, chart_filename)
-                chart_id = base_id + i * 1000 + 101
-
-                chr_content = generate_chart_chr_content(cfg, chart_id)
-                with open(chart_file_path, "w", encoding="utf-16le") as f:
-                    f.write("\ufeff" + chr_content)
-
-                order_wnd_lines.append(chart_filename)
-
-            order_wnd_path = os.path.join(p_dir, "order.wnd")
-            with open(order_wnd_path, "w", encoding="utf-16le") as f:
-                f.write("\ufeff" + "\n".join(order_wnd_lines) + "\n")
-            print(f"  [+] Profile CSS_Portfolios configurado em: {p_dir}")
-
-        # Templates
-        templates_dirs = [
-            os.path.join(t_base, "templates"),
-            os.path.join(mql5_dir, "Profiles", "Templates")
-        ]
-        for t_dir in templates_dirs:
-            os.makedirs(t_dir, exist_ok=True)
-            for cfg in PORTFOLIO_CONFIGS:
-                ccy_tpl_path = os.path.join(t_dir, f"CSS_{cfg['ccy']}.tpl")
-                tpl_content = generate_chart_chr_content(cfg, 140000000000000999)
-                with open(ccy_tpl_path, "w", encoding="utf-16le") as f:
-                    f.write("\ufeff" + tpl_content)
-
-            master_tpl = os.path.join(t_dir, "CSS_Portfolio_Basket.tpl")
-            with open(master_tpl, "w", encoding="utf-16le") as f:
-                f.write("\ufeff" + generate_chart_chr_content(PORTFOLIO_CONFIGS[6], 140000000000000999))
-            print(f"  [+] Templates gerados em: {t_dir}")
-
-    print("\n[SUCESSO GLOBAL] Todos os Terminais MT5 foram configurados com 100% de êxito!")
+    print(f"\n[+] Profile 'CSS_Portfolios' gravado em: {profile_dir}")
+    print("[!] Para o terminal carregar: reinicie-o e selecione esse profile")
+    print("    (Arquivo > Perfis > CSS_Portfolios), ou reinicie o serviço se")
+    print("    o profile já estiver ativo: systemctl --user restart css-mt5-mfc")
+    return 0
 
 
 if __name__ == "__main__":
-    setup()
+    # --out <dir>: gera o profile localmente pra enviar por SSH depois.
+    out = None
+    if "--out" in sys.argv:
+        out = sys.argv[sys.argv.index("--out") + 1]
+    sys.exit(setup(out_dir=out))

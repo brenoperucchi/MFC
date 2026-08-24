@@ -1,0 +1,19 @@
+[Unit]
+Description=CSS MFC - MetaTrader 5 (portable, conta Exness dedicada ao MFC)
+After=default.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+# Ver css-mt5-kill.sh: o systemd rastreia o wrapper /init do interop WSL, nao
+# o processo Windows. Sem estes dois ganchos, stop/restart deixa o terminal
+# orfao e o servico entra em loop de relancamento.
+ExecStartPre=-%h/bin/css-mt5-kill.sh
+ExecStart=/mnt/d/MetaTradersWSL/mfc/terminal64.exe /portable
+ExecStop=-%h/bin/css-mt5-kill.sh
+Restart=always
+RestartSec=15
+
+[Install]
+WantedBy=default.target
