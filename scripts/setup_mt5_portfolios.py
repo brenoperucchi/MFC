@@ -89,7 +89,7 @@ InpEntryHour=21
 InpEntryMinute=5
 InpExitHour=8
 InpExitMinute=0
-InpGmtOffset=0
+InpGmtOffset=-3
 InpDeviation=15
 InpExportTelemetry=true
 </inputs>

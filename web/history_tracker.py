@@ -19,7 +19,8 @@ if BASE_DIR not in sys.path:
 from agents.triad_analyzer import analyze_tf_triad
 from web.css_service import (
     ALL_28_PAIRS, CURRENCIES, CCY_FLAGS, CCY_COLORS,
-    calc_lwma, calc_atr_sma, MT5_AVAILABLE, mt5, MT5_PATH
+    calc_lwma, calc_atr_sma, MT5_AVAILABLE, mt5, MT5_PATH,
+    to_broker_symbol
 )
 
 DATA_DIR = os.path.join(BASE_DIR, "data")
@@ -226,7 +227,7 @@ class TrackRecordEngine:
                     p_pips = 0.0
                     for pair_item in port.get("pairs", []):
                         pair_sym = pair_item["pair"]
-                        tick = mt5.symbol_info_tick(pair_sym)
+                        tick = mt5.symbol_info_tick(to_broker_symbol(pair_sym))
                         if tick:
                             curr_price = tick.bid if pair_item["action"] == "BUY" else tick.ask
                             p_entry = pair_item["entry_price"]
@@ -282,7 +283,10 @@ class TrackRecordEngine:
         bars_count = days * 24 + 300
         pair_h1 = {}
         for sym in ALL_28_PAIRS:
-            rates = mt5.copy_rates_from_pos(sym, mt5.TIMEFRAME_H1, 0, bars_count)
+            # Consulta pelo nome da corretora (pode ter sufixo, ex.: EURUSDm),
+            # indexa pelo nome lógico. Sem isso, nenhum par resolvia e o track
+            # record caía silenciosamente em histórico SIMULADO.
+            rates = mt5.copy_rates_from_pos(to_broker_symbol(sym), mt5.TIMEFRAME_H1, 0, bars_count)
             if rates is not None and len(rates) > 100:
                 df = pd.DataFrame(rates)
                 df['time'] = pd.to_datetime(df['time'], unit='s')

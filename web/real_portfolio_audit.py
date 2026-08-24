@@ -18,7 +18,8 @@ if BASE_DIR not in sys.path:
 
 from web.css_service import (
     ALL_28_PAIRS, CURRENCIES, CCY_FLAGS, CCY_COLORS,
-    MT5_AVAILABLE, mt5, MT5_PATH
+    MT5_AVAILABLE, mt5, MT5_PATH,
+    to_broker_symbol
 )
 
 # MAGIC NUMBERS DEDICADOS PARA CADA PORTFÓLIO (801001 a 801008)
@@ -65,7 +66,7 @@ def get_broker_gmt_offset():
     if not ensure_mt5():
         return 3 # Tickmill / MetaQuotes padrão (GMT+3 no Verão / GMT+2 no Inverno)
     try:
-        rates = mt5.copy_rates_from_pos("EURUSD", mt5.TIMEFRAME_M1, 0, 1)
+        rates = mt5.copy_rates_from_pos(to_broker_symbol("EURUSD"), mt5.TIMEFRAME_M1, 0, 1)
         if rates is not None and len(rates) > 0:
             bar_ts = rates[0]['time']
             bar_dt = datetime.fromtimestamp(bar_ts)

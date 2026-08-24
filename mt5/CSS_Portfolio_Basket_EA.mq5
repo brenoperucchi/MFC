@@ -45,7 +45,10 @@ input int                 InpEntryHour       = 21;             // Hora de Entrad
 input int                 InpEntryMinute     = 5;              // Minuto de Entrada (BRT)
 input int                 InpExitHour        = 8;              // Hora de Encerramento (BRT)
 input int                 InpExitMinute      = 0;              // Minuto de Encerramento (BRT)
-input int                 InpGmtOffset       = 0;              // GMT Offset do MT5 vs Horário Local
+input int                 InpGmtOffset       = -3;             // Horas a SOMAR ao horário do servidor pra obter BRT (medido 24/08: servidor Exness = UTC+0, BRT = UTC-3)
+
+input group "=== CORRETORA ==="
+input string              InpSymbolSuffix    = "m";            // Sufixo dos simbolos na corretora (medido 24/08 na Exness: EURUSDm). Vazio = nome puro.
 
 input group "=== EXECUÇÃO E TELEMETRIA ==="
 input ulong               InpDeviation       = 15;             // Slippage Máximo (pontos)
@@ -117,6 +120,17 @@ int OnInit()
                (InpEaOpensBasket ? "EA ABRE E FECHA (legado)" : "GUARDIÃO — só fecha, Python abre"),
                InpCatastrophicSLPips);
 
+   // Prova de fuso na inicialização: um InpGmtOffset errado desloca a janela
+   // inteira em silêncio (com o antigo default 0, o fechamento das 08:00 BRT
+   // caía às 05:00 BRT neste servidor). Imprimir os dois relógios lado a lado
+   // torna isso conferível de bater o olho, sem precisar esperar uma noite.
+   MqlDateTime brt_dt;
+   GetBrtAdjustedTime(brt_dt);
+   PrintFormat("[CSS ROBOT %s] FUSO — servidor: %s | BRT calculado (offset %+d h): %04d.%02d.%02d %02d:%02d:%02d. "
+               "CONFIRA contra o relógio de Brasília; se não bater, ajuste InpGmtOffset.",
+               g_ccy_str, TimeToString(TimeCurrent(), TIME_DATE | TIME_SECONDS), InpGmtOffset,
+               brt_dt.year, brt_dt.mon, brt_dt.day, brt_dt.hour, brt_dt.min, brt_dt.sec);
+
    return(INIT_SUCCEEDED);
 }
 
@@ -161,13 +175,10 @@ void GetBrtAdjustedTime(MqlDateTime &out_dt)
 //+------------------------------------------------------------------+
 bool IsKillSwitchActiveEA()
 {
-   int handle = FileOpen("CSS_KILL.flag", FILE_READ | FILE_TXT);
-   if(handle != INVALID_HANDLE)
-   {
-      FileClose(handle);
-      return true;
-   }
-   return false;
+   // FileIsExist e' a primitiva correta: FileOpen pode falhar por lock ou
+   // permissao com o arquivo EXISTINDO, e devolver false aqui significaria
+   // "sem kill switch" — falha ABERTA na unica trava que deve valer sempre.
+   return FileIsExist("CSS_KILL.flag");
 }
 
 //+------------------------------------------------------------------+
@@ -271,8 +282,13 @@ void InitPortfolioPairs(string ccy)
    {
       if(StringFind(all_28[i], ccy) >= 0)
       {
-         g_pairs[idx] = all_28[i];
-         SymbolSelect(g_pairs[idx], true);
+         // Sufixo da corretora: sem isso, o modo legado (InpEaOpensBasket=true)
+         // nao abriria NENHUMA perna nesta conta — os simbolos so existem como
+         // EURUSDm, GBPUSDm, etc. O fechamento nao depende disto (itera por magic).
+         g_pairs[idx] = all_28[i] + InpSymbolSuffix;
+         if(!SymbolSelect(g_pairs[idx], true))
+            PrintFormat("[CSS ROBOT %s] ATENCAO: simbolo %s nao encontrado no servidor (confira InpSymbolSuffix).",
+                        ccy, g_pairs[idx]);
          idx++;
       }
    }
@@ -438,7 +454,7 @@ string ExtractJsonStringField(string &content, string field)
 //+------------------------------------------------------------------+
 ENUM_EXEC_BIAS ReadAutoBiasFromJson(string ccy, MqlDateTime &brt_now)
 {
-   int handle = FileOpen("CSS_Portfolio_Signals.json", FILE_READ | FILE_TXT);
+   int handle = FileOpen("CSS_Portfolio_Signals.json", FILE_READ | FILE_TXT | FILE_ANSI);
    if(handle == INVALID_HANDLE)
    {
       PrintFormat("[CSS ROBOT %s] Arquivo CSS_Portfolio_Signals.json não encontrado em MQL5/Files.", ccy);
@@ -608,7 +624,7 @@ void CreateOrUpdateLabel(string tag, string text, int x, int y, color col, int f
 //+------------------------------------------------------------------+
 void ExportTelemetryJson()
 {
-   int handle = FileOpen("CSS_Live_Portfolio_" + g_ccy_str + ".json", FILE_WRITE | FILE_TXT);
+   int handle = FileOpen("CSS_Live_Portfolio_" + g_ccy_str + ".json", FILE_WRITE | FILE_TXT | FILE_ANSI);
    if(handle != INVALID_HANDLE)
    {
       string json = StringFormat("{\"currency\":\"%s\",\"magic\":%d,\"open_positions\":%d,\"floating_pnl_usd\":%.2f,\"floating_pips\":%.1f,\"mfe_usd\":%.2f,\"mae_usd\":%.2f,\"timestamp\":\"%s\"}",

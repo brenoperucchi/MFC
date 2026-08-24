@@ -788,6 +788,20 @@ def get_live_portfolio_telemetry():
 SIGNALS_FILE = os.path.join(DATA_DIR, "portfolio_signals_live.json")
 
 
+def _save_telemetry_file(telemetry: dict):
+    """Persiste o snapshot de telemetria pro dashboard web.
+
+    Estava sendo CHAMADA em dois pontos e não existia em lugar nenhum do
+    repositório — NameError garantido, ou seja: o acompanhamento da cesta
+    durante a madrugada nunca funcionou. Escrita atômica porque o dashboard
+    lê este arquivo em paralelo. Nunca propaga exceção: falha de telemetria
+    não pode derrubar quem estava tratando de posição real."""
+    try:
+        _atomic_write_json(TELEMETRY_FILE, telemetry)
+    except Exception as e:
+        print(f"[-] Erro ao gravar telemetria em {TELEMETRY_FILE}: {e}")
+
+
 def get_mt5_files_dir():
     """Retorna a pasta MQL5/Files da instância MT5 portable dedicada ao MFC,
     derivada de MT5_PATH (CSS_MT5_TERMINAL_PATH). Em modo /portable cada
