@@ -27,6 +27,15 @@ DATA_DIR = os.path.join(BASE_DIR, "data")
 os.makedirs(DATA_DIR, exist_ok=True)
 HISTORY_FILE = os.path.join(DATA_DIR, "simulated_trades_history.json")
 
+# Mesmo offset do InpGmtOffset do EA (mt5/CSS_Portfolio_Basket_EA.mq5) — medido
+# empiricamente em 24/08 contra a conta real (Exness-MT5Trial11 = UTC+0,
+# BRT = UTC-3, logo offset = -3). O backtest calculava a hora de entrada como
+# "hora do servidor == 3" assumindo servidor = UTC+3 (offset implícito +6 na
+# rotulagem de data) — nesta conta isso aponta pra meia-noite BRT, não 21h.
+# Reconfira se a corretora/conta mudar.
+GMT_OFFSET = int(os.environ.get("CSS_MT5_GMT_OFFSET", "-3"))
+ENTRY_SERVER_HOUR = (21 - GMT_OFFSET) % 24
+
 
 def ensure_mt5_connected():
     if not MT5_AVAILABLE:
@@ -296,7 +305,7 @@ class TrackRecordEngine:
             return self._generate_fallback_history()
 
         ref_df = pair_h1["EURUSD"]
-        entry_indices = ref_df[ref_df['time'].dt.hour == 3].index.tolist()
+        entry_indices = ref_df[ref_df['time'].dt.hour == ENTRY_SERVER_HOUR].index.tolist()
 
         sessions = []
         equity = 0.0
@@ -307,8 +316,11 @@ class TrackRecordEngine:
         for idx in entry_indices:
             entry_row = ref_df.loc[idx]
             entry_time = entry_row['time']
-            br_date = (entry_time - timedelta(hours=6)).strftime("%Y-%m-%d")
+            # entry_time é hora do SERVIDOR; converte pra BRT de verdade antes de
+            # rotular a data (antes: -6h fixo, que só bate com servidor=UTC+3).
+            br_date = (entry_time + timedelta(hours=GMT_OFFSET)).strftime("%Y-%m-%d")
             exit_time = entry_time + timedelta(hours=11)
+            exit_time_brt_str = (exit_time + timedelta(hours=GMT_OFFSET)).strftime("%Y-%m-%d %H:%M")
             
             # Verificar se a sessão é histórica completa ou em andamento
             exit_matches = ref_df[ref_df['time'] == exit_time]
@@ -321,7 +333,7 @@ class TrackRecordEngine:
                 sessions.append({
                     "date": br_date,
                     "entry_time_br": f"{br_date} 21:00",
-                    "exit_time_br": (entry_time - timedelta(hours=6) + timedelta(days=1)).strftime("%Y-%m-%d") + " 08:00",
+                    "exit_time_br": exit_time_brt_str,
                     "status": "NEUTRO",
                     "status_label": "Sessão Neutra (Filtro 4+ TFs Ativo)",
                     "portfolios_count": 0,
@@ -331,7 +343,8 @@ class TrackRecordEngine:
                     "mae_usd": 0.0,
                     "intraday_hours": hours_labels,
                     "intraday_pnl_curve": [0.0] * 12,
-                    "portfolios": []
+                    "portfolios": [],
+                    "qualified_full": []
                 })
                 continue
 
@@ -454,7 +467,7 @@ class TrackRecordEngine:
             sessions.append({
                 "date": br_date,
                 "entry_time_br": f"{br_date} 21:00",
-                "exit_time_br": (entry_time - timedelta(hours=6) + timedelta(days=1)).strftime("%Y-%m-%d") + " 08:00",
+                "exit_time_br": exit_time_brt_str,
                 "status": status,
                 "status_label": status_label,
                 "is_in_progress": is_in_progress,
@@ -466,7 +479,11 @@ class TrackRecordEngine:
                 "equity_after": equity,
                 "intraday_hours": hours_labels,
                 "intraday_pnl_curve": [round(float(v), 2) for v in session_hourly_pnl],
-                "portfolios": session_portfolios
+                "portfolios": session_portfolios,
+                # Snapshot completo de quem qualificou (com scores brutos e LEDs),
+                # pra aplicar regras de seleção-de-uma-moeda no pós-processamento
+                # sem precisar re-simular PnL — já está tudo em session_portfolios.
+                "qualified_full": qualified_currencies
             })
 
             equity_curve.append({
@@ -532,7 +549,7 @@ class TrackRecordEngine:
         for sym in ALL_28_PAIRS:
             if ccy not in sym:
                 continue
-            rates = mt5.copy_rates_from(sym, tf_val, target_time, 35)
+            rates = mt5.copy_rates_from(to_broker_symbol(sym), tf_val, target_time, 35)
             if rates is None or len(rates) < 25:
                 continue
             closes = [r[4] for r in rates]
@@ -570,7 +587,7 @@ class TrackRecordEngine:
         for tf_name, (tf_val, count) in tf_map.items():
             pair_slopes = {}
             for sym in ALL_28_PAIRS:
-                rates = mt5.copy_rates_from(sym, tf_val, target_time, count)
+                rates = mt5.copy_rates_from(to_broker_symbol(sym), tf_val, target_time, count)
                 if rates is None or len(rates) < 25:
                     continue
                 df = pd.DataFrame(rates)
@@ -620,12 +637,23 @@ class TrackRecordEngine:
             d1_s = tf_slopes.get("D1", {}).get(c, 0.0)
 
             # Qualificação Cíclica Multi-TF
+            # scores brutos das 5 TFs — aditivo, só pra quem precisar comparar
+            # regras de seleção contra o histórico (ex.: backtest de qual moeda
+            # escolher entre as que qualificam); não afeta a qualificação em si.
+            raw_scores = {tf: tf_slopes.get(tf, {}).get(c, 0.0) for tf in ("MN1", "W1", "D1", "H4", "H1")}
+            # divergência aqui é aproximação (H1 e H4 discordando de sinal) — o
+            # has_divergence "oficial" (agents/operational_analyzer.py) compara
+            # macro vs operacional, pipeline que este motor não usa.
+            approx_divergence = (h1_s > 0) != (h4_s > 0) and abs(h1_s) > 0.05 and abs(h4_s) > 0.05
+
             if red_cnt >= 4 or (h1_s <= -0.50 and (d1_s < 0 or h4_s < 0)):
                 qualified.append({
                     "symbol": c,
                     "bias": "SELL",
                     "confluence_tfs": max(red_cnt, 4),
                     "leds": leds,
+                    "scores": raw_scores,
+                    "has_divergence_approx": approx_divergence,
                     "reason": f"Confluência de Fraqueza em {red_cnt}/5 Timeframes (Viés de Venda)"
                 })
             elif green_cnt >= 4 or (h1_s >= 0.50 and (d1_s > 0 or h4_s > 0)):
@@ -636,6 +664,8 @@ class TrackRecordEngine:
                         "bias": "SELL",
                         "confluence_tfs": max(green_cnt, 4),
                         "leds": leds,
+                        "scores": raw_scores,
+                        "has_divergence_approx": approx_divergence,
                         "reason": f"Exaustão Cíclica no Topo (+{h1_s:.2f}) com H4 em Queda (Viés de Venda)"
                     })
                 else:
@@ -644,6 +674,8 @@ class TrackRecordEngine:
                         "bias": "BUY",
                         "confluence_tfs": max(green_cnt, 4),
                         "leds": leds,
+                        "scores": raw_scores,
+                        "has_divergence_approx": approx_divergence,
                         "reason": f"Confluência de Força em {green_cnt}/5 Timeframes (Viés de Compra)"
                     })
 
@@ -687,7 +719,8 @@ class TrackRecordEngine:
                     "mae_usd": 0.0,
                     "intraday_hours": hours_labels,
                     "intraday_pnl_curve": [0.0] * 12,
-                    "portfolios": []
+                    "portfolios": [],
+                    "qualified_full": []
                 })
                 continue
                 
