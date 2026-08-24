@@ -26,6 +26,10 @@ if PROJECT_DIR not in sys.path:
 
 from web.css_service import MT5_PATH, MT5_SYMBOL_SUFFIX
 
+# Conta esperada: alimenta o InpExpectedLogin do EA, que alerta no log se
+# ele subir num terminal logado noutra conta (esta maquina roda varios).
+EXPECTED_LOGIN = os.environ.get("CSS_MT5_EXPECTED_LOGIN", "0").strip() or "0"
+
 # Onde o compile_ea_remote.sh deposita o EA compilado, relativo ao MQL5/.
 EXPERTS_SUBDIR = os.path.join("Experts", "MFC")
 EA_NAME = "CSS_Portfolio_Basket_EA"
@@ -112,6 +116,7 @@ InpExitHour=8
 InpExitMinute=0
 InpCloseGraceMin=15
 InpGmtOffset=-3
+InpExpectedLogin={EXPECTED_LOGIN}
 InpSymbolSuffix={MT5_SYMBOL_SUFFIX}
 InpDeviation=15
 InpExportTelemetry=true
