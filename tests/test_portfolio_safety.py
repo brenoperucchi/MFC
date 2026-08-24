@@ -60,19 +60,59 @@ DEMO_GATE_ENV = {"CSS_MT5_EXPECTED_LOGIN": "999", "CSS_LIVE_TRADING": ""}
 
 
 class TestKillSwitch(unittest.TestCase):
+    """NUNCA tocar no KILL_SWITCH_FILE real: se o operador armou o kill switch
+    e alguém roda a suíte, apagá-lo aqui desarmaria a única trava que funciona
+    com o resto do sistema fora do ar. Todo teste usa um caminho temporário."""
+
     def setUp(self):
-        if os.path.exists(pe.KILL_SWITCH_FILE):
-            os.remove(pe.KILL_SWITCH_FILE)
+        self._tmp = tempfile.TemporaryDirectory()
+        self._flag = os.path.join(self._tmp.name, "CSS_KILL.flag")
+        # get_mt5_files_dir também é neutralizado — senão a checagem do segundo
+        # local poderia encontrar (ou criar) algo fora do sandbox do teste.
+        self._patches = [
+            patch.object(pe, "KILL_SWITCH_FILE", self._flag),
+            patch.object(pe, "get_mt5_files_dir", lambda: None),
+        ]
+        for p in self._patches:
+            p.start()
 
     def tearDown(self):
-        if os.path.exists(pe.KILL_SWITCH_FILE):
-            os.remove(pe.KILL_SWITCH_FILE)
+        for p in self._patches:
+            p.stop()
+        self._tmp.cleanup()
 
     def test_kill_switch_off_by_default(self):
         self.assertFalse(pe.is_kill_switch_active())
 
+    def test_real_kill_switch_file_is_never_touched_by_tests(self):
+        """Regressão: a suíte apagava data/CSS_KILL.flag do operador.
+
+        A versão anterior deste teste era falso-verde estrutural: amostrava
+        `existed_before` DEPOIS do setUp, então se o setUp voltasse a apagar o
+        flag real, o teste ainda passaria. Aqui o arquivo real é criado dentro
+        do próprio teste, e o que se exige é que ele SOBREVIVA — o que falha
+        de verdade se alguém reintroduzir o os.remove no caminho real."""
+        real_flag = os.path.join(pe.DATA_DIR, "CSS_KILL.flag")
+        self.assertNotEqual(pe.KILL_SWITCH_FILE, real_flag,
+                            "KILL_SWITCH_FILE deve estar patcheado pra um tmpdir nos testes")
+        created_here = not os.path.exists(real_flag)
+        if created_here:
+            with open(real_flag, "w") as f:
+                f.write("sentinela do teste")
+        try:
+            with open(self._flag, "w") as f:
+                f.write("stop")
+            pe.is_kill_switch_active()
+            pe.open_portfolio_basket("CAD", "BUY")
+            self.assertTrue(os.path.exists(real_flag),
+                            "a suíte apagou o kill switch real do operador")
+        finally:
+            if created_here and os.path.exists(real_flag):
+                os.remove(real_flag)
+        print("[✓] O kill switch real sobrevive à suíte (teste capaz de falhar de verdade)")
+
     def test_kill_switch_blocks_open_without_touching_mt5(self):
-        with open(pe.KILL_SWITCH_FILE, "w") as f:
+        with open(self._flag, "w") as f:
             f.write("stop")
         self.assertTrue(pe.is_kill_switch_active())
 
@@ -299,6 +339,277 @@ class TestNettingCollision(unittest.TestCase):
         print("[✓] Conta hedging permite colisão de símbolo entre cestas diferentes")
 
 
+class TestPositionQueryFailsClosed(unittest.TestCase):
+    """positions_get() devolve None tanto pra 'nenhuma posição' quanto pra
+    ERRO de consulta. Tratar erro como 'nada aberto' derruba a idempotência e
+    a checagem de colisão justamente quando o terminal está instável — que é
+    quando elas mais importam."""
+
+    def _demo_mt5(self):
+        fake = make_fake_mt5()
+        fake.account_info.return_value = SimpleNamespace(
+            login=999, server="Broker-Demo", trade_mode="DEMO",
+            trade_allowed=True, margin_mode="HEDGING"
+        )
+        return fake
+
+    def test_open_refused_when_positions_get_returns_none(self):
+        fake_mt5 = self._demo_mt5()
+        fake_mt5.positions_get.return_value = None
+        fake_mt5.last_error.return_value = (-10004, "IPC timeout")
+        with patch.dict(os.environ, DEMO_GATE_ENV), \
+             patch.object(pe, "MT5_AVAILABLE", True), patch.object(pe, "mt5", fake_mt5):
+            result = pe.open_portfolio_basket("CAD", "BUY")
+        self.assertFalse(result["success"])
+        self.assertEqual(result["error"], "position_query_failed")
+        fake_mt5.order_send.assert_not_called()
+        print("[✓] positions_get()->None recusa abertura (não reabre cesta por cima)")
+
+    def test_open_refused_when_positions_get_raises(self):
+        fake_mt5 = self._demo_mt5()
+        fake_mt5.positions_get.side_effect = RuntimeError("conexão perdida")
+        with patch.dict(os.environ, DEMO_GATE_ENV), \
+             patch.object(pe, "MT5_AVAILABLE", True), patch.object(pe, "mt5", fake_mt5):
+            result = pe.open_portfolio_basket("CAD", "BUY")
+        self.assertFalse(result["success"])
+        self.assertEqual(result["error"], "position_query_failed")
+        fake_mt5.order_send.assert_not_called()
+        print("[✓] positions_get() lançando exceção recusa abertura")
+
+    def test_empty_tuple_is_not_an_error(self):
+        """Tupla vazia é 'nenhuma posição' de verdade — deve seguir normal."""
+        fake_mt5 = self._demo_mt5()
+        fake_mt5.positions_get.return_value = ()
+        fake_mt5.symbol_info.return_value = SimpleNamespace(visible=True)
+        fake_mt5.symbol_info_tick.return_value = SimpleNamespace(ask=1.1, bid=1.0998)
+        fake_mt5.order_send.return_value = SimpleNamespace(
+            retcode=fake_mt5.TRADE_RETCODE_DONE, order=1, price=1.1, comment="ok")
+        with patch.dict(os.environ, DEMO_GATE_ENV), \
+             patch.object(pe, "MT5_AVAILABLE", True), patch.object(pe, "mt5", fake_mt5):
+            result = pe.open_portfolio_basket("CAD", "BUY")
+        self.assertTrue(result["success"])
+        print("[✓] Tupla vazia (sem posições) segue normalmente — só None/exceção recusa")
+
+    def test_close_all_reports_failure_when_query_fails(self):
+        """O pior modo de falha do fechamento: reportar 'fechou tudo' com a
+        cesta viva."""
+        fake_mt5 = self._demo_mt5()
+        fake_mt5.positions_get.return_value = None
+        fake_mt5.last_error.return_value = (-10004, "IPC timeout")
+        with patch.dict(os.environ, DEMO_GATE_ENV), \
+             patch.object(pe, "MT5_AVAILABLE", True), patch.object(pe, "mt5", fake_mt5), \
+             patch.object(pe, "ensure_mt5", lambda: True):
+            result = pe.close_all_portfolios()
+        self.assertFalse(result["success"])
+        self.assertEqual(result["error"], "position_query_failed")
+        print("[✓] Fechamento com consulta falhando reporta ERRO, não sucesso falso")
+
+
+class TestSymbolResolution(unittest.TestCase):
+    """Medido na conta real (Exness): 0 dos 28 pares existem com o nome puro,
+    28 existem como 'EURUSDm' etc. Sem resolução de sufixo o sistema não abre
+    uma perna sequer."""
+
+    def test_to_broker_symbol_applies_suffix(self):
+        with patch.object(cs, "MT5_SYMBOL_SUFFIX", "m"), \
+             patch.object(cs, "MT5_AVAILABLE", False), \
+             patch.dict(cs._SYMBOL_RESOLUTION_CACHE, {}, clear=True):
+            self.assertEqual(cs.to_broker_symbol("EURUSD"), "EURUSDm")
+
+    def test_from_broker_symbol_strips_suffix(self):
+        with patch.object(cs, "MT5_SYMBOL_SUFFIX", "m"):
+            self.assertEqual(cs.from_broker_symbol("EURUSDm"), "EURUSD")
+            self.assertEqual(cs.from_broker_symbol("EURUSD"), "EURUSD")
+
+    def test_open_refused_entirely_when_symbols_unresolved(self):
+        """Recusa a cesta INTEIRA em vez de abrir parcial: 3 de 7 pernas é uma
+        aposta direcional nua, não a cesta diversificada da estratégia."""
+        fake_mt5 = make_fake_mt5()
+        fake_mt5.account_info.return_value = SimpleNamespace(
+            login=999, server="Broker-Demo", trade_mode="DEMO",
+            trade_allowed=True, margin_mode="HEDGING")
+        fake_mt5.positions_get.return_value = ()
+        fake_mt5.symbol_info.return_value = None   # nenhum símbolo resolve
+        with patch.dict(os.environ, DEMO_GATE_ENV), \
+             patch.object(pe, "MT5_AVAILABLE", True), patch.object(pe, "mt5", fake_mt5):
+            result = pe.open_portfolio_basket("CAD", "BUY")
+        self.assertFalse(result["success"])
+        self.assertEqual(result["error"], "preflight_failed")
+        self.assertEqual(len(result["unresolved"]), 7)
+        fake_mt5.order_send.assert_not_called()
+        print("[✓] Símbolo não resolvido recusa a cesta inteira, sem enviar ordem")
+
+    def test_open_refused_entirely_when_a_single_pair_has_no_tick(self):
+        """Regressão do preflight: antes ele só checava symbol_info, e um par
+        sem cotação só era descoberto no laço de envio — depois das pernas
+        anteriores já terem sido abertas, deixando a cesta parcial."""
+        fake_mt5 = make_fake_mt5()
+        fake_mt5.account_info.return_value = SimpleNamespace(
+            login=999, server="Broker-Demo", trade_mode="DEMO",
+            trade_allowed=True, margin_mode="HEDGING")
+        fake_mt5.positions_get.return_value = ()
+        fake_mt5.symbol_info.return_value = SimpleNamespace(visible=True)
+
+        def tick_for(sym):
+            # 6 dos 7 pares cotam; CADJPYm (o último da cesta) não.
+            if sym.startswith("CADJPY"):
+                return None
+            return SimpleNamespace(ask=1.1000, bid=1.0998)
+
+        fake_mt5.symbol_info_tick.side_effect = tick_for
+        with patch.dict(os.environ, DEMO_GATE_ENV), \
+             patch.object(pe, "MT5_AVAILABLE", True), patch.object(pe, "mt5", fake_mt5):
+            result = pe.open_portfolio_basket("CAD", "BUY")
+        self.assertFalse(result["success"])
+        self.assertEqual(result["error"], "preflight_failed")
+        self.assertEqual(result["no_tick"], ["CADJPY"])
+        fake_mt5.order_send.assert_not_called()
+        print("[✓] Um único par sem cotação recusa a cesta inteira — zero perna aberta")
+
+
+class TestCloseFailsClosed(unittest.TestCase):
+    """O pior modo de falha do sistema: anunciar 'encerramento concluído' com
+    a cesta viva atravessando o dia sem stop."""
+
+    def _mt5_with_open_basket(self, order_ok=True, tick_ok=True):
+        fake = make_fake_mt5()
+        fake.account_info.return_value = SimpleNamespace(
+            login=999, server="Broker-Demo", trade_mode="DEMO",
+            trade_allowed=True, margin_mode="HEDGING")
+        magic = pe.PORTFOLIO_MAGICS["CAD"]
+        fake.positions_get.return_value = [
+            SimpleNamespace(magic=magic, symbol=f"CAD{i}m", ticket=1000 + i,
+                            volume=0.01, type=0)
+            for i in range(7)
+        ]
+        fake.symbol_info_tick.return_value = (
+            SimpleNamespace(ask=1.1, bid=1.0998) if tick_ok else None)
+        fake.order_send.return_value = SimpleNamespace(
+            retcode=fake.TRADE_RETCODE_DONE if order_ok else 10004,
+            order=1, price=1.1, comment="ok" if order_ok else "Requote")
+        return fake
+
+    def test_close_reports_failure_when_every_order_rejected(self):
+        fake_mt5 = self._mt5_with_open_basket(order_ok=False)
+        with patch.dict(os.environ, DEMO_GATE_ENV), \
+             patch.object(pe, "MT5_AVAILABLE", True), patch.object(pe, "mt5", fake_mt5), \
+             patch.object(pe, "ensure_mt5", lambda: True):
+            res = pe.close_portfolio_basket("CAD")
+        self.assertFalse(res["success"])
+        self.assertEqual(res["closed_count"], 0)
+        self.assertEqual(res["target_count"], 7)
+        print("[✓] 7 posições vivas com ordem rejeitada => success False (não sucesso falso)")
+
+    def test_close_reports_failure_when_tick_missing(self):
+        fake_mt5 = self._mt5_with_open_basket(tick_ok=False)
+        with patch.dict(os.environ, DEMO_GATE_ENV), \
+             patch.object(pe, "MT5_AVAILABLE", True), patch.object(pe, "mt5", fake_mt5), \
+             patch.object(pe, "ensure_mt5", lambda: True):
+            res = pe.close_portfolio_basket("CAD")
+        self.assertFalse(res["success"])
+        self.assertEqual(res["closed_count"], 0)
+        print("[✓] Tick ausente no fechamento => posição contabilizada como NÃO fechada")
+
+    def test_close_all_propagates_failures(self):
+        fake_mt5 = self._mt5_with_open_basket(order_ok=False)
+        with patch.dict(os.environ, DEMO_GATE_ENV), \
+             patch.object(pe, "MT5_AVAILABLE", True), patch.object(pe, "mt5", fake_mt5), \
+             patch.object(pe, "ensure_mt5", lambda: True):
+            res = pe.close_all_portfolios()
+        self.assertFalse(res["success"])
+        self.assertTrue(res["failures"], "failures não pode ficar vazio com pernas vivas")
+        print("[✓] close_all_portfolios propaga a falha em vez de reportar sucesso")
+
+    def test_close_refuses_wrong_account(self):
+        """Esta máquina roda 5 terminais MT5 em contas diferentes: fechar na
+        conta errada é tão ruim quanto não fechar."""
+        fake_mt5 = self._mt5_with_open_basket()
+        fake_mt5.account_info.return_value = SimpleNamespace(
+            login=111, server="Outro-Terminal", trade_mode="DEMO",
+            trade_allowed=True, margin_mode="HEDGING")
+        with patch.dict(os.environ, {"CSS_MT5_EXPECTED_LOGIN": "999", "CSS_LIVE_TRADING": ""}), \
+             patch.object(pe, "MT5_AVAILABLE", True), patch.object(pe, "mt5", fake_mt5), \
+             patch.object(pe, "ensure_mt5", lambda: True):
+            res = pe.close_portfolio_basket("CAD")
+        self.assertFalse(res["success"])
+        self.assertEqual(res["error"], "wrong_account")
+        fake_mt5.order_send.assert_not_called()
+        print("[✓] Fechamento recusa conta diferente da esperada (5 terminais na máquina)")
+
+
+class TestProvenanceStamping(unittest.TestCase):
+    """O snapshot data/css_standard.json é versionado no git e carrega
+    `mt5_connected: true` de quando foi gravado. Servido verbatim com o MT5
+    fora, ele fazia um sinal de ontem passar como dado ao vivo."""
+
+    def test_disk_snapshot_never_reports_itself_as_live(self):
+        """Regressão do buraco real: o css_standard.json versionado tem
+        `mt5_connected: true`; o __new__ o carrega no cache E carimba o
+        last_update_*, então a chamada seguinte caía no throttle de 3s e
+        devolvia esse `true` verbatim — 8/8 portfólios ACTIVE numa máquina
+        sem MT5. Selar no _load_from_disk é o que fecha todos os caminhos."""
+        with tempfile.TemporaryDirectory() as tmp:
+            snap = os.path.join(tmp, "snapshot.json")
+            with open(snap, "w", encoding="utf-8") as f:
+                json.dump({"mt5_connected": True, "currencies": [], "timestamp": "2020-01-01"}, f)
+            loaded = cs.CSSDataEngine._load_from_disk(snap)
+        self.assertFalse(loaded["mt5_connected"])
+        print("[✓] Snapshot em disco nunca se declara live, mesmo com true gravado")
+
+    def test_stamp_overrides_inherited_flag_without_mutating_original(self):
+        original = {"mt5_connected": True, "currencies": [1, 2, 3]}
+        stamped = cs._stamp_provenance(original, False)
+        self.assertFalse(stamped["mt5_connected"])
+        self.assertTrue(original["mt5_connected"], "não pode mutar o cache compartilhado")
+        print("[✓] _stamp_provenance sobrescreve a procedência sem mutar o original")
+
+    def _gen(self, **kwargs):
+        """Gera o payload SEM tocar em data/portfolio_signals_live.json nem na
+        pasta do MT5 — o teste não pode reescrever o sinal real do operador."""
+        with patch.object(pe, "_atomic_write_json", lambda *a, **k: None), \
+             patch.object(pe, "get_mt5_files_dir", lambda: None):
+            return pe.generate_and_save_daily_signals(
+                currencies_data=[{"symbol": "CAD", "trade_bias": "COMPRA", "triads": {}}],
+                **kwargs)
+
+    def test_signals_blocked_when_caller_omits_provenance(self):
+        """FAIL-CLOSED: quem passa currencies_data pronto (daily_css_routine)
+        precisa declarar a procedência; omitir vira NÃO-live."""
+        payload = self._gen()
+        self.assertFalse(payload["mt5_connected"])
+        self.assertEqual(payload["portfolios"]["CAD"]["status"], "BLOCKED")
+        print("[✓] currencies_data sem mt5_connected declarado => BLOCKED (fail closed)")
+
+    def test_signals_active_when_caller_declares_live(self):
+        """Caso positivo — sem ele, os testes de procedência passariam mesmo
+        se a checagem bloqueasse tudo indiscriminadamente."""
+        payload = self._gen(mt5_connected=True)
+        self.assertTrue(payload["mt5_connected"])
+        self.assertEqual(payload["portfolios"]["CAD"]["status"], "ACTIVE")
+        self.assertEqual(payload["portfolios"]["CAD"]["direction"], "BUY")
+        print("[✓] Procedência declarada live => ACTIVE (a trava distingue os dois casos)")
+
+
+class TestSignalProvenance(unittest.TestCase):
+    """O carimbo 'date' atesta a hora da escrita, não a origem dos dados —
+    sem 'mt5_connected' uma série SIMULADA vira ordem real."""
+
+    def test_signals_blocked_when_data_not_live(self):
+        fake_engine = SimpleNamespace(update_data=lambda force=False: {
+            "mt5_connected": False,
+            "currencies": [{"symbol": "CAD", "trade_bias": "COMPRA", "triads": {}}],
+        })
+        with patch.dict("sys.modules", {}), \
+             patch.object(pe, "_atomic_write_json", lambda *a, **k: None), \
+             patch.object(pe, "get_mt5_files_dir", lambda: None), \
+             patch.object(cs, "css_engine", fake_engine):
+            payload = pe.generate_and_save_daily_signals()
+        self.assertFalse(payload["mt5_connected"])
+        self.assertEqual(payload["portfolios"]["CAD"]["status"], "BLOCKED")
+        self.assertEqual(payload["portfolios"]["CAD"]["direction"], "NEUTRAL")
+        print("[✓] Dados sem conexão MT5 saem BLOCKED/NEUTRAL, não viram ordem")
+
+
 class TestCatastrophicStopLoss(unittest.TestCase):
     def test_pip_size_jpy_vs_non_jpy(self):
         self.assertEqual(pe._pip_size("USDJPY"), 0.01)
@@ -342,27 +653,74 @@ class TestScheduledOpenTrigger(unittest.TestCase):
     padrão no .mq5 — não testável aqui, é MQL5, mas o lado Python que
     substitui a abertura dele precisa estar coberto)."""
 
-    def test_execute_phase_2105_opens_only_active_currencies(self):
-        import scripts.scheduler_daemon as daemon
-
-        fake_signals = {
-            "date": "2026-08-23",
+    @staticmethod
+    def _signals(date_str=None, mt5_connected=True):
+        from datetime import datetime as _dt
+        return {
+            "date": date_str or _dt.now().strftime("%Y-%m-%d"),
+            "mt5_connected": mt5_connected,
             "portfolios": {
                 "CAD": {"direction": "BUY", "status": "ACTIVE"},
                 "USD": {"direction": "SELL", "status": "ACTIVE"},
                 "EUR": {"direction": "NEUTRAL", "status": "BLOCKED"},
-            }
+            },
         }
 
+    def _run_phase(self, payload):
+        import scripts.scheduler_daemon as daemon
         with patch.object(daemon, "SIGNALS_FILE", "/dev/null"), \
-             patch("builtins.open", mock_open(read_data=json.dumps(fake_signals))), \
+             patch("builtins.open", mock_open(read_data=json.dumps(payload))), \
              patch.object(daemon, "open_portfolio_basket") as mock_open_basket:
             mock_open_basket.return_value = {"success": True, "opened_count": 7, "total_pairs": 7}
             daemon.execute_phase_2105()
+        return mock_open_basket
 
-        called_currencies = {call.args[0] for call in mock_open_basket.call_args_list}
-        self.assertEqual(called_currencies, {"CAD", "USD"})
-        print("[✓] execute_phase_2105 só abre as moedas com status ACTIVE, ignora NEUTRAL/BLOCKED")
+    def test_execute_phase_2105_opens_only_active_currencies_with_right_direction(self):
+        mock_open_basket = self._run_phase(self._signals())
+        # Assere moeda E direção: um bug que invertesse BUY/SELL é a classe de
+        # erro mais cara aqui, e passava verde quando só a moeda era checada.
+        called = {(c.args[0], c.args[1]) for c in mock_open_basket.call_args_list}
+        self.assertEqual(called, {("CAD", "BUY"), ("USD", "SELL")})
+        print("[✓] execute_phase_2105 abre só as ACTIVE, com a direção correta de cada uma")
+
+    def test_execute_phase_2105_refuses_stale_signal(self):
+        mock_open_basket = self._run_phase(self._signals(date_str="2020-01-01"))
+        mock_open_basket.assert_not_called()
+        print("[✓] Sinal com data de outro dia não abre nada (não opera direção de ontem)")
+
+    def test_execute_phase_2105_refuses_non_live_signal(self):
+        """Sinal derivado de cache/série simulada nunca vira ordem real."""
+        mock_open_basket = self._run_phase(self._signals(mt5_connected=False))
+        mock_open_basket.assert_not_called()
+        print("[✓] Sinal com mt5_connected=false (cache/simulado) não abre nada")
+
+    def test_execute_phase_2105_isolates_exception_per_currency(self):
+        import scripts.scheduler_daemon as daemon
+        payload = self._signals()
+        with patch.object(daemon, "SIGNALS_FILE", "/dev/null"), \
+             patch("builtins.open", mock_open(read_data=json.dumps(payload))), \
+             patch.object(daemon, "open_portfolio_basket") as mock_open_basket:
+            mock_open_basket.side_effect = [
+                RuntimeError("MT5 caiu"),
+                {"success": True, "opened_count": 7, "total_pairs": 7},
+            ]
+            daemon.execute_phase_2105()  # não pode propagar exceção
+        self.assertEqual(mock_open_basket.call_count, 2)
+        print("[✓] Exceção numa moeda não aborta as demais nem derruba o daemon")
+
+    def test_test_mode_never_sends_real_orders(self):
+        """Regressão: --test chamava execute_phase_2105, abrindo até 56
+        posições reais em qualquer hora do dia."""
+        import scripts.scheduler_daemon as daemon
+        with patch.object(daemon, "execute_phase_2102") as m2102, \
+             patch.object(daemon, "execute_phase_2105") as m2105, \
+             patch.object(daemon, "execute_phase_0800") as m0800, \
+             patch.object(daemon, "execute_phase_0805") as m0805:
+            daemon.run_daemon_loop(test_mode=True)
+        m2105.assert_not_called()
+        m0800.assert_not_called()
+        self.assertTrue(m2102.called and m0805.called)
+        print("[✓] --test não dispara nenhuma fase que envia ordem real")
 
 
 if __name__ == "__main__":

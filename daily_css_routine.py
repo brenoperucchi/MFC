@@ -450,10 +450,15 @@ def run_daily_routine():
     else:
         print("[*] Envio ao Telegram desativado em data/telegram_config.json.")
 
-    # 3.1 Gravar arquivo oficial de sinais para os Robôs MT5 (FILE_COMMON) às 21:02 BRT
+    # 3.1 Gravar arquivo oficial de sinais para os Robôs MT5 às 21:02 BRT.
+    # A procedência (data["mt5_connected"], obtido no update_data lá em cima)
+    # PRECISA ser propagada: é ela que decide se esse sinal pode virar ordem
+    # real. Antes era descartada aqui, e tudo saía carimbado como live.
     try:
         from agents.portfolio_executor import generate_and_save_daily_signals
-        signals_res = generate_and_save_daily_signals(currencies)
+        signals_res = generate_and_save_daily_signals(
+            currencies, mt5_connected=data.get("mt5_connected", False)
+        )
         print(f"[{datetime.now().strftime('%H:%M:%S')}] Sinais dos 8 Portfólios MT5 gravados com sucesso para a sessão noturna (21:05 -> 08:00)!")
     except Exception as e:
         print(f"[-] Erro ao gravar sinais dos portfólios: {e}")

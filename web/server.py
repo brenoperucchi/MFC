@@ -5,6 +5,7 @@ Fornece API REST de alta performance e serve a aplicação web frontend SPA.
 
 import os
 import sys
+import hmac
 import base64
 from datetime import datetime
 import webbrowser
@@ -187,7 +188,12 @@ def _require_portfolio_api_key(x_css_api_key: str = Header(default=None)):
                    "real desabilitado por padrão (fail closed). Configure a variável de ambiente "
                    "pra habilitar."
         )
-    if x_css_api_key != PORTFOLIO_API_KEY:
+    # Compara em BYTES: compare_digest com str lança TypeError se houver
+    # caractere não-ASCII (o Starlette decodifica headers em latin-1, então um
+    # byte alto no header viraria 500 em vez de 401).
+    provided = (x_css_api_key or "").encode("utf-8", "surrogateescape")
+    expected = str(PORTFOLIO_API_KEY).encode("utf-8", "surrogateescape")
+    if not hmac.compare_digest(provided, expected):
         raise HTTPException(status_code=401, detail="Chave de API inválida ou ausente.")
 
 
@@ -260,8 +266,14 @@ async def send_raio_x_telegram(payload: TelegramRaioXPayload):
 
 
 @app.post("/api/telegram/trigger-daily-routine")
-async def trigger_daily_routine_endpoint():
-    """Dispara a rotina diária das 21h em background gerando os 8 Raio-X e enviando para o Telegram."""
+async def trigger_daily_routine_endpoint(x_css_api_key: str = Header(default=None)):
+    """Dispara a rotina diária das 21h em background gerando os 8 Raio-X e enviando para o Telegram.
+
+    Exige a chave de API porque run_daily_routine() SOBRESCREVE o arquivo de
+    sinais (data/portfolio_signals_live.json e a cópia em MQL5/Files) — que é
+    exatamente o que a fase 21:05 lê pra decidir o que operar. Sem a trava,
+    qualquer aba aberta na máquina (CORS é "*") reescreve o sinal do dia."""
+    _require_portfolio_api_key(x_css_api_key)
     try:
         import threading
         from daily_css_routine import run_daily_routine

@@ -21,7 +21,8 @@ if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
 
 from agents.portfolio_executor import (
-    generate_and_save_daily_signals, open_portfolio_basket, SIGNALS_FILE
+    generate_and_save_daily_signals, open_portfolio_basket, close_all_portfolios,
+    SIGNALS_FILE
 )
 from web.real_portfolio_audit import real_audit_engine
 import json
@@ -81,8 +82,24 @@ def execute_phase_2105():
         print(f"[-] Não foi possível ler o sinal de {SIGNALS_FILE}: {e}. Nenhuma cesta será aberta.")
         return
 
+    # Frescor: o arquivo é persistente (e versionado). Se a fase 21:02 falhou,
+    # ou se o daemon subiu depois dela, o que está em disco é o sinal de outro
+    # dia — abrir com ele significa operar a direção de ontem.
+    signal_date = signals_payload.get("date")
+    today_str = datetime.now().strftime("%Y-%m-%d")
+    if signal_date != today_str:
+        print(f"[-] Sinal com data '{signal_date}', hoje é '{today_str}' — sinal desatualizado. "
+              f"Nenhuma cesta será aberta.")
+        return
+
+    # Origem: sinal derivado de cache/série simulada nunca vira ordem real.
+    if not signals_payload.get("mt5_connected", False):
+        print("[-] Sinal marcado como não-operável (mt5_connected=false: cache ou dado simulado). "
+              "Nenhuma cesta será aberta.")
+        return
+
     portfolios = signals_payload.get("portfolios", {})
-    opened, refused, neutral = [], [], []
+    opened, refused, neutral, partial = [], [], [], []
 
     for ccy, sig in portfolios.items():
         direction = sig.get("direction", "NEUTRAL")
@@ -91,15 +108,61 @@ def execute_phase_2105():
             neutral.append(ccy)
             continue
 
-        res = open_portfolio_basket(ccy, direction)
+        # Isolamento por moeda: uma exceção numa cesta não pode abortar as
+        # demais nem derrubar o daemon (que ainda precisa rodar o 08:00).
+        try:
+            res = open_portfolio_basket(ccy, direction)
+        except Exception as e:
+            refused.append((ccy, "exception", str(e)))
+            print(f"[!] {ccy}: exceção na abertura — {e}")
+            continue
+
         if res.get("success"):
-            opened.append(ccy)
-            print(f"[+] {ccy}: cesta aberta ({res.get('opened_count')}/{res.get('total_pairs')} pares).")
+            opened_count = res.get("opened_count", 0)
+            total_pairs = res.get("total_pairs", 0)
+            if opened_count < total_pairs:
+                partial.append((ccy, opened_count, total_pairs))
+                print(f"[!] {ccy}: cesta PARCIAL ({opened_count}/{total_pairs} pares) — "
+                      f"exposição direcional não diversificada. REVISAR MANUALMENTE.")
+            else:
+                opened.append(ccy)
+                print(f"[+] {ccy}: cesta aberta ({opened_count}/{total_pairs} pares).")
         else:
             refused.append((ccy, res.get("error"), res.get("message")))
             print(f"[!] {ccy}: abertura recusada — {res.get('error')}: {res.get('message')}")
 
-    print(f"\n[RESUMO 21:05] Abertas: {opened} | Recusadas: {[c for c, *_ in refused]} | Neutras: {neutral}")
+    print(f"\n[RESUMO 21:05] Abertas: {opened} | Parciais: {partial} | "
+          f"Recusadas: {[c for c, *_ in refused]} | Neutras: {neutral}")
+
+
+def execute_phase_0800():
+    """08:00 BRT - Encerramento compulsório a mercado, pelo lado Python.
+
+    Segunda rede: o EA guardião continua sendo o fechador dentro do terminal
+    (sobrevive ao Python morrer), mas ele depende de estar anexado, com
+    AutoTrading ligado, no terminal certo — e sinaliza falha só por Print, que
+    ninguém lê. Fechar é idempotente e redutor de risco, então ter os dois
+    tentando é estritamente mais seguro que ter um só.
+
+    Retorna True só quando o fechamento foi CONFIRMADO — o chamador usa isso
+    pra decidir se retenta. O EA fecha de forma monotônica (retenta a cada 3s
+    pra sempre); uma segunda rede que desiste na primeira falha não é rede."""
+    print("\n" + "="*70)
+    print(f"  [ROUTINE 08:00 BRT] ENCERRAMENTO COMPULSÓRIO A MERCADO (PYTHON)")
+    print("="*70)
+    try:
+        res = close_all_portfolios()
+    except Exception as e:
+        print(f"[-] EXCEÇÃO no encerramento das 08:00: {e}")
+        return False
+    if res.get("success"):
+        print(f"[+] Encerramento confirmado. Posições fechadas: {res.get('total_closed', 0)}")
+        return True
+    print(f"[-] ATENÇÃO — encerramento NÃO confirmado: {res.get('error')}: {res.get('message')}")
+    if res.get("failures"):
+        print(f"[-] Falhas por moeda: {res.get('failures')}")
+    print("[-] Vai retentar no próximo ciclo (janela 08:00-08:04).")
+    return False
 
 
 def execute_phase_0805():
@@ -126,12 +189,13 @@ def run_daemon_loop(test_mode=False):
     print("  DAEMON DE AGENDAMENTO INSTITUCIONAL ATIVO (CSS PORTFOLIOS)      ")
     print("===================================================================")
     print(f"[*] Horário Local Atual: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print("[*] Monitorando horários: 21:00:00 | 21:02:00 | 21:05:00 | 08:05:00 BRT\n")
+    print("[*] Monitorando horários: 21:00:00 | 21:02:00 | 21:05:00 | 08:00:00 | 08:05:00 BRT\n")
 
     if test_mode:
-        print("[*] MODO DE TESTE ATIVO: Executando todas as rotinas em sequência...")
+        print("[*] MODO DE TESTE: rotinas que NÃO enviam ordem, em sequência.")
+        print("[*] A fase 21:05 (abertura) e a 08:00 (encerramento) ficam de fora —")
+        print("[*] elas mandam ordem real a mercado, em qualquer hora do dia.")
         execute_phase_2102()
-        execute_phase_2105()
         execute_phase_0805()
         return
 
@@ -171,7 +235,19 @@ def run_daemon_loop(test_mode=False):
                 execute_phase_2105()
                 last_trigger[key] = True
 
-        # 3. Gatilho 08:05
+        # 3. Gatilho 08:00 — encerramento compulsório pelo lado Python.
+        # Segunda rede ao EA guardião (ver execute_phase_0800).
+        # Só marca como concluído se REALMENTE fechou: o EA fecha de forma
+        # monotônica (retenta a cada 3s pra sempre), e uma "segunda rede" que
+        # desiste na primeira falha não é rede nenhuma. Retenta na janela
+        # 08:00-08:04 até confirmar.
+        if cur_hour == 8 and cur_min < 5:
+            key = f"{cur_date}_0800"
+            if key not in last_trigger:
+                if execute_phase_0800():
+                    last_trigger[key] = True
+
+        # 4. Gatilho 08:05
         if cur_hour == 8 and cur_min == 5:
             key = f"{cur_date}_0805"
             if key not in last_trigger:

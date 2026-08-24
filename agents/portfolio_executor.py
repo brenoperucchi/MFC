@@ -25,7 +25,8 @@ if BASE_DIR not in sys.path:
 # deste módulo (ex.: CATASTROPHIC_SL_PIPS logo adiante).
 from web.css_service import (
     ALL_28_PAIRS, CURRENCIES, CCY_FLAGS, CCY_COLORS,
-    MT5_AVAILABLE, mt5, MT5_PATH
+    MT5_AVAILABLE, mt5, MT5_PATH, MT5_SYMBOL_SUFFIX,
+    to_broker_symbol, from_broker_symbol
 )
 from web.history_tracker import convert_pnl_to_usd
 
@@ -84,16 +85,22 @@ CATASTROPHIC_SL_PIPS = int(os.environ.get("CSS_CATASTROPHIC_SL_PIPS", "150"))
 # define a variável.
 
 
-def check_account_gate(safety: dict) -> dict:
-    """Confirma identidade e permissão da conta conectada antes de qualquer
-    ordem. Falha fechado em qualquer ambiguidade — ver comentário acima."""
+def check_account_identity(safety: dict = None) -> dict:
+    """Confirma SÓ a identidade da conta conectada (login esperado), sem a
+    trava de demo. Usado no fechamento: reduzir risco nunca pode ser bloqueado
+    por a conta ser real — mas precisa ser a conta CERTA, porque esta máquina
+    roda vários terminais MT5 com contas diferentes ao mesmo tempo e o binding
+    global do pacote MetaTrader5 aponta pra um deles só."""
+    if safety is None:
+        safety = get_account_safety_info()
+
     expected_raw = os.environ.get("CSS_MT5_EXPECTED_LOGIN", "").strip()
     if not expected_raw:
         return {
             "allowed": False,
             "error": "no_expected_login_configured",
-            "message": "CSS_MT5_EXPECTED_LOGIN não está configurado — sem saber qual "
-                       "conta é a esperada, a abertura é recusada (mesmo em conta demo).",
+            "message": "CSS_MT5_EXPECTED_LOGIN não está configurado — não dá pra confirmar "
+                       "em qual conta as ordens seriam enviadas.",
         }
     try:
         expected_login = int(expected_raw)
@@ -103,15 +110,26 @@ def check_account_gate(safety: dict) -> dict:
             "error": "invalid_expected_login",
             "message": f"CSS_MT5_EXPECTED_LOGIN={expected_raw!r} não é um número de conta válido.",
         }
-
     if safety.get("login") != expected_login:
         return {
             "allowed": False,
             "error": "wrong_account",
             "message": f"Conta conectada ({safety.get('login')}) é diferente da esperada "
-                       f"({expected_login}) — abertura recusada.",
+                       f"({expected_login}) — operação recusada.",
         }
+    return {"allowed": True, "error": None, "message": None}
 
+
+def check_account_gate(safety: dict) -> dict:
+    """Confirma identidade e permissão da conta conectada antes de qualquer
+    ordem de ABERTURA. Falha fechado em qualquer ambiguidade — ver comentário
+    acima. Identidade é delegada a check_account_identity (mesma regra usada
+    no fechamento); aqui se soma a trava de demo/live."""
+    ident = check_account_identity(safety)
+    if not ident["allowed"]:
+        return ident
+
+    expected_login = safety.get("login")
     live_allowed = os.environ.get("CSS_LIVE_TRADING", "").strip().lower() in ("1", "true", "yes")
     if not safety.get("is_demo") and not live_allowed:
         return {
@@ -122,6 +140,12 @@ def check_account_gate(safety: dict) -> dict:
         }
 
     return {"allowed": True, "error": None, "message": None}
+
+
+class MT5QueryError(RuntimeError):
+    """Consulta ao MT5 falhou de forma que não dá pra distinguir de um estado
+    válido — sempre tratada como motivo pra RECUSAR operação, nunca pra
+    seguir com um resultado vazio."""
 
 
 def is_kill_switch_active() -> bool:
@@ -178,19 +202,34 @@ def get_account_safety_info():
 def get_open_magics_and_symbols():
     """Retorna {magic: set(símbolos abertos)} pra todas as posições sob os
     magic numbers dos portfólios — base pra checagem de idempotência e de
-    colisão de símbolo entre cestas em conta netting."""
+    colisão de símbolo entre cestas em conta netting.
+
+    Levanta MT5QueryError se a consulta falhar. É deliberado: a API do MT5
+    devolve None tanto pra "nenhuma posição" quanto pra ERRO de consulta, e
+    tratar erro como "nada aberto" derrubaria justamente as travas de
+    idempotência e de colisão que dependem desta função — reabrindo a cesta
+    inteira por cima da existente. Quem chama precisa recusar a operação,
+    não seguir em frente com um resultado vazio.
+    """
     result = {}
     if not MT5_AVAILABLE or mt5 is None:
-        return result
+        raise MT5QueryError("MetaTrader5 indisponível — não dá pra confirmar posições abertas")
     try:
         positions = mt5.positions_get()
-    except Exception:
-        positions = None
-    if not positions:
-        return result
+    except Exception as e:
+        raise MT5QueryError(f"positions_get() lançou exceção: {e}")
+    if positions is None:
+        err = None
+        try:
+            err = mt5.last_error()
+        except Exception:
+            pass
+        raise MT5QueryError(f"positions_get() retornou None (erro de consulta, não 'sem posições'): {err}")
     for pos in positions:
         if pos.magic in ALL_PORTFOLIO_MAGICS:
-            result.setdefault(pos.magic, set()).add(pos.symbol)
+            # positions_get devolve o nome da corretora (com sufixo); normaliza
+            # pro nome lógico pra poder comparar com as listas internas.
+            result.setdefault(pos.magic, set()).add(from_broker_symbol(pos.symbol))
     return result
 
 
@@ -306,7 +345,14 @@ def open_portfolio_basket(currency: str, bias: str, lot: float = 0.01, deviation
     ccy = currency.upper()
     magic = PORTFOLIO_MAGICS.get(ccy, 801000)
     pairs = get_portfolio_pairs(ccy, bias)
-    open_magics = get_open_magics_and_symbols()
+
+    try:
+        open_magics = get_open_magics_and_symbols()
+    except MT5QueryError as e:
+        msg = (f"Não foi possível confirmar as posições abertas ({e}) — abertura recusada. "
+               f"Sem essa confirmação, idempotência e colisão de símbolo não valem nada.")
+        print(f"[PORTFOLIO ROBOT {ccy}] {msg}")
+        return {"success": False, "error": "position_query_failed", "message": msg}
 
     if magic in open_magics:
         msg = f"Cesta {ccy} (magic {magic}) já tem posição aberta — recusando reabrir (idempotência)."
@@ -324,6 +370,54 @@ def open_portfolio_basket(currency: str, bias: str, lot: float = 0.01, deviation
                 print(f"[PORTFOLIO ROBOT {ccy}] {msg}")
                 return {"success": False, "error": "netting_symbol_collision", "message": msg}
 
+    # Preflight de símbolos: resolve os 7 pares ANTES de enviar qualquer ordem.
+    # Se algum não resolver, recusa a cesta inteira em vez de abrir uma cesta
+    # parcial (uma cesta de 3 pernas é uma aposta direcional nua, não a cesta
+    # diversificada que a estratégia pede).
+    broker_symbols = {}
+    ticks = {}
+    unresolved = []
+    no_tick = []
+    for p in pairs:
+        b_sym = to_broker_symbol(p["pair"])
+        info = mt5.symbol_info(b_sym)
+        if info is None:
+            mt5.symbol_select(b_sym, True)
+            info = mt5.symbol_info(b_sym)
+        if info is None:
+            unresolved.append(p["pair"])
+            continue
+        if not info.visible:
+            mt5.symbol_select(b_sym, True)
+        broker_symbols[p["pair"]] = b_sym
+
+        # Tick tem que entrar no preflight, não só o símbolo existir: um par
+        # recém-adicionado ao Market Watch pelo symbol_select acima pode não
+        # ter tick no instante seguinte. Se isso só fosse descoberto no laço
+        # de envio, as pernas anteriores já teriam sido abertas e a cesta
+        # ficaria parcial — uma aposta direcional nua, sem rollback.
+        tick = mt5.symbol_info_tick(b_sym)
+        price = None
+        if tick is not None:
+            price = tick.ask if p["action"] == "BUY" else tick.bid
+        if not tick or not price or price <= 0:
+            no_tick.append(p["pair"])
+            continue
+        ticks[p["pair"]] = price
+
+    if unresolved or no_tick:
+        partes = []
+        if unresolved:
+            partes.append(f"não encontrados no servidor: {sorted(unresolved)} "
+                          f"(sufixo configurado: {MT5_SYMBOL_SUFFIX!r} — confira CSS_MT5_SYMBOL_SUFFIX)")
+        if no_tick:
+            partes.append(f"sem cotação válida agora: {sorted(no_tick)}")
+        msg = (f"Cesta {ccy} recusada por inteiro antes de qualquer ordem — " + "; ".join(partes) +
+               ". Melhor nenhuma perna do que uma cesta parcial.")
+        print(f"[PORTFOLIO ROBOT {ccy}] {msg}")
+        return {"success": False, "error": "preflight_failed", "message": msg,
+                "unresolved": sorted(unresolved), "no_tick": sorted(no_tick)}
+
     results = []
     success_count = 0
 
@@ -331,33 +425,26 @@ def open_portfolio_basket(currency: str, bias: str, lot: float = 0.01, deviation
 
     for p in pairs:
         pair_sym = p["pair"]
+        broker_sym = broker_symbols[pair_sym]
         action = p["action"]
-        
-        # Verificar se o par está habilitado no Market Watch do MT5
-        symbol_info = mt5.symbol_info(pair_sym)
-        if symbol_info is None:
-            mt5.symbol_select(pair_sym, True)
-            symbol_info = mt5.symbol_info(pair_sym)
-            
-        if symbol_info is None:
-            results.append({"pair": pair_sym, "action": action, "status": "ERROR", "message": "Símbolo não encontrado"})
-            continue
-            
-        if not symbol_info.visible:
-            mt5.symbol_select(pair_sym, True)
 
         order_type = mt5.ORDER_TYPE_BUY if action == "BUY" else mt5.ORDER_TYPE_SELL
-        tick = mt5.symbol_info_tick(pair_sym)
-        if not tick:
-            results.append({"pair": pair_sym, "action": action, "status": "ERROR", "message": "Tick indisponível"})
-            continue
-            
-        price = tick.ask if action == "BUY" else tick.bid
+        # Repuxa a cotação mais recente; se sumiu entre o preflight e agora,
+        # cai no preço do preflight (já validado > 0) e deixa o `deviation`
+        # do request absorver a diferença — melhor que abandonar a perna e
+        # deixar a cesta parcial.
+        tick = mt5.symbol_info_tick(broker_sym)
+        price = None
+        if tick is not None:
+            price = tick.ask if action == "BUY" else tick.bid
+        if not price or price <= 0:
+            price = ticks[pair_sym]
+
         sl_price = _compute_catastrophic_sl(pair_sym, action == "BUY", price)
 
         request = {
             "action": mt5.TRADE_ACTION_DEAL,
-            "symbol": pair_sym,
+            "symbol": broker_sym,
             "volume": float(lot),
             "type": order_type,
             "price": float(price),
@@ -427,21 +514,45 @@ def close_portfolio_basket(currency: str, deviation: int = 15):
     """
     if not ensure_mt5():
         return {"success": False, "error": "MT5 não inicializado"}
-        
+
+    # Identidade da conta também no FECHAMENTO. ensure_mt5() aceita qualquer
+    # terminal já inicializado, e esta máquina roda 5 terminais MT5 logados em
+    # contas diferentes — sem esta checagem, o gatilho automático das 08:00
+    # pode fechar posições da conta errada, ou não achar as da conta certa e
+    # reportar "nada aberto" com a cesta viva em outro terminal.
+    ident = check_account_identity()
+    if not ident["allowed"]:
+        print(f"[PORTFOLIO ROBOT] {ident['message']}")
+        return {"success": False, "error": ident["error"], "message": ident["message"]}
+
     ccy = currency.upper()
     magic = PORTFOLIO_MAGICS.get(ccy)
     if not magic:
         return {"success": False, "error": f"Moeda {ccy} inválida"}
-        
+
+    # positions_get() devolve None em ERRO e tupla vazia em "nenhuma posição".
+    # Reportar sucesso no caso de erro seria a pior falha possível aqui: o
+    # operador (ou o gatilho das 08:00) veria "fechou tudo" com a cesta viva.
     positions = mt5.positions_get()
     if positions is None:
-        return {"success": True, "closed_count": 0, "message": "Nenhuma posição aberta"}
-        
+        err = None
+        try:
+            err = mt5.last_error()
+        except Exception:
+            pass
+        msg = (f"positions_get() retornou None (erro de consulta, não 'sem posições'): {err} — "
+               f"NÃO foi possível confirmar nem fechar as posições de {ccy}.")
+        print(f"[PORTFOLIO ROBOT {ccy}] {msg}")
+        return {"success": False, "error": "position_query_failed", "message": msg}
+
     closed_count = 0
     results = []
-    
+    # Alvo: quantas posições DESTE magic existiam quando começamos. É contra
+    # esse número que o sucesso é medido — não contra "fechou pelo menos uma".
+    target_count = sum(1 for p in positions if p.magic == magic)
+
     print(f"\n[PORTFOLIO ROBOT {ccy}] Fechando posições | Magic: {magic}...")
-    
+
     for pos in positions:
         if pos.magic == magic:
             symbol = pos.symbol
@@ -452,6 +563,11 @@ def close_portfolio_basket(currency: str, deviation: int = 15):
             close_type = mt5.ORDER_TYPE_SELL if pos_type == mt5.POSITION_TYPE_BUY else mt5.ORDER_TYPE_BUY
             tick = mt5.symbol_info_tick(symbol)
             if not tick:
+                # Antes era `continue` silencioso: a posição ficava aberta e
+                # nem aparecia no resultado, que ainda dizia sucesso.
+                results.append({"ticket": ticket, "symbol": symbol, "status": "ERROR",
+                                "comment": "tick indisponível — posição NÃO fechada"})
+                print(f"  [-] {symbol} ticket {ticket}: tick indisponível, NÃO fechada")
                 continue
             close_price = tick.bid if close_type == mt5.ORDER_TYPE_SELL else tick.ask
             
@@ -484,11 +600,23 @@ def close_portfolio_basket(currency: str, deviation: int = 15):
                 else:
                     results.append({"ticket": ticket, "symbol": symbol, "status": "ERROR", "comment": res.comment if res else ""})
                     
+    # Sucesso = fechou TUDO que existia deste magic. "Fechou pelo menos uma"
+    # (ou "não fechou nenhuma") reportado como sucesso é o pior modo de falha
+    # possível aqui: o gatilho das 08:00 anuncia encerramento concluído e a
+    # cesta atravessa o dia inteiro sem stop.
+    all_closed = (closed_count == target_count)
+    if not all_closed:
+        print(f"[PORTFOLIO ROBOT {ccy}] ATENÇÃO: fechadas {closed_count} de {target_count} "
+              f"posições — {target_count - closed_count} SEGUEM ABERTAS.")
     return {
-        "success": True,
+        "success": all_closed,
+        "error": None if all_closed else "partial_close",
+        "message": None if all_closed else (
+            f"{target_count - closed_count} de {target_count} posições de {ccy} não fecharam."),
         "currency": ccy,
         "magic": magic,
         "closed_count": closed_count,
+        "target_count": target_count,
         "results": results
     }
 
@@ -499,25 +627,53 @@ def close_all_portfolios(deviation: int = 15):
     """
     if not ensure_mt5():
         return {"success": False, "error": "MT5 não conectado"}
-        
+
+    # Identidade da conta (ver close_portfolio_basket) — checada aqui também
+    # pra falhar cedo e com mensagem clara, antes de iterar as 8 moedas.
+    ident = check_account_identity()
+    if not ident["allowed"]:
+        print(f"[PORTFOLIO ROBOT] {ident['message']}")
+        return {"success": False, "error": ident["error"], "message": ident["message"]}
+
+    # Mesma regra do close_portfolio_basket: None é ERRO, não "nada aberto".
     positions = mt5.positions_get()
     if positions is None:
-        return {"success": True, "total_closed": 0, "message": "Nenhuma posição aberta no MT5"}
-        
+        err = None
+        try:
+            err = mt5.last_error()
+        except Exception:
+            pass
+        msg = f"positions_get() retornou None (erro de consulta): {err} — fechamento NÃO confirmado."
+        print(f"[PORTFOLIO ROBOT] {msg}")
+        return {"success": False, "error": "position_query_failed", "message": msg}
+
     total_closed = 0
     summary_by_ccy = {}
-    
+    failures = []
+
     for ccy in PORTFOLIO_MAGICS:
-        res = close_portfolio_basket(ccy, deviation=deviation)
+        # Isolamento por moeda: uma falha não pode impedir o fechamento das
+        # outras 7 cestas — fechar é redutor de risco, sempre segue adiante.
+        try:
+            res = close_portfolio_basket(ccy, deviation=deviation)
+        except Exception as e:
+            failures.append({"currency": ccy, "error": str(e)})
+            print(f"[PORTFOLIO ROBOT {ccy}] Exceção ao fechar: {e}")
+            continue
+        if not res.get("success", False) and res.get("error"):
+            failures.append({"currency": ccy, "error": res.get("error"), "message": res.get("message")})
         if res.get("closed_count", 0) > 0:
             summary_by_ccy[ccy] = res
             total_closed += res["closed_count"]
             
     print(f"\n[ENCERRAMENTO 08:00 BRT] Total de posições fechadas: {total_closed}")
+    if failures:
+        print(f"[ENCERRAMENTO 08:00 BRT] ATENÇÃO — falhas por moeda: {failures}")
     return {
-        "success": True,
+        "success": not failures,
         "total_closed": total_closed,
         "currencies_closed": summary_by_ccy,
+        "failures": failures,
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     }
 
@@ -652,7 +808,7 @@ def get_mt5_files_dir():
     return files_path
 
 
-def generate_and_save_daily_signals(currencies_data=None):
+def generate_and_save_daily_signals(currencies_data=None, mt5_connected=None):
     """
     Grava pontualmente às 21:02 BRT o arquivo oficial de sinais dos 8 portfólios
     (BUY, SELL, NEUTRAL) no diretório do projeto e na pasta MQL5/Files da
@@ -666,13 +822,31 @@ def generate_and_save_daily_signals(currencies_data=None):
     is_weekend = (weekday == 4 and now_dt.hour >= 20) or (weekday == 5)
     
     portfolios_signals = {}
-    
-    # Se não receber lista pronta, calcular via css_engine
+
+    # Origem dos dados: quando o MT5 está fora, css_engine.update_data() cai
+    # em cache antigo / css_standard.json versionado / série SIMULADA. Só é
+    # tratado como operável o que veio de conexão MT5 confirmada.
+    #
+    # FAIL-CLOSED: quem passa `currencies_data` pronto DEVE declarar a
+    # procedência em `mt5_connected`. Sem declaração explícita, o sinal sai
+    # bloqueado — antes o default era "live", e o caminho da rotina das 21:00
+    # (daily_css_routine.py, que descarta o flag do update_data) entrava por
+    # aí carimbando tudo como live incondicionalmente.
     if not currencies_data:
         from web.css_service import css_engine
         raw_res = css_engine.update_data(force=False)
         currencies_data = raw_res.get("currencies", [])
-        
+        data_is_live = bool(raw_res.get("mt5_connected", False))
+    else:
+        data_is_live = bool(mt5_connected)
+        if mt5_connected is None:
+            print("[!] generate_and_save_daily_signals recebeu currencies_data sem declarar "
+                  "mt5_connected — tratando como NÃO-live (fail closed).")
+
+    if not data_is_live:
+        print("[!] SINAL NÃO-OPERÁVEL: dados sem conexão MT5 confirmada "
+              "(cache/simulado/procedência não declarada). Todos os portfólios saem BLOCKED.")
+
     for c in currencies_data:
         sym = c.get("symbol", "")
         if sym not in PORTFOLIO_MAGICS:
@@ -681,7 +855,11 @@ def generate_and_save_daily_signals(currencies_data=None):
         magic = PORTFOLIO_MAGICS[sym]
         trade_bias = c.get("trade_bias", "NEUTRO").upper()
         
-        if is_weekend:
+        if not data_is_live:
+            direction = "NEUTRAL"
+            status = "BLOCKED"
+            reason = "Dados sem conexão MT5 confirmada (cache/simulado) — não operável"
+        elif is_weekend:
             direction = "NEUTRAL"
             status = "BLOCKED"
             reason = "Mercado Fechado no Final de Semana (Preservação de Capital)"
@@ -728,6 +906,9 @@ def generate_and_save_daily_signals(currencies_data=None):
         "session_id": f"{date_str}_NIGHT",
         "entry_time_brt": "21:05:00",
         "exit_time_brt": "08:00:00",
+        # Atesta a ORIGEM dos dados, não só a hora da escrita: quem consome
+        # precisa distinguir "analisado com o MT5 conectado" de "cache/simulado".
+        "mt5_connected": data_is_live,
         "portfolios": portfolios_signals
     }
     
@@ -748,5 +929,11 @@ def generate_and_save_daily_signals(currencies_data=None):
             print(f"[+] Sinais de Portfólio sincronizados com MT5: {mt5_signals_path}")
         except Exception as e:
             print(f"[-] Erro ao gravar sinais na pasta MQL5/Files do MT5: {e}")
+    else:
+        # Antes isso era um `if` sem `else`: a ponte pro EA não era escrita e
+        # nada avisava. Se o EA for usado como leitor (modo legado), ele fica
+        # com o sinal de ontem sem ninguém perceber.
+        print(f"[-] ATENÇÃO: não foi possível resolver a pasta MQL5/Files a partir de "
+              f"MT5_PATH={MT5_PATH!r} — o sinal NÃO foi entregue ao terminal MT5.")
 
     return signals_payload

@@ -63,6 +63,61 @@ MT5_PATH = os.environ.get(
     r"C:\Program Files\Tickmill MT5 Terminal - Copia - Copia\terminal64.exe",
 )
 
+# Sufixo de símbolo da corretora. Medido na conta real (Exness-MT5Trial11,
+# login 198819543): NENHUM dos 28 pares existe com o nome puro — todos os 28
+# existem como "EURUSDm", "GBPUSDm", etc. Sem isso, toda consulta de símbolo
+# e toda ordem falham com "símbolo não encontrado". Configurável porque o
+# sufixo varia por corretora e por tipo de conta.
+MT5_SYMBOL_SUFFIX = os.environ.get("CSS_MT5_SYMBOL_SUFFIX", "")
+
+# Cache de resolução lógico -> corretora, preenchido sob demanda.
+_SYMBOL_RESOLUTION_CACHE = {}
+
+
+def to_broker_symbol(pair: str) -> str:
+    """Nome lógico do par (ex.: 'EURUSD') -> nome no servidor da corretora
+    (ex.: 'EURUSDm'). Tenta o nome exato primeiro, depois com o sufixo
+    configurado; devolve o nome com sufixo mesmo sem MT5 disponível, pra que
+    a intenção fique explícita em log/erro em vez de falhar em silêncio."""
+    if pair in _SYMBOL_RESOLUTION_CACHE:
+        return _SYMBOL_RESOLUTION_CACHE[pair]
+
+    resolved = pair + MT5_SYMBOL_SUFFIX
+    if MT5_AVAILABLE and mt5 is not None:
+        try:
+            if mt5.symbol_info(pair) is not None:
+                resolved = pair
+            elif MT5_SYMBOL_SUFFIX and mt5.symbol_info(pair + MT5_SYMBOL_SUFFIX) is not None:
+                resolved = pair + MT5_SYMBOL_SUFFIX
+        except Exception:
+            pass
+    _SYMBOL_RESOLUTION_CACHE[pair] = resolved
+    return resolved
+
+
+def _stamp_provenance(payload, is_live: bool):
+    """Sobrescreve o campo `mt5_connected` do payload com a procedência REAL,
+    devolvendo uma cópia rasa (nunca muta o cache em memória compartilhado).
+
+    Existe porque o campo, sozinho, era herdado de onde o dado veio: um
+    snapshot em disco gravado ontem com `mt5_connected: true` era servido
+    verbatim quando o MT5 estava fora, e a trava que decide se um sinal pode
+    virar ordem real lia esse `true` como "dado ao vivo"."""
+    if not isinstance(payload, dict):
+        return payload
+    stamped = dict(payload)
+    stamped["mt5_connected"] = bool(is_live)
+    return stamped
+
+
+def from_broker_symbol(symbol: str) -> str:
+    """Nome no servidor da corretora -> nome lógico do par. Usado pra comparar
+    posições abertas (que vêm com o nome da corretora) contra as listas
+    internas de pares."""
+    if MT5_SYMBOL_SUFFIX and symbol.endswith(MT5_SYMBOL_SUFFIX):
+        return symbol[: -len(MT5_SYMBOL_SUFFIX)]
+    return symbol
+
 ALL_28_PAIRS = [
     "EURUSD", "GBPUSD", "AUDUSD", "NZDUSD", "USDCAD", "USDCHF", "USDJPY",
     "EURGBP", "EURAUD", "EURCAD", "EURCHF", "EURJPY", "EURNZD",
@@ -173,7 +228,9 @@ def calculate_full_css(tf_val, count=120, mode="standard"):
         
     pair_dfs = {}
     for sym in ALL_28_PAIRS:
-        rates = mt5.copy_rates_from_pos(sym, tf_val, 0, count + 150)
+        # Consulta pelo nome da corretora (pode ter sufixo, ex.: EURUSDm),
+        # mas indexa pelo nome lógico — todo o resto do sistema usa o lógico.
+        rates = mt5.copy_rates_from_pos(to_broker_symbol(sym), tf_val, 0, count + 150)
         if rates is None or len(rates) < 120:
             continue
         df = pd.DataFrame(rates)
@@ -432,10 +489,17 @@ class CSSDataEngine:
 
     @staticmethod
     def _load_from_disk(filepath):
+        """Ponto único de entrada de dado vindo do disco — e por isso o lugar
+        certo pra derrubar a procedência. O snapshot gravado carrega o
+        `mt5_connected` de QUANDO foi gravado (o css_standard.json versionado
+        tem `true`), e nada que sai de um arquivo é dado ao vivo. Selar aqui
+        cobre também o __new__, que popula o cache e carimba o
+        last_update_* — fazendo a chamada seguinte cair no throttle de 3s e
+        devolver o cache sem passar por nenhuma outra checagem."""
         try:
             if os.path.exists(filepath):
                 with open(filepath, "r", encoding="utf-8") as f:
-                    return json.load(f)
+                    return _stamp_provenance(json.load(f), False)
         except Exception as e:
             print(f"[!] Erro ao carregar banco {filepath}: {e}")
         return {}
@@ -480,6 +544,12 @@ class CSSDataEngine:
                 db_file = DB_GAUSS_FILE if mode == "gauss" else DB_STANDARD_FILE
                 disk_data = self._load_from_disk(db_file)
                 if disk_data:
+                    # O snapshot em disco (data/css_standard.json, versionado)
+                    # carrega o mt5_connected de QUANDO foi gravado — que pode
+                    # ser true de ontem. Sem sobrescrever aqui, um sinal
+                    # derivado desse snapshot passa como "dado live" e vira
+                    # ordem real. Nunca confie no flag que veio do disco.
+                    disk_data = _stamp_provenance(disk_data, False)
                     if mode == "gauss":
                         self.cache_gauss = disk_data
                         self.last_update_gauss = now_ts
@@ -487,9 +557,9 @@ class CSSDataEngine:
                         self.cache_standard = disk_data
                         self.last_update_standard = now_ts
                     return disk_data
-                
+
                 # Gerar fallback
-                res = self._generate_fallback_data(mode=mode)
+                res = _stamp_provenance(self._generate_fallback_data(mode=mode), False)
                 if mode == "gauss":
                     self.cache_gauss = res
                     self.last_update_gauss = now_ts
@@ -499,7 +569,9 @@ class CSSDataEngine:
                     self.last_update_standard = now_ts
                     self._save_to_disk(DB_STANDARD_FILE, res)
                 return res
-            return cached
+            # Cache em memória servido com a conexão CAÍDA agora: seja qual for
+            # a origem dele, não é dado live neste instante.
+            return _stamp_provenance(cached, False)
 
         tf_data_raw = {}
         tf_charts = {}
@@ -522,9 +594,11 @@ class CSSDataEngine:
                 tf_pair_charts[tf_name] = formatted_pair_slopes
 
         if not tf_data_raw:
+            # Conectou, mas nenhum copy_rates voltou — os dados servidos aqui
+            # são de outro momento, não do agora. Mesmo tratamento.
             if not cached:
-                return self._generate_fallback_data(mode=mode)
-            return cached
+                return _stamp_provenance(self._generate_fallback_data(mode=mode), False)
+            return _stamp_provenance(cached, False)
 
         # Confluence and Triad per currency
         ccy_confluence_results = {}
