@@ -16,7 +16,13 @@ import subprocess
 import re
 from datetime import datetime, timedelta
 
-sys.stdout.reconfigure(encoding='utf-8')
+# line_buffering é essencial, não cosmético: sem ele o reconfigure() reativa o
+# buffer de bloco e anula o PYTHONUNBUFFERED do wrapper — rodando sob systemd,
+# a saída fica presa no buffer e o journal não mostra NADA do que o daemon fez
+# às 21:05. Um daemon que opera dinheiro sem deixar rastro legível é pior que
+# um que não roda.
+sys.stdout.reconfigure(encoding='utf-8', line_buffering=True)
+sys.stderr.reconfigure(encoding='utf-8', line_buffering=True)
 
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if BASE_DIR not in sys.path:

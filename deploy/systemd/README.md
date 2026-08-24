@@ -42,3 +42,47 @@ Os 8 gráficos (um EA por moeda) vêm de `scripts/setup_mt5_portfolios.py`, que
 escreve em `MQL5/Profiles/Charts/Default/`. Atenção: o caminho legado
 `<base>/profiles/charts/` existe mas **não é lido** pelo build 6140 —
 verificado na instância real (o terminal ignorou por completo).
+
+
+---
+
+# Serviço do scheduler (`css-scheduler-mfc`)
+
+Roda `scripts/scheduler_daemon.py`, que é quem decide e dispara: 21:00 análise,
+21:02 sinais, 21:05 **abertura de cesta real**, 08:00 fechamento, 08:05
+auditoria, 08:10 reconciliação.
+
+```bash
+# o repo precisa estar em ~/Devs/miqueias/MFC nesta máquina
+cp css-scheduler-mfc.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now css-scheduler-mfc.service
+journalctl --user -u css-scheduler-mfc -f
+```
+
+## Roda com o Python do Windows, não o do WSL
+
+O pacote `MetaTrader5` só existe em Windows. Além disso, sob Python POSIX
+`os.path.dirname(r"D:\...\terminal64.exe")` devolve string vazia — a ponte de
+arquivos com o EA (`get_mt5_files_dir()`) quebraria em silêncio. O wrapper
+`scripts/systemd/scheduler-daemon-wsl.sh` cuida disso.
+
+## Kill switch
+
+```bash
+# bloqueia QUALQUER cesta nova (fechar nunca é bloqueado)
+touch ~/Devs/miqueias/MFC/data/CSS_KILL.flag
+# libera
+rm ~/Devs/miqueias/MFC/data/CSS_KILL.flag
+```
+
+**O serviço foi instalado com o kill switch ARMADO de propósito**, para que a
+primeira ordem real seja uma decisão explícita e não efeito colateral da
+instalação. Enquanto o arquivo existir, o 21:05 recusa abrir e diz o motivo no
+log.
+
+## Log
+
+`sys.stdout.reconfigure(..., line_buffering=True)` no daemon não é cosmético:
+sem isso o buffer de bloco engole a saída e o journal não mostra nada do que
+aconteceu às 21:05.

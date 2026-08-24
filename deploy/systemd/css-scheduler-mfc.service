@@ -1,0 +1,16 @@
+[Unit]
+Description=CSS MFC - Scheduler (21:00 analise / 21:02 sinais / 21:05 abertura / 08:00 fechamento / 08:10 reconciliacao)
+After=network-online.target css-mt5-mfc.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/Devs/miqueias/MFC
+ExecStart=%h/Devs/miqueias/MFC/scripts/systemd/scheduler-daemon-wsl.sh
+Restart=on-failure
+RestartSec=30
+Environment=CSS_PYTHON=/mnt/c/WINDOWS/py.exe
+Environment=CSS_PYTHON_VERSION_FLAG=-3.12
+
+[Install]
+WantedBy=default.target
