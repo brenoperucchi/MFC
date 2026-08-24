@@ -11,6 +11,11 @@ Restart=on-failure
 RestartSec=15
 Environment=CSS_PYTHON=/mnt/c/WINDOWS/py.exe
 Environment=CSS_PYTHON_VERSION_FLAG=-3.12
+# Variável de ambiente do WSL NÃO atravessa sozinha pro processo Windows
+# via interop — confirmado empiricamente (sem isto, CSS_WEB_HOST chegava
+# "AUSENTE" do lado Windows e o uvicorn sempre subia em 127.0.0.1, apesar
+# da unit estar correta). WSLENV lista quem precisa cruzar a fronteira.
+Environment=WSLENV=CSS_WEB_HOST:CSS_WEB_PORT
 # Default é 127.0.0.1 (só a própria máquina). Pra ver de outro dispositivo na
 # rede, mude pra 0.0.0.0 aqui — decisão deliberada, não vem ligada por padrão.
 Environment=CSS_WEB_HOST=127.0.0.1
