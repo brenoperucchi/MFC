@@ -10,7 +10,7 @@ from datetime import datetime
 import webbrowser
 import uvicorn
 from pydantic import BaseModel
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Header
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -171,25 +171,53 @@ class PortfolioClosePayload(BaseModel):
     currency: str = "ALL"
 
 
+# Trava de autenticação pro endpoint que ABRE ordem real. Sem chave configurada
+# (variável de ambiente CSS_PORTFOLIO_API_KEY), o endpoint recusa TODA
+# requisição — falha fechado, não aberto. CORS "*" hoje deixa qualquer aba de
+# navegador na mesma máquina chamar isso; essa chave é a única barreira até
+# uma solução melhor (rede isolada, mTLS, etc.) entrar em cena.
+PORTFOLIO_API_KEY = os.environ.get("CSS_PORTFOLIO_API_KEY")
+
+
+def _require_portfolio_api_key(x_css_api_key: str = Header(default=None)):
+    if not PORTFOLIO_API_KEY:
+        raise HTTPException(
+            status_code=503,
+            detail="CSS_PORTFOLIO_API_KEY não configurada no servidor — endpoint de execução "
+                   "real desabilitado por padrão (fail closed). Configure a variável de ambiente "
+                   "pra habilitar."
+        )
+    if x_css_api_key != PORTFOLIO_API_KEY:
+        raise HTTPException(status_code=401, detail="Chave de API inválida ou ausente.")
+
+
 @app.get("/api/portfolio-robots/telemetry")
 async def get_portfolio_robots_telemetry():
-    """Retorna a telemetria ao vivo das posições abertas no MT5 agrupadas pelos 8 Magic Numbers dos portfólios."""
+    """Retorna a telemetria ao vivo das posições abertas no MT5 agrupadas pelos 8 Magic Numbers dos portfólios.
+    Só leitura — não exige a chave de API."""
     from agents.portfolio_executor import get_live_portfolio_telemetry
     data = get_live_portfolio_telemetry()
     return JSONResponse(content=data)
 
 
 @app.post("/api/portfolio-robots/open")
-async def open_portfolio_robot(payload: PortfolioOpenPayload):
-    """Abre a cesta de 7 pares de uma moeda no MT5 com seu Magic Number exclusivo."""
+async def open_portfolio_robot(payload: PortfolioOpenPayload, x_css_api_key: str = Header(default=None)):
+    """Abre a cesta de 7 pares de uma moeda no MT5 com seu Magic Number exclusivo.
+    Exige X-Css-Api-Key. As travas de segurança de verdade (kill switch, conta
+    demo, idempotência, colisão de símbolo) ficam em agents/portfolio_executor.py —
+    essa chave é só a porta de entrada, não substitui aquelas checagens."""
+    _require_portfolio_api_key(x_css_api_key)
     from agents.portfolio_executor import open_portfolio_basket
     res = open_portfolio_basket(payload.currency, payload.bias, payload.lot)
     return JSONResponse(content=res)
 
 
 @app.post("/api/portfolio-robots/close")
-async def close_portfolio_robot(payload: PortfolioClosePayload):
-    """Fecha posições de um portfólio específico ou de todos os 8 portfólios no MT5."""
+async def close_portfolio_robot(payload: PortfolioClosePayload, x_css_api_key: str = Header(default=None)):
+    """Fecha posições de um portfólio específico ou de todos os 8 portfólios no MT5.
+    Também exige a chave — fechar é sempre seguro em relação a risco novo, mas
+    ainda é uma ação real numa conta, então não fica aberto sem chave nenhuma."""
+    _require_portfolio_api_key(x_css_api_key)
     from agents.portfolio_executor import close_portfolio_basket, close_all_portfolios
     if payload.currency.upper() == "ALL":
         res = close_all_portfolios()

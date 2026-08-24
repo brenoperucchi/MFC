@@ -11,6 +11,7 @@ import os
 import sys
 import json
 import time
+import tempfile
 from datetime import datetime, timedelta
 import threading
 
@@ -18,6 +19,10 @@ BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
 
+# O .env é carregado em web/css_service.py (módulo mais cedo importado,
+# direta ou transitivamente por todo entry point) — a importação abaixo já
+# garante que os.environ está populado antes de qualquer leitura própria
+# deste módulo (ex.: CATASTROPHIC_SL_PIPS logo adiante).
 from web.css_service import (
     ALL_28_PAIRS, CURRENCIES, CCY_FLAGS, CCY_COLORS,
     MT5_AVAILABLE, mt5, MT5_PATH
@@ -41,6 +46,184 @@ PORTFOLIO_MAGICS = {
 }
 
 ALL_PORTFOLIO_MAGICS = set(PORTFOLIO_MAGICS.values())
+
+# ======================================================================
+# TRAVAS DE SEGURANÇA (Fase 1 — pontos independentes das decisões em
+# aberto com o Miquéias; ver whatsapp-tools/PLANO_IMPLEMENTACAO_MFC.md)
+# ======================================================================
+
+# Kill switch: se este arquivo existir, nenhuma cesta NOVA é aberta.
+# Fechar posições continua sempre permitido (reduzir risco nunca é bloqueado).
+KILL_SWITCH_FILE = os.path.join(DATA_DIR, "CSS_KILL.flag")
+
+# Stop-loss catastrófico: não é parâmetro de estratégia (a estratégia continua
+# sem stop/take-profit na operação normal), é rede de segurança pro cenário
+# "Python morto e terminal morto ao mesmo tempo". As três lentes de revisão
+# (deep-reasoner, fable-reasoner, codex) concordaram que isso é mais importante
+# que a escolha de arquitetura em si. Valor de partida amplo — recalibrar com
+# a pior excursão histórica real por perna antes de qualquer conta real.
+CATASTROPHIC_SL_PIPS = int(os.environ.get("CSS_CATASTROPHIC_SL_PIPS", "150"))
+
+# Contas em modo netting não têm posição isolada por magic number — duas
+# cestas que compartilham um par (ex.: USD e EUR podem operar EURUSD) se
+# fundem numa posição líquida só. Sem uma regra de consolidação desenhada,
+# a resposta segura é recusar abrir uma segunda cesta que colida em símbolo
+# com uma cesta já aberta, em vez de assumir isolamento que a conta não dá.
+
+# Trava de identidade de conta: essa máquina roda vários terminais MT5 ao
+# mesmo tempo, cada um logado numa conta diferente (confirmado — 5
+# terminal64.exe simultâneos pra estratégias distintas). "a conta é demo"
+# sozinho não garante que é A conta certa. Sem CSS_MT5_EXPECTED_LOGIN
+# configurado, a abertura é recusada mesmo em conta demo — falha fechado por
+# ambiguidade, não só por risco de conta real.
+#
+# Contas reais só são aceitas com CSS_LIVE_TRADING=true/1 explícito E o login
+# batendo com CSS_MT5_EXPECTED_LOGIN — as duas condições, não uma ou outra.
+# Configurável via variável de ambiente real ou BASE_DIR/.env (ver
+# .env.example); o .env nunca é a fonte de verdade se o sistema real já
+# define a variável.
+
+
+def check_account_gate(safety: dict) -> dict:
+    """Confirma identidade e permissão da conta conectada antes de qualquer
+    ordem. Falha fechado em qualquer ambiguidade — ver comentário acima."""
+    expected_raw = os.environ.get("CSS_MT5_EXPECTED_LOGIN", "").strip()
+    if not expected_raw:
+        return {
+            "allowed": False,
+            "error": "no_expected_login_configured",
+            "message": "CSS_MT5_EXPECTED_LOGIN não está configurado — sem saber qual "
+                       "conta é a esperada, a abertura é recusada (mesmo em conta demo).",
+        }
+    try:
+        expected_login = int(expected_raw)
+    except ValueError:
+        return {
+            "allowed": False,
+            "error": "invalid_expected_login",
+            "message": f"CSS_MT5_EXPECTED_LOGIN={expected_raw!r} não é um número de conta válido.",
+        }
+
+    if safety.get("login") != expected_login:
+        return {
+            "allowed": False,
+            "error": "wrong_account",
+            "message": f"Conta conectada ({safety.get('login')}) é diferente da esperada "
+                       f"({expected_login}) — abertura recusada.",
+        }
+
+    live_allowed = os.environ.get("CSS_LIVE_TRADING", "").strip().lower() in ("1", "true", "yes")
+    if not safety.get("is_demo") and not live_allowed:
+        return {
+            "allowed": False,
+            "error": "not_demo_account",
+            "message": f"Conta {expected_login} @ {safety.get('server')} não é demo e "
+                       f"CSS_LIVE_TRADING não está ligado — abertura recusada.",
+        }
+
+    return {"allowed": True, "error": None, "message": None}
+
+
+def is_kill_switch_active() -> bool:
+    """Kill switch por arquivo — funciona mesmo com o resto do sistema fora do ar.
+    Verifica dois lugares: a pasta local data/ do projeto (KILL_SWITCH_FILE) e a
+    pasta MQL5/Files da instância MT5 portable dedicada ao MFC (onde o EA
+    guardião também lê o mesmo arquivo, sem FILE_COMMON — instância exclusiva,
+    não compartilhada com outras estratégias, então não há necessidade de sair
+    do diretório local dela)."""
+    if os.path.exists(KILL_SWITCH_FILE):
+        return True
+    files_dir = get_mt5_files_dir()
+    if files_dir and os.path.exists(os.path.join(files_dir, "CSS_KILL.flag")):
+        return True
+    return False
+
+
+def get_account_safety_info():
+    """Consulta a conta MT5 conectada e retorna um resumo pra decisão de segurança.
+    Nunca lança exceção — se não der pra consultar, retorna is_demo=False
+    (fail closed: sem confirmação de que é demo, trata como inseguro)."""
+    info = {
+        "is_demo": False,
+        "login": None,
+        "server": None,
+        "margin_mode": None,
+        "trade_allowed": False,
+        "error": None,
+    }
+    if not MT5_AVAILABLE or mt5 is None:
+        info["error"] = "MetaTrader5 indisponível neste ambiente"
+        return info
+    try:
+        acc = mt5.account_info()
+        if acc is None:
+            info["error"] = "account_info() retornou None (sem conexão ativa)"
+            return info
+        info["login"] = acc.login
+        info["server"] = acc.server
+        info["trade_allowed"] = bool(getattr(acc, "trade_allowed", False))
+        info["is_demo"] = (acc.trade_mode == mt5.ACCOUNT_TRADE_MODE_DEMO)
+        margin_mode = getattr(acc, "margin_mode", None)
+        if margin_mode == getattr(mt5, "ACCOUNT_MARGIN_MODE_RETAIL_NETTING", -1):
+            info["margin_mode"] = "netting"
+        elif margin_mode == getattr(mt5, "ACCOUNT_MARGIN_MODE_RETAIL_HEDGING", -2):
+            info["margin_mode"] = "hedging"
+        else:
+            info["margin_mode"] = "desconhecido"
+    except Exception as e:
+        info["error"] = str(e)
+    return info
+
+
+def get_open_magics_and_symbols():
+    """Retorna {magic: set(símbolos abertos)} pra todas as posições sob os
+    magic numbers dos portfólios — base pra checagem de idempotência e de
+    colisão de símbolo entre cestas em conta netting."""
+    result = {}
+    if not MT5_AVAILABLE or mt5 is None:
+        return result
+    try:
+        positions = mt5.positions_get()
+    except Exception:
+        positions = None
+    if not positions:
+        return result
+    for pos in positions:
+        if pos.magic in ALL_PORTFOLIO_MAGICS:
+            result.setdefault(pos.magic, set()).add(pos.symbol)
+    return result
+
+
+def _pip_size(symbol: str) -> float:
+    return 0.01 if "JPY" in symbol else 0.0001
+
+
+def _compute_catastrophic_sl(symbol: str, order_type_is_buy: bool, entry_price: float):
+    """SL amplo em pips fixos — rede de segurança, não parâmetro de estratégia.
+    Retorna 0.0 (sem SL) se CATASTROPHIC_SL_PIPS <= 0, permitindo desligar via env
+    var só em ambiente de teste; em produção deve ficar sempre > 0."""
+    if CATASTROPHIC_SL_PIPS <= 0:
+        return 0.0
+    distance = CATASTROPHIC_SL_PIPS * _pip_size(symbol)
+    return round(entry_price - distance, 5) if order_type_is_buy else round(entry_price + distance, 5)
+
+
+def _atomic_write_json(path: str, payload: dict):
+    """Escreve JSON de forma atômica (tempfile no mesmo diretório + os.replace) —
+    evita que um leitor concorrente (o EA lendo a cada 3s, por exemplo) veja um
+    arquivo pela metade."""
+    directory = os.path.dirname(path) or "."
+    fd, tmp_path = tempfile.mkstemp(prefix=".tmp_", dir=directory)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(payload, f, indent=2, ensure_ascii=False)
+        os.replace(tmp_path, path)
+    except Exception:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
 
 
 def ensure_mt5():
@@ -99,19 +282,53 @@ def open_portfolio_basket(currency: str, bias: str, lot: float = 0.01, deviation
     """
     Envia ordens a mercado no MT5 para os 7 pares do portfólio especificado
     com o Magic Number exclusivo da moeda.
+
+    Antes de qualquer ordem, checa (nessa ordem): kill switch, identidade e
+    permissão da conta (check_account_gate — CSS_MT5_EXPECTED_LOGIN e
+    CSS_LIVE_TRADING), idempotência (cesta desse magic já aberta hoje?) e
+    colisão de símbolo com outra cesta já aberta em conta netting. Qualquer
+    uma dessas recusa a abertura inteira sem enviar nenhuma ordem.
     """
+    if is_kill_switch_active():
+        msg = f"Kill switch ativo ({KILL_SWITCH_FILE}) — nenhuma cesta nova será aberta."
+        print(f"[PORTFOLIO ROBOT] {msg}")
+        return {"success": False, "error": "kill_switch_active", "message": msg}
+
     if not ensure_mt5():
         return {"success": False, "error": "MT5 não inicializado"}
+
+    safety = get_account_safety_info()
+    gate = check_account_gate(safety)
+    if not gate["allowed"]:
+        print(f"[PORTFOLIO ROBOT] {gate['message']}")
+        return {"success": False, "error": gate["error"], "message": gate["message"], "account": safety}
 
     ccy = currency.upper()
     magic = PORTFOLIO_MAGICS.get(ccy, 801000)
     pairs = get_portfolio_pairs(ccy, bias)
-    
+    open_magics = get_open_magics_and_symbols()
+
+    if magic in open_magics:
+        msg = f"Cesta {ccy} (magic {magic}) já tem posição aberta — recusando reabrir (idempotência)."
+        print(f"[PORTFOLIO ROBOT {ccy}] {msg}")
+        return {"success": False, "error": "already_open", "message": msg}
+
+    if safety.get("margin_mode") == "netting":
+        target_symbols = {p["pair"] for p in pairs}
+        for other_magic, other_symbols in open_magics.items():
+            collision = target_symbols & other_symbols
+            if collision:
+                msg = (f"Conta em modo netting: cesta {ccy} colidiria com o magic {other_magic} "
+                       f"já aberto nos símbolos {sorted(collision)} — sem regra de consolidação "
+                       f"definida ainda, abertura recusada por segurança.")
+                print(f"[PORTFOLIO ROBOT {ccy}] {msg}")
+                return {"success": False, "error": "netting_symbol_collision", "message": msg}
+
     results = []
     success_count = 0
-    
+
     print(f"\n[PORTFOLIO ROBOT {ccy}] Iniciando abertura da cesta ({bias}) | Magic: {magic} | {len(pairs)} pares...")
-    
+
     for p in pairs:
         pair_sym = p["pair"]
         action = p["action"]
@@ -136,20 +353,22 @@ def open_portfolio_basket(currency: str, bias: str, lot: float = 0.01, deviation
             continue
             
         price = tick.ask if action == "BUY" else tick.bid
-        
+        sl_price = _compute_catastrophic_sl(pair_sym, action == "BUY", price)
+
         request = {
             "action": mt5.TRADE_ACTION_DEAL,
             "symbol": pair_sym,
             "volume": float(lot),
             "type": order_type,
             "price": float(price),
+            "sl": float(sl_price),
             "deviation": deviation,
             "magic": int(magic),
             "comment": f"CSS_{ccy}_{bias}_{pair_sym}",
             "type_time": mt5.ORDER_TIME_GTC,
             "type_filling": mt5.ORDER_FILLING_IOC,
         }
-        
+
         res = mt5.order_send(request)
         if res and res.retcode == mt5.TRADE_RETCODE_DONE:
             success_count += 1
@@ -413,20 +632,31 @@ def get_live_portfolio_telemetry():
 SIGNALS_FILE = os.path.join(DATA_DIR, "portfolio_signals_live.json")
 
 
-def get_mt5_common_dir():
-    """Retorna o caminho da pasta Comum do MetaTrader 5 (FILE_COMMON) no Windows."""
-    appdata = os.environ.get("APPDATA")
-    if appdata:
-        common_path = os.path.join(appdata, "MetaQuotes", "Terminal", "Common", "Files")
-        os.makedirs(common_path, exist_ok=True)
-        return common_path
-    return None
+def get_mt5_files_dir():
+    """Retorna a pasta MQL5/Files da instância MT5 portable dedicada ao MFC,
+    derivada de MT5_PATH (CSS_MT5_TERMINAL_PATH). Em modo /portable cada
+    instância mantém seus próprios arquivos localmente — como essa instância é
+    exclusiva do MFC (não compartilhada com outras estratégias/contas na mesma
+    máquina), não há necessidade de FILE_COMMON pra Python e o EA guardião
+    enxergarem o mesmo arquivo; o diretório local já basta."""
+    if not MT5_PATH:
+        return None
+    terminal_dir = os.path.dirname(MT5_PATH)
+    if not terminal_dir:
+        return None
+    files_path = os.path.join(terminal_dir, "MQL5", "Files")
+    try:
+        os.makedirs(files_path, exist_ok=True)
+    except OSError:
+        return None
+    return files_path
 
 
 def generate_and_save_daily_signals(currencies_data=None):
     """
     Grava pontualmente às 21:02 BRT o arquivo oficial de sinais dos 8 portfólios
-    (BUY, SELL, NEUTRAL) no diretório do projeto e na pasta Common do MT5.
+    (BUY, SELL, NEUTRAL) no diretório do projeto e na pasta MQL5/Files da
+    instância MT5 dedicada.
     """
     now_dt = datetime.now()
     date_str = now_dt.strftime("%Y-%m-%d")
@@ -501,23 +731,22 @@ def generate_and_save_daily_signals(currencies_data=None):
         "portfolios": portfolios_signals
     }
     
-    # 1. Salvar no projeto local (data/)
+    # 1. Salvar no projeto local (data/) — escrita atômica: quem lê nunca vê
+    #    um arquivo pela metade (relevante pro EA, que lê a cada 3s).
     try:
-        with open(SIGNALS_FILE, "w", encoding="utf-8") as f:
-            json.dump(signals_payload, f, indent=2, ensure_ascii=False)
+        _atomic_write_json(SIGNALS_FILE, signals_payload)
         print(f"[+] Sinais de Portfólio gravados localmente em: {SIGNALS_FILE}")
     except Exception as e:
         print(f"[-] Erro ao gravar sinais locais: {e}")
-        
-    # 2. Salvar na pasta FILE_COMMON do MetaTrader 5
-    common_dir = get_mt5_common_dir()
-    if common_dir:
-        mt5_signals_path = os.path.join(common_dir, "CSS_Portfolio_Signals.json")
+
+    # 2. Salvar na pasta MQL5/Files da instância MT5 dedicada — mesma garantia atômica.
+    files_dir = get_mt5_files_dir()
+    if files_dir:
+        mt5_signals_path = os.path.join(files_dir, "CSS_Portfolio_Signals.json")
         try:
-            with open(mt5_signals_path, "w", encoding="utf-8") as f:
-                json.dump(signals_payload, f, indent=2, ensure_ascii=False)
-            print(f"[+] Sinais de Portfólio sincronizados com MT5 (FILE_COMMON): {mt5_signals_path}")
+            _atomic_write_json(mt5_signals_path, signals_payload)
+            print(f"[+] Sinais de Portfólio sincronizados com MT5: {mt5_signals_path}")
         except Exception as e:
-            print(f"[-] Erro ao gravar sinais no MT5 Common: {e}")
-            
+            print(f"[-] Erro ao gravar sinais na pasta MQL5/Files do MT5: {e}")
+
     return signals_payload

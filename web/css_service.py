@@ -17,6 +17,31 @@ BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
 
+
+def _load_dotenv_if_present(env_path=None):
+    """Carrega BASE_DIR/.env pra dentro de os.environ, sem lib externa nem
+    dependência nova. Variável já definida no ambiente real do sistema sempre
+    vence o arquivo. Fica aqui (o módulo mais cedo importado, direta ou
+    transitivamente por praticamente todo entry point) pra cobrir MT5_PATH
+    logo abaixo e qualquer variável lida por agents/portfolio_executor.py,
+    que importa este módulo antes de ler as suas próprias."""
+    env_path = env_path or os.path.join(BASE_DIR, ".env")
+    if not os.path.exists(env_path):
+        return
+    with open(env_path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            key = key.strip()
+            value = value.strip().strip('"').strip("'")
+            if key and key not in os.environ:
+                os.environ[key] = value
+
+
+_load_dotenv_if_present()
+
 from agents.confluence_engine import evaluate_currency_confluence, evaluate_28_pairs_confluence
 from agents.triad_analyzer import analyze_tf_triad
 
@@ -28,7 +53,15 @@ except ImportError:
     MT5_AVAILABLE = False
     mt5 = None
 
-MT5_PATH = r"C:\Program Files\Tickmill MT5 Terminal - Copia - Copia\terminal64.exe"
+# Caminho do terminal MT5 que o motor conecta. Configurável via
+# CSS_MT5_TERMINAL_PATH (variável real ou .env) — pensado pra apontar pra uma
+# instância /portable dedicada (ver agents/portfolio_executor.py). Valor
+# hardcoded abaixo é só fallback histórico, não aponta mais pra nenhuma
+# instância em uso.
+MT5_PATH = os.environ.get(
+    "CSS_MT5_TERMINAL_PATH",
+    r"C:\Program Files\Tickmill MT5 Terminal - Copia - Copia\terminal64.exe",
+)
 
 ALL_28_PAIRS = [
     "EURUSD", "GBPUSD", "AUDUSD", "NZDUSD", "USDCAD", "USDCHF", "USDJPY",

@@ -20,8 +20,11 @@ BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
 
-from agents.portfolio_executor import generate_and_save_daily_signals
+from agents.portfolio_executor import (
+    generate_and_save_daily_signals, open_portfolio_basket, SIGNALS_FILE
+)
 from web.real_portfolio_audit import real_audit_engine
+import json
 
 
 def run_command(cmd, desc=""):
@@ -60,6 +63,45 @@ def execute_phase_2102():
         print(f"[-] Erro ao gravar sinais: {e}")
 
 
+def execute_phase_2105():
+    """21:05 BRT - Abre as cestas no MT5 pelo lado Python, lendo o sinal
+    gravado às 21:02 (arquitetura recomendada pela revisão de 23/08: Python
+    decide e abre, o EA vira guardião do fechamento — ver
+    whatsapp-tools/PLANO_IMPLEMENTACAO_MFC.md, Seção 1). Todas as travas de
+    segurança (kill switch, conta demo, idempotência, colisão de símbolo em
+    conta netting, stop-loss catastrófico) vivem dentro de
+    open_portfolio_basket() e são checadas por cesta, individualmente."""
+    print("\n" + "="*70)
+    print(f"  [ROUTINE 21:05 BRT] ABERTURA DAS CESTAS DE PORTFÓLIO (PYTHON)")
+    print("="*70)
+    try:
+        with open(SIGNALS_FILE, "r", encoding="utf-8") as f:
+            signals_payload = json.load(f)
+    except Exception as e:
+        print(f"[-] Não foi possível ler o sinal de {SIGNALS_FILE}: {e}. Nenhuma cesta será aberta.")
+        return
+
+    portfolios = signals_payload.get("portfolios", {})
+    opened, refused, neutral = [], [], []
+
+    for ccy, sig in portfolios.items():
+        direction = sig.get("direction", "NEUTRAL")
+        status = sig.get("status", "BLOCKED")
+        if status != "ACTIVE" or direction not in ("BUY", "SELL"):
+            neutral.append(ccy)
+            continue
+
+        res = open_portfolio_basket(ccy, direction)
+        if res.get("success"):
+            opened.append(ccy)
+            print(f"[+] {ccy}: cesta aberta ({res.get('opened_count')}/{res.get('total_pairs')} pares).")
+        else:
+            refused.append((ccy, res.get("error"), res.get("message")))
+            print(f"[!] {ccy}: abertura recusada — {res.get('error')}: {res.get('message')}")
+
+    print(f"\n[RESUMO 21:05] Abertas: {opened} | Recusadas: {[c for c, *_ in refused]} | Neutras: {neutral}")
+
+
 def execute_phase_0805():
     """08:05 BRT - Auditoria Noturna dos Deals Reais e Auto-Deploy no Firebase."""
     print("\n" + "="*70)
@@ -84,11 +126,12 @@ def run_daemon_loop(test_mode=False):
     print("  DAEMON DE AGENDAMENTO INSTITUCIONAL ATIVO (CSS PORTFOLIOS)      ")
     print("===================================================================")
     print(f"[*] Horário Local Atual: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print("[*] Monitorando horários: 21:00:00 | 21:02:00 | 08:05:00 BRT\n")
+    print("[*] Monitorando horários: 21:00:00 | 21:02:00 | 21:05:00 | 08:05:00 BRT\n")
 
     if test_mode:
         print("[*] MODO DE TESTE ATIVO: Executando todas as rotinas em sequência...")
         execute_phase_2102()
+        execute_phase_2105()
         execute_phase_0805()
         return
 
@@ -112,6 +155,20 @@ def run_daemon_loop(test_mode=False):
             key = f"{cur_date}_2102"
             if key not in last_trigger:
                 execute_phase_2102()
+                last_trigger[key] = True
+
+        # 2b. Gatilho 21:05 — abertura das cestas pelo lado Python (ver
+        # execute_phase_2105 e Seção 1 de PLANO_IMPLEMENTACAO_MFC.md). Com o
+        # EA no modo padrão (InpEaOpensBasket=false), este é o único caminho
+        # que efetivamente abre posição — se o EA estiver com
+        # InpEaOpensBasket=true em algum gráfico, os dois tentariam abrir; a
+        # idempotência dentro de open_portfolio_basket() e o
+        # CountOpenPositions()==0 do lado EA evitam duplicar, mas os dois
+        # caminhos não devem ficar ativos ao mesmo tempo por design.
+        if cur_hour == 21 and cur_min == 5:
+            key = f"{cur_date}_2105"
+            if key not in last_trigger:
+                execute_phase_2105()
                 last_trigger[key] = True
 
         # 3. Gatilho 08:05
