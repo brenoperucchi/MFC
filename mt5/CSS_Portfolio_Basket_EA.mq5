@@ -46,6 +46,7 @@ input int                 InpEntryMinute     = 5;              // Minuto de Entr
 input int                 InpExitHour        = 8;              // Hora de Encerramento (BRT)
 input int                 InpExitMinute      = 0;              // Minuto de Encerramento (BRT)
 input int                 InpCloseGraceMin   = 15;             // Minutos antes da entrada em que o guardião NÃO fecha (folga contra skew de relógio)
+input bool                InpAutoDetectBrokerTz = true;          // Detectar o fuso do broker automaticamente (funciona em qualquer corretora)
 input int                 InpGmtOffset       = -3;             // Horas a SOMAR ao horário do servidor pra obter BRT (medido 24/08: servidor Exness = UTC+0, BRT = UTC-3)
 
 input group "=== CORRETORA ==="
@@ -72,6 +73,7 @@ ulong          g_magic = 801001;
 string         g_ccy_str = "CAD";
 string         g_pairs[7];
 bool           g_session_opened_today = false;
+int            g_last_broker_gmt = 99;   // sentinela: 99 = ainda não medido
 
 // Variáveis de Auditoria e HUD
 double         g_floating_pnl = 0.0;
@@ -143,9 +145,15 @@ int OnInit()
    // torna isso conferível de bater o olho, sem precisar esperar uma noite.
    MqlDateTime brt_dt;
    GetBrtAdjustedTime(brt_dt);
-   PrintFormat("[CSS ROBOT %s] FUSO — servidor: %s | BRT calculado (offset %+d h): %04d.%02d.%02d %02d:%02d:%02d. "
-               "CONFIRA contra o relógio de Brasília; se não bater, ajuste InpGmtOffset.",
-               g_ccy_str, TimeToString(TimeCurrent(), TIME_DATE | TIME_SECONDS), InpGmtOffset,
+   int det = BrokerGmtOffsetHours();
+   g_last_broker_gmt = det;
+   PrintFormat("[CSS ROBOT %s] FUSO — servidor: %s | GMT: %s | broker detectado: GMT%+d (%s) | "
+               "BRT calculado: %04d.%02d.%02d %02d:%02d:%02d. CONFIRA contra o relógio de Brasília.",
+               g_ccy_str,
+               TimeToString(TimeTradeServer(), TIME_DATE | TIME_SECONDS),
+               TimeToString(TimeGMT(), TIME_DATE | TIME_SECONDS),
+               det,
+               (InpAutoDetectBrokerTz ? "automático" : "manual via InpGmtOffset"),
                brt_dt.year, brt_dt.mon, brt_dt.day, brt_dt.hour, brt_dt.min, brt_dt.sec);
 
    return(INIT_SUCCEEDED);
@@ -177,9 +185,47 @@ void OnTick()
 //| timer comparava a hora do SERVIDOR direto contra 21/08, então em |
 //| brokers fora de BRT a cesta abria e fechava no horário errado.   |
 //+------------------------------------------------------------------+
+int BrokerGmtOffsetHours()
+{
+   // Offset do SERVIDOR em relação ao GMT, medido ao vivo. TimeTradeServer()
+   // avança mesmo sem cotação (ao contrário de TimeCurrent(), que congela em
+   // fim de semana), e TimeGMT() vem do relógio da máquina — a diferença dos
+   // dois é o fuso do broker, seja ele qual for.
+   //
+   // Resolve o conflito de corretora na raiz: Tickmill (GMT+2/+3, com horário
+   // de verão) e Exness (UTC+0) passam a funcionar com a MESMA configuração,
+   // e a virada de horário de verão do broker é acompanhada sozinha, sem
+   // ninguém precisar lembrar de trocar um input em março e outubro.
+   double diff_h = (double)(TimeTradeServer() - TimeGMT()) / 3600.0;
+   return (int)MathRound(diff_h);
+}
+
+//+------------------------------------------------------------------+
+//| Hora atual convertida para BRT (UTC-3; o Brasil não tem mais      |
+//| horário de verão, então o offset do lado BRT é fixo).             |
+//+------------------------------------------------------------------+
 void GetBrtAdjustedTime(MqlDateTime &out_dt)
 {
-   datetime brt_now = TimeCurrent() + InpGmtOffset * 3600;
+   datetime brt_now;
+   if(InpAutoDetectBrokerTz)
+   {
+      int broker_gmt = BrokerGmtOffsetHours();
+      // Faixa de sanidade: fuso real vai de -12 a +14. Fora disso o relógio
+      // da máquina está errado — cai no manual em vez de deslocar a janela.
+      if(broker_gmt >= -12 && broker_gmt <= 14)
+         brt_now = TimeTradeServer() - (broker_gmt + 3) * 3600;
+      else
+      {
+         PrintFormat("[CSS ROBOT %s] ALERTA: fuso do broker detectado como %d h (implausível) — "
+                     "usando InpGmtOffset=%d. Confira o relógio da máquina.",
+                     g_ccy_str, broker_gmt, InpGmtOffset);
+         brt_now = TimeTradeServer() + InpGmtOffset * 3600;
+      }
+   }
+   else
+   {
+      brt_now = TimeTradeServer() + InpGmtOffset * 3600;
+   }
    TimeToStruct(brt_now, out_dt);
 }
 
@@ -205,6 +251,18 @@ void OnTimer()
 {
    MqlDateTime dt;
    GetBrtAdjustedTime(dt);
+
+   // Virada de horário de verão do broker: acompanhada sozinha (o offset é
+   // remedido a cada ciclo), mas registrada — se a janela "andar" uma hora
+   // numa noite, o log diz exatamente quando e por quê.
+   if(InpAutoDetectBrokerTz)
+   {
+      int cur_gmt = BrokerGmtOffsetHours();
+      if(g_last_broker_gmt != 99 && cur_gmt != g_last_broker_gmt)
+         PrintFormat("[CSS ROBOT %s] FUSO DO BROKER MUDOU: GMT%+d -> GMT%+d (horário de verão?). "
+                     "Janela BRT reajustada automaticamente.", g_ccy_str, g_last_broker_gmt, cur_gmt);
+      g_last_broker_gmt = cur_gmt;
+   }
 
    int now_min   = dt.hour * 60 + dt.min;
    int entry_min = InpEntryHour * 60 + InpEntryMinute;
