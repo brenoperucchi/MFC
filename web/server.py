@@ -308,5 +308,10 @@ def run_server(host="127.0.0.1", port=8050, open_browser=False):
 
 
 if __name__ == "__main__":
-    run_server()
+    # Configurável via env, com o mesmo default de sempre (localhost:8050) —
+    # nada muda pra quem já roda "python web/server.py" sem nenhuma variável.
+    run_server(
+        host=os.environ.get("CSS_WEB_HOST", "127.0.0.1"),
+        port=int(os.environ.get("CSS_WEB_PORT", "8050")),
+    )
 
