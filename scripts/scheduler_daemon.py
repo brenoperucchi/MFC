@@ -31,7 +31,7 @@ if BASE_DIR not in sys.path:
 
 from agents.portfolio_executor import (
     generate_and_save_daily_signals, open_portfolio_basket, close_all_portfolios,
-    SIGNALS_FILE
+    measure_and_log_basket_cost, SIGNALS_FILE
 )
 from web.real_portfolio_audit import real_audit_engine
 
@@ -156,6 +156,25 @@ def execute_phase_2105():
             else:
                 opened.append(ccy)
                 print(f"[+] {ccy}: cesta aberta ({opened_count}/{total_pairs} pares).")
+                # Custo real medido, não pedido a ninguém — só observação,
+                # roda DEPOIS da cesta já estar aberta (nunca atrasa nem
+                # arrisca o envio de ordem). Numa THREAD separada (achado em
+                # revisão): rodava síncrono aqui, atrasando o envio de ordem
+                # das MOEDAS SEGUINTES no mesmo laço enquanto media a cesta
+                # anterior. Passa o lote REAL de cada perna (achado em
+                # revisão /dual-r) — uma perna com preenchimento parcial
+                # (DONE_PARTIAL) tem lote diferente das outras, e usar a
+                # média pra todas subestima/superestima o custo de quem
+                # divergiu; a média (arredondada) continua sendo gravada no
+                # campo "lot" só como resumo, mas o cálculo usa o mapa por
+                # perna. Nunca lança (ver measure_and_log_basket_cost).
+                leg_lots_by_pair = {r["pair"]: r["lot"] for r in res.get("results", [])
+                                     if r.get("pair") and r.get("lot")}
+                lots = list(leg_lots_by_pair.values())
+                avg_lot = round((sum(lots) / len(lots)) if lots else 0.01, 4)
+                threading.Thread(target=measure_and_log_basket_cost,
+                                  args=(ccy, direction, avg_lot, leg_lots_by_pair),
+                                  name=f"cost_{ccy}", daemon=True).start()
         else:
             refused.append((ccy, res.get("error"), res.get("message")))
             print(f"[!] {ccy}: abertura recusada — {res.get('error')}: {res.get('message')}")

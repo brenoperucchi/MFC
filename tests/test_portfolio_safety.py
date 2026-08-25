@@ -19,6 +19,7 @@ import sys
 import json
 import tempfile
 import threading
+import time
 import unittest
 from datetime import datetime
 from types import SimpleNamespace
@@ -504,6 +505,83 @@ class TestNettingCollision(unittest.TestCase):
         self.assertTrue(fake_mt5.order_send.called)
         print("[✓] Conta hedging permite colisão de símbolo entre cestas diferentes")
 
+    def test_symbol_suffix_auto_detection_warms_up_before_netting_check(self):
+        """Regressão (achado MÉDIO em revisão): a auto-detecção de sufixo só
+        disparava dentro do preflight, DEPOIS da checagem de colisão em
+        netting — sem CSS_MT5_SYMBOL_SUFFIX configurado, a comparação de
+        símbolo pra colisão rodava com o sufixo ainda não descoberto (posição
+        existente "USDCADm" nunca seria reconhecida como colidindo com o par
+        lógico "USDCAD"). Agora resolve um par de referência ANTES da
+        checagem de colisão, garantindo que a detecção já rodou a tempo."""
+        fake_mt5 = make_fake_mt5()
+        fake_mt5.account_info.return_value = SimpleNamespace(
+            login=999, server="Broker-Demo", trade_mode="DEMO",
+            trade_allowed=True, margin_mode="NETTING")
+        # Posição existente vem com sufixo "m" — só a auto-detecção
+        # descobre isso, já que não há sufixo configurado neste teste.
+        fake_mt5.positions_get.return_value = [
+            SimpleNamespace(magic=pe.PORTFOLIO_MAGICS["USD"], symbol="USDCADm")
+        ]
+        fake_mt5.SYMBOL_TRADE_MODE_FULL = "FULL"
+        fake_mt5.symbols_get.return_value = [
+            SimpleNamespace(name="EURUSDm", visible=True, trade_mode="FULL")
+        ]
+        # Só o nome COM sufixo resolve — sem isso, symbol_info(nome puro)
+        # "confirmaria" antes de precisar da auto-detecção, e o teste não
+        # provaria nada de verdade.
+        fake_mt5.symbol_info.side_effect = (
+            lambda sym: SimpleNamespace(visible=True) if sym.endswith("m") else None)
+        fake_mt5.symbol_info_tick.return_value = SimpleNamespace(ask=1.1, bid=1.0998)
+
+        with patch.dict(os.environ, DEMO_GATE_ENV), \
+             patch.object(pe, "MT5_AVAILABLE", True), patch.object(pe, "mt5", fake_mt5), \
+             patch.object(cs, "MT5_AVAILABLE", True), patch.object(cs, "mt5", fake_mt5), \
+             patch.object(cs, "MT5_SYMBOL_SUFFIX", ""), \
+             patch.object(cs, "_AUTO_DETECTED_SUFFIX", None), \
+             patch.dict(cs._SYMBOL_RESOLUTION_CACHE, {}, clear=True):
+            result = pe.open_portfolio_basket("CAD", "BUY")
+        self.assertFalse(result["success"])
+        self.assertEqual(result["error"], "netting_symbol_collision")
+        print("[✓] Colisão em netting é detectada mesmo sem sufixo configurado — "
+              "auto-detecção já rodou a tempo")
+
+    def test_refuses_open_when_position_symbol_cannot_be_normalized(self):
+        """Regressão (achado MÉDIO em revisão, rodada 3): o aquecimento acima
+        reduz mas não elimina a janela onde a auto-detecção ainda não
+        rodou — se a consulta ao servidor falhar bem na hora do aquecimento
+        (ex.: falha transitória de IPC), from_broker_symbol() não normaliza a
+        posição existente, e a checagem de colisão comparava um símbolo com
+        sufixo ("USDCADm") contra um sem sufixo ("USDCAD") sem nunca bater —
+        colisão real passaria batido. Agora a checagem valida o dado em si:
+        se um símbolo aberto não bate com nenhum dos 28 pares conhecidos,
+        recusa por segurança em vez de seguir com uma comparação que sabe
+        estar quebrada."""
+        fake_mt5 = make_fake_mt5()
+        fake_mt5.account_info.return_value = SimpleNamespace(
+            login=999, server="Broker-Demo", trade_mode="DEMO",
+            trade_allowed=True, margin_mode="NETTING")
+        fake_mt5.positions_get.return_value = [
+            SimpleNamespace(magic=pe.PORTFOLIO_MAGICS["USD"], symbol="USDCADm")
+        ]
+        # Falha transitória exatamente na consulta de auto-detecção (dispara
+        # dentro do aquecimento) — sem sufixo configurado e sem conseguir
+        # descobrir um, from_broker_symbol não tem como normalizar.
+        fake_mt5.symbols_get.side_effect = RuntimeError("IPC timeout transitório")
+        fake_mt5.symbol_info.return_value = None  # nome puro nunca resolve
+
+        with patch.dict(os.environ, DEMO_GATE_ENV), \
+             patch.object(pe, "MT5_AVAILABLE", True), patch.object(pe, "mt5", fake_mt5), \
+             patch.object(cs, "MT5_AVAILABLE", True), patch.object(cs, "mt5", fake_mt5), \
+             patch.object(cs, "MT5_SYMBOL_SUFFIX", ""), \
+             patch.object(cs, "_AUTO_DETECTED_SUFFIX", None), \
+             patch.dict(cs._SYMBOL_RESOLUTION_CACHE, {}, clear=True):
+            result = pe.open_portfolio_basket("CAD", "BUY")
+        self.assertFalse(result["success"])
+        self.assertEqual(result["error"], "symbol_resolution_unreliable")
+        fake_mt5.order_send.assert_not_called()
+        print("[✓] Símbolo aberto não reconhecido (resolução falhou) recusa por segurança, "
+              "em vez de arriscar colisão não detectada")
+
 
 class TestPositionQueryFailsClosed(unittest.TestCase):
     """positions_get() devolve None tanto pra 'nenhuma posição' quanto pra
@@ -586,6 +664,121 @@ class TestSymbolResolution(unittest.TestCase):
         with patch.object(cs, "MT5_SYMBOL_SUFFIX", "m"):
             self.assertEqual(cs.from_broker_symbol("EURUSDm"), "EURUSD")
             self.assertEqual(cs.from_broker_symbol("EURUSD"), "EURUSD")
+
+    def test_auto_detects_suffix_by_querying_the_server(self):
+        """Regressão (pedido do Breno): em vez de exigir CSS_MT5_SYMBOL_SUFFIX
+        configurado manualmente pra cada corretora nova, consulta o servidor
+        direto — igual à sugestão original: 'fazer uma consulta do symbol ou
+        coletar alguns símbolo e ver a resposta'."""
+        fake_mt5 = make_fake_mt5()
+        fake_mt5.symbols_get.return_value = [
+            SimpleNamespace(name="EURUSDpro"),  # série alternativa, mais longa
+            SimpleNamespace(name="EURUSDm"),    # série padrão, mais curta — essa vence
+        ]
+        with patch.object(cs, "MT5_AVAILABLE", True), patch.object(cs, "mt5", fake_mt5), \
+             patch.object(cs, "_AUTO_DETECTED_SUFFIX", None):
+            result = cs._detect_mt5_symbol_suffix()
+        self.assertEqual(result, "m")
+        fake_mt5.symbols_get.assert_called_once_with("*EURUSD*")
+        print("[✓] Detecção automática consulta o servidor e pega a série mais curta (padrão)")
+
+    def test_auto_detection_excludes_non_full_trade_modes(self):
+        """Achado em revisão /dual-r: filtrar só "!= DISABLED" ainda deixava
+        passar CLOSEONLY/LONGONLY/SHORTONLY como candidato a sufixo padrão —
+        um desses pode rejeitar abertura de alguma perna só depois de outras
+        já terem aberto. Agora só aceita trade_mode == FULL."""
+        fake_mt5 = make_fake_mt5()
+        fake_mt5.SYMBOL_TRADE_MODE_FULL = "FULL"
+        fake_mt5.symbols_get.return_value = [
+            # Mais curto, mas desabilitado — não pode vencer.
+            SimpleNamespace(name="EURUSDx", visible=True, trade_mode="DISABLED"),
+            # Mais curto ainda, mas só fecha posição — também não pode vencer.
+            SimpleNamespace(name="EURUSDy", visible=True, trade_mode="CLOSEONLY"),
+            # Mais longo, mas negociável nos dois sentidos — este é o certo.
+            SimpleNamespace(name="EURUSDpro", visible=True, trade_mode="FULL"),
+        ]
+        with patch.object(cs, "MT5_AVAILABLE", True), patch.object(cs, "mt5", fake_mt5), \
+             patch.object(cs, "_AUTO_DETECTED_SUFFIX", None):
+            result = cs._detect_mt5_symbol_suffix()
+        self.assertEqual(result, "pro")
+        print("[✓] Detecção automática só aceita trade_mode FULL — ignora DISABLED, CLOSEONLY e afins")
+
+    def test_auto_detection_ignores_market_watch_visibility(self):
+        """Achado em revisão /dual-r: "visible" é só estado de UI (Market
+        Watch, mutável por symbol_select), não direito de negociar — um
+        símbolo FULL mas nunca aberto no Market Watch ainda é negociável.
+        Filtrar por "visible" podia REJEITAR o instrumento certo numa conta
+        nova só porque ninguém tinha aberto o gráfico dele ainda."""
+        fake_mt5 = make_fake_mt5()
+        fake_mt5.SYMBOL_TRADE_MODE_FULL = "FULL"
+        fake_mt5.symbols_get.return_value = [
+            SimpleNamespace(name="EURUSDm", visible=False, trade_mode="FULL"),
+        ]
+        with patch.object(cs, "MT5_AVAILABLE", True), patch.object(cs, "mt5", fake_mt5), \
+             patch.object(cs, "_AUTO_DETECTED_SUFFIX", None):
+            result = cs._detect_mt5_symbol_suffix()
+        self.assertEqual(result, "m")
+        print("[✓] Detecção automática não descarta candidato só por estar invisível no Market Watch")
+
+    def test_auto_detection_result_is_cached_not_requeried(self):
+        fake_mt5 = make_fake_mt5()
+        fake_mt5.symbols_get.return_value = [SimpleNamespace(name="EURUSDm")]
+        with patch.object(cs, "MT5_AVAILABLE", True), patch.object(cs, "mt5", fake_mt5), \
+             patch.object(cs, "_AUTO_DETECTED_SUFFIX", None):
+            cs._detect_mt5_symbol_suffix()
+            cs._detect_mt5_symbol_suffix()
+        self.assertEqual(fake_mt5.symbols_get.call_count, 1)
+        print("[✓] Sufixo detectado é memorizado — não reconsulta o servidor de novo")
+
+    def test_auto_detection_does_not_cache_failure_so_it_can_retry_later(self):
+        fake_mt5 = make_fake_mt5()
+        fake_mt5.symbols_get.return_value = []  # servidor ainda não respondeu nada útil
+        with patch.object(cs, "MT5_AVAILABLE", True), patch.object(cs, "mt5", fake_mt5), \
+             patch.object(cs, "_AUTO_DETECTED_SUFFIX", None):
+            first = cs._detect_mt5_symbol_suffix()
+            second = cs._detect_mt5_symbol_suffix()
+        self.assertIsNone(first)
+        self.assertIsNone(second)
+        self.assertEqual(fake_mt5.symbols_get.call_count, 2, "falha não pode virar desistência permanente")
+        print("[✓] Falha em detectar não gruda pra sempre — tenta de novo na próxima chamada")
+
+    def test_to_broker_symbol_falls_back_to_auto_detection_as_last_resort(self):
+        """Sem CSS_MT5_SYMBOL_SUFFIX configurado e sem o nome puro resolver,
+        a resolução não desiste mais — descobre sozinha antes de devolver
+        um nome não confirmado."""
+        fake_mt5 = make_fake_mt5()
+        fake_mt5.symbols_get.return_value = [SimpleNamespace(name="EURUSDm")]
+
+        def fake_symbol_info(sym):
+            return SimpleNamespace() if sym == "EURUSDm" else None
+        fake_mt5.symbol_info.side_effect = fake_symbol_info
+
+        with patch.object(cs, "MT5_SYMBOL_SUFFIX", ""), \
+             patch.object(cs, "MT5_AVAILABLE", True), patch.object(cs, "mt5", fake_mt5), \
+             patch.object(cs, "_AUTO_DETECTED_SUFFIX", None), \
+             patch.dict(cs._SYMBOL_RESOLUTION_CACHE, {}, clear=True):
+            result = cs.to_broker_symbol("EURUSD")
+        self.assertEqual(result, "EURUSDm")
+        print("[✓] to_broker_symbol() resolve via auto-detecção quando configuração manual não existe")
+
+    def test_to_broker_symbol_does_not_query_server_when_configured_suffix_already_works(self):
+        """A configuração explícita continua tendo precedência — não faz uma
+        consulta mais cara (symbols_get) quando o palpite já resolveu."""
+        fake_mt5 = make_fake_mt5()
+        fake_mt5.symbol_info.return_value = SimpleNamespace()  # qualquer símbolo "resolve"
+        with patch.object(cs, "MT5_SYMBOL_SUFFIX", "m"), \
+             patch.object(cs, "MT5_AVAILABLE", True), patch.object(cs, "mt5", fake_mt5), \
+             patch.object(cs, "_AUTO_DETECTED_SUFFIX", None), \
+             patch.dict(cs._SYMBOL_RESOLUTION_CACHE, {}, clear=True):
+            cs.to_broker_symbol("EURUSD")
+        fake_mt5.symbols_get.assert_not_called()
+        print("[✓] Sufixo configurado que já funciona nunca aciona a auto-detecção")
+
+    def test_from_broker_symbol_strips_auto_detected_suffix_too(self):
+        with patch.object(cs, "MT5_SYMBOL_SUFFIX", ""), \
+             patch.object(cs, "_AUTO_DETECTED_SUFFIX", "m"):
+            self.assertEqual(cs.from_broker_symbol("EURUSDm"), "EURUSD")
+        print("[✓] from_broker_symbol() também reconhece o sufixo auto-detectado")
 
     def test_open_refused_entirely_when_symbols_unresolved(self):
         """Recusa a cesta INTEIRA em vez de abrir parcial: 3 de 7 pernas é uma
@@ -1230,6 +1423,353 @@ class TestAtomicWrite(unittest.TestCase):
                 os.remove(target)
 
 
+class TestCostModel(unittest.TestCase):
+    """CostModel — spread+swap reais em USD, medidos no broker conectado.
+    Movida de scripts/backtest_canonical.py pra agents/portfolio_executor.py
+    (pedido do Breno: medir custo de verdade em vez de perguntar 'valor
+    típico' pro Miquéias) — mesma classe, agora usada pelo executor ao vivo
+    E pelo backtest, uma cópia só."""
+
+    def test_leg_computes_spread_and_swap_in_usd(self):
+        fake_mt5 = MagicMock()
+
+        def fake_symbol_info(sym):
+            if sym == "USDJPYm":
+                return SimpleNamespace(trade_contract_size=100000, point=0.01,
+                                       swap_long=-5.0, swap_short=2.0)
+            if sym == "USDCADm":  # usado pra converter CAD -> USD (par de referência)
+                return SimpleNamespace(trade_contract_size=100000, point=0.0001,
+                                       swap_long=0.0, swap_short=0.0)
+            return None
+
+        def fake_symbol_info_tick(sym):
+            if sym == "USDJPYm":
+                return SimpleNamespace(ask=150.02, bid=150.00)
+            if sym == "USDCADm":
+                return SimpleNamespace(ask=1.3502, bid=1.3500)
+            return None
+
+        fake_mt5.symbol_info.side_effect = fake_symbol_info
+        fake_mt5.symbol_info_tick.side_effect = fake_symbol_info_tick
+
+        with patch.object(pe, "mt5", fake_mt5), \
+             patch.object(pe, "to_broker_symbol", lambda p: p + "m"):
+            model = pe.CostModel(0.01)
+            spread_usd, swap_usd = model.leg("USDJPY", "BUY")
+
+        # USDJPY: quote=JPY, mas a conversão pro cálculo do par em si usa a
+        # cotação do próprio par (spread em pontos de JPY * contrato * lote);
+        # o que importa aqui é confirmar que saiu um número > 0 coerente com
+        # spread de 2 pips num contrato padrão de 0.01 lote.
+        self.assertGreater(spread_usd, 0)
+        print(f"[✓] CostModel.leg() calcula spread real em USD: ${spread_usd:.4f}")
+
+    def test_leg_returns_zero_when_symbol_unavailable(self):
+        fake_mt5 = MagicMock()
+        fake_mt5.symbol_info.return_value = None
+        fake_mt5.symbol_info_tick.return_value = None
+        with patch.object(pe, "mt5", fake_mt5), \
+             patch.object(pe, "to_broker_symbol", lambda p: p + "m"):
+            model = pe.CostModel(0.01)
+            spread_usd, swap_usd = model.leg("EURUSD", "BUY")
+        self.assertEqual((spread_usd, swap_usd), (0.0, 0.0))
+        print("[✓] CostModel.leg() nunca quebra — devolve zero quando o símbolo não resolve")
+
+    def test_leg_computes_swap_when_mode_is_points(self):
+        fake_mt5 = MagicMock()
+        fake_mt5.SYMBOL_SWAP_MODE_POINTS = 1
+        fake_mt5.symbol_info.return_value = SimpleNamespace(
+            trade_contract_size=100000, point=0.0001,
+            swap_long=-2.5, swap_short=1.0, swap_mode=1)
+        fake_mt5.symbol_info_tick.return_value = SimpleNamespace(ask=1.1002, bid=1.1000)
+        with patch.object(pe, "mt5", fake_mt5), \
+             patch.object(pe, "to_broker_symbol", lambda p: p + "m"):
+            model = pe.CostModel(0.01)
+            _, swap_usd = model.leg("EURUSD", "BUY")
+        self.assertNotEqual(swap_usd, 0.0)
+        print(f"[✓] swap_mode=PONTOS: swap calculado normalmente (${swap_usd:.4f})")
+
+    def test_leg_skips_swap_when_mode_is_not_points(self):
+        """Regressão (achado ALTO em revisão): MT5 também aceita swap em
+        moeda base/margem/depósito e percentual — a fórmula em pontos dá
+        número ERRADO nesses casos. Reporta 0.0 (subestima, nunca infla) em
+        vez de fingir uma precisão que não existe."""
+        fake_mt5 = MagicMock()
+        fake_mt5.SYMBOL_SWAP_MODE_POINTS = 1
+        fake_mt5.symbol_info.return_value = SimpleNamespace(
+            trade_contract_size=100000, point=0.0001,
+            swap_long=-2.5, swap_short=1.0, swap_mode=5)  # 5 = não é pontos
+        fake_mt5.symbol_info_tick.return_value = SimpleNamespace(ask=1.1002, bid=1.1000)
+        with patch.object(pe, "mt5", fake_mt5), \
+             patch.object(pe, "to_broker_symbol", lambda p: p + "m"):
+            model = pe.CostModel(0.01)
+            spread_usd, swap_usd = model.leg("EURUSD", "BUY")
+        self.assertEqual(swap_usd, 0.0)
+        self.assertGreater(spread_usd, 0.0, "spread continua calculado normalmente")
+        print("[✓] swap_mode != PONTOS: swap reportado como 0.0, spread não é afetado")
+
+
+class TestMeasureAndLogBasketCost(unittest.TestCase):
+    """measure_and_log_basket_cost() — dado empírico próprio, acrescentado a
+    cada cesta aberta com sucesso, sem depender de ninguém informar 'valor
+    típico'. Roda DEPOIS da cesta aberta, nunca antes/durante — não pode
+    atrasar nem arriscar o envio de ordem real."""
+
+    def test_appends_entry_to_new_log_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = os.path.join(tmp, "execution_cost_log.json")
+            with patch.object(pe, "COST_LOG_FILE", log_path), \
+                 patch.object(pe, "CostModel") as MockModel:
+                MockModel.return_value.basket.return_value = 12.34
+                pe.measure_and_log_basket_cost("cad", "BUY", 0.01)
+            with open(log_path, encoding="utf-8") as f:
+                log = json.load(f)
+        self.assertEqual(len(log), 1)
+        self.assertEqual(log[0]["currency"], "CAD")
+        self.assertEqual(log[0]["bias"], "BUY")
+        self.assertEqual(log[0]["cost_usd"], 12.34)
+        print("[✓] Primeira medição cria o log com a entrada certa")
+
+    def test_appends_without_overwriting_previous_entries(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = os.path.join(tmp, "execution_cost_log.json")
+            with patch.object(pe, "COST_LOG_FILE", log_path), \
+                 patch.object(pe, "CostModel") as MockModel:
+                MockModel.return_value.basket.return_value = 5.0
+                pe.measure_and_log_basket_cost("EUR", "SELL", 0.01)
+                MockModel.return_value.basket.return_value = 8.0
+                pe.measure_and_log_basket_cost("USD", "BUY", 0.01)
+            with open(log_path, encoding="utf-8") as f:
+                log = json.load(f)
+        self.assertEqual(len(log), 2)
+        self.assertEqual([e["currency"] for e in log], ["EUR", "USD"])
+        print("[✓] Medições seguintes acrescentam ao histórico, não sobrescrevem")
+
+    def test_concurrent_measurements_from_multiple_threads_lose_nothing(self):
+        """Regressão (achado MÉDIO em revisão): medir custo agora roda numa
+        thread por moeda, e várias moedas costumam abrir na mesma noite —
+        sem serializar o ciclo ler-modificar-gravar, duas threads podiam ler
+        o mesmo histórico e uma gravação apagar a outra silenciosamente
+        (lost update). Um CostModel.basket() artificialmente lento alarga a
+        janela de corrida — sem o lock, este teste perderia entradas."""
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = os.path.join(tmp, "execution_cost_log.json")
+            n = 8
+
+            def slow_model(lot):
+                m = MagicMock()
+                m.basket.side_effect = lambda ccy, bias, leg_lots=None: (time.sleep(0.02), 1.0)[1]
+                return m
+
+            with patch.object(pe, "COST_LOG_FILE", log_path), \
+                 patch.object(pe, "CostModel", side_effect=slow_model):
+                threads = [
+                    threading.Thread(target=pe.measure_and_log_basket_cost,
+                                      args=(f"CCY{i}", "BUY", 0.01))
+                    for i in range(n)
+                ]
+                for t in threads:
+                    t.start()
+                for t in threads:
+                    t.join(timeout=5)
+
+            with open(log_path, encoding="utf-8") as f:
+                log = json.load(f)
+        self.assertEqual(len(log), n, "entradas perdidas — gravação concorrente sem lock")
+        self.assertEqual({e["currency"] for e in log}, {f"CCY{i}" for i in range(n)})
+        print(f"[✓] {n} medições concorrentes: todas as {n} entradas sobrevivem, nenhuma perdida")
+
+    def test_lock_is_actually_held_during_the_read_modify_write_section(self):
+        """O teste acima (várias threads + time.sleep) é probabilístico: passa
+        mesmo sem o lock, porque a corrida pode não se manifestar numa única
+        execução (confirmado manualmente removendo o lock — o teste continuou
+        passando). Este prova o lock de forma determinística.
+
+        Achado em revisão (rodada 3): uma primeira versão pausava só dentro
+        de _atomic_write_json (a GRAVAÇÃO final) — isso provaria o lock
+        retido durante a escrita, mas não provaria nada sobre a LEITURA
+        anterior (_read_cost_log + append). Uma implementação insegura que lê
+        o arquivo e monta a entrada FORA do lock, e só adquire o lock pra
+        gravar no fim, ainda passaria naquele teste (duas threads podiam ler
+        o mesmo snapshot antes de qualquer uma escrever). Agora a pausa fica
+        no PRIMEIRO passo da seção (_read_cost_log) — se o lock só for
+        adquirido depois disso, acquire(blocking=False) consegue pegar o
+        lock livre aqui, e o teste pega a falha. Intercepta `pe._read_cost_log`
+        (atributo do próprio módulo) em vez de `os.path.exists` global — um
+        patch global travou o pytest inteiro (a suíte usa os.path.exists nos
+        próprios bastidores); patchear só o que `pe` chama é seguro."""
+        entered_critical_section = threading.Event()
+        release_writer = threading.Event()
+        real_read_cost_log = pe._read_cost_log
+
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = os.path.join(tmp, "execution_cost_log.json")
+
+            def blocking_read(path):
+                entered_critical_section.set()
+                release_writer.wait(timeout=5)
+                return real_read_cost_log(path)
+
+            with patch.object(pe, "COST_LOG_FILE", log_path), \
+                 patch.object(pe, "CostModel") as MockModel, \
+                 patch.object(pe, "_read_cost_log", side_effect=blocking_read):
+                MockModel.return_value.basket.return_value = 1.0
+                writer = threading.Thread(
+                    target=pe.measure_and_log_basket_cost, args=("CAD", "BUY", 0.01),
+                    daemon=True)  # defesa extra: um bug neste teste não deve travar o processo
+                writer.start()
+                try:
+                    self.assertTrue(entered_critical_section.wait(timeout=5),
+                                     "thread nunca entrou na seção crítica")
+                    got_lock = pe._COST_LOG_LOCK.acquire(blocking=False)
+                    # Libera ANTES de assertar (não depois, e não só no ramo
+                    # "if got_lock"): se a asserção abaixo falhar — exatamente
+                    # o caso que este teste existe pra pegar —, uma exceção
+                    # pularia a liberação e a thread writer, ainda presa
+                    # esperando esse lock em with _COST_LOG_LOCK:, travaria
+                    # pra sempre (não é daemon: travaria até o processo inteiro).
+                    if got_lock:
+                        pe._COST_LOG_LOCK.release()
+                    self.assertFalse(
+                        got_lock,
+                        "lock NÃO estava retido logo no início da seção (leitura) — "
+                        "duas threads podiam ler o mesmo snapshot e perder uma entrada")
+                finally:
+                    release_writer.set()
+                    writer.join(timeout=5)
+
+            self.assertTrue(pe._COST_LOG_LOCK.acquire(blocking=False),
+                             "lock ficou retido depois que a thread terminou")
+            pe._COST_LOG_LOCK.release()
+        print("[✓] Lock comprovadamente retido desde o início da leitura até o fim da "
+              "gravação (não por sorte de timing, e não só durante a escrita)")
+
+    def test_second_measurement_for_same_stuck_currency_is_skipped(self):
+        """Achado em revisão /dual-r: sem timeout, uma chamada MT5 travada
+        (IPC do terminal preso) deixa a thread de medição presa pra sempre —
+        Python não tem como cancelá-la por dentro. Isto não cura a chamada
+        travada, só evita empilhar mais uma pra a MESMA moeda: uma segunda
+        medição de CAD enquanto a primeira ainda está presa desiste na hora
+        em vez de abrir outra thread condenada a nunca voltar."""
+        entered = threading.Event()
+        release = threading.Event()
+
+        def stuck_model(lot):
+            m = MagicMock()
+
+            def stuck_basket(ccy, bias, leg_lots=None):
+                entered.set()
+                release.wait(timeout=5)
+                return 1.0
+            m.basket.side_effect = stuck_basket
+            return m
+
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = os.path.join(tmp, "execution_cost_log.json")
+            with patch.object(pe, "COST_LOG_FILE", log_path), \
+                 patch.object(pe, "CostModel", side_effect=stuck_model):
+                stuck_thread = threading.Thread(
+                    target=pe.measure_and_log_basket_cost, args=("CAD", "BUY", 0.01),
+                    daemon=True)
+                stuck_thread.start()
+                self.assertTrue(entered.wait(timeout=5), "thread nunca entrou na medição")
+
+                # Segunda medição da MESMA moeda enquanto a primeira está presa:
+                # tem que desistir NA HORA — se ela também tentasse medir,
+                # cairia no mesmo stuck_basket() e só voltaria depois do
+                # release.wait(timeout=5) abaixo (ele só é setado DEPOIS desta
+                # chamada síncrona retornar), então o tempo decorrido aqui é o
+                # que realmente prova a diferença: ~0s com o guard, ~5s sem.
+                start = time.monotonic()
+                pe.measure_and_log_basket_cost("CAD", "SELL", 0.02)
+                elapsed = time.monotonic() - start
+                self.assertLess(
+                    elapsed, 1.0,
+                    f"segunda medição da mesma moeda presa levou {elapsed:.2f}s — não desistiu "
+                    f"na hora, esperou a primeira liberar (abriu outra thread condenada)")
+
+                release.set()
+                stuck_thread.join(timeout=5)
+
+            with open(log_path, encoding="utf-8") as f:
+                log = json.load(f)
+        self.assertFalse(stuck_thread.is_alive(), "thread travada nunca terminou")
+        self.assertEqual(len(log), 1, "a segunda medição (que devia ter sido pulada) gravou algo")
+        print("[✓] Segunda medição da mesma moeda presa desiste na hora, não empilha outra thread")
+
+    def test_stuck_currency_never_blocks_a_different_currency(self):
+        """A trava é POR MOEDA, não um teto global — moedas diferentes nunca
+        competem entre si, só a mesma moeda com ela mesma (achado em revisão
+        /dual-r: um teto global baixo tipo threading.Semaphore(2) pularia a
+        maioria das medições numa noite normal com 3+ moedas qualificando ao
+        mesmo tempo, o que não é incomum)."""
+        entered = threading.Event()
+        release = threading.Event()
+
+        def stuck_model(lot):
+            m = MagicMock()
+
+            def stuck_basket(ccy, bias, leg_lots=None):
+                entered.set()
+                release.wait(timeout=5)
+                return 1.0
+            m.basket.side_effect = stuck_basket
+            return m
+
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = os.path.join(tmp, "execution_cost_log.json")
+            with patch.object(pe, "COST_LOG_FILE", log_path), \
+                 patch.object(pe, "CostModel", side_effect=stuck_model):
+                stuck_thread = threading.Thread(
+                    target=pe.measure_and_log_basket_cost, args=("CAD", "BUY", 0.01),
+                    daemon=True)
+                stuck_thread.start()
+                self.assertTrue(entered.wait(timeout=5), "thread nunca entrou na medição")
+
+                # Moeda DIFERENTE, com CAD ainda preso: não pode ser afetada.
+                with patch.object(pe, "CostModel") as free_model:
+                    free_model.return_value.basket.return_value = 5.0
+                    pe.measure_and_log_basket_cost("USD", "BUY", 0.01)
+                with open(log_path, encoding="utf-8") as f:
+                    log = json.load(f)
+                self.assertEqual([e["currency"] for e in log], ["USD"])
+
+                release.set()
+                stuck_thread.join(timeout=5)
+        print("[✓] Moeda diferente mede normalmente mesmo com outra moeda presa")
+
+    def test_never_raises_even_when_measurement_fails_completely(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = os.path.join(tmp, "execution_cost_log.json")
+            with patch.object(pe, "COST_LOG_FILE", log_path), \
+                 patch.object(pe, "CostModel", side_effect=RuntimeError("MT5 fora do ar")):
+                pe.measure_and_log_basket_cost("CAD", "BUY", 0.01)  # não pode lançar
+        self.assertFalse(os.path.exists(log_path))
+        print("[✓] Falha na medição nunca propaga — é só observação")
+
+    def test_never_overwrites_history_when_existing_log_is_corrupted(self):
+        """Regressão (achado em revisão): antes, um log ilegível (JSON
+        corrompido, formato inesperado) virava silenciosamente um log NOVO
+        de 1 entrada só — apagando meses de histórico acumulado. Agora
+        recusa gravar em vez de sobrescrever."""
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = os.path.join(tmp, "execution_cost_log.json")
+            with open(log_path, "w", encoding="utf-8") as f:
+                f.write("{isso não é json válido")
+            original_content = open(log_path, encoding="utf-8").read()
+
+            with patch.object(pe, "COST_LOG_FILE", log_path), \
+                 patch.object(pe, "CostModel") as MockModel:
+                MockModel.return_value.basket.return_value = 9.99
+                pe.measure_and_log_basket_cost("EUR", "SELL", 0.01)
+
+            with open(log_path, encoding="utf-8") as f:
+                after_content = f.read()
+        self.assertEqual(after_content, original_content,
+                          "log corrompido foi sobrescrito — histórico anterior teria sido perdido")
+        print("[✓] Log corrompido/ilegível NÃO é sobrescrito — histórico anterior preservado")
+
+
 class TestSignalsFileWriteFailurePropagates(unittest.TestCase):
     """Regressão ALTO (achado em revisão, rodada 7): generate_and_save_daily_signals()
     engolia a exceção da escrita em SIGNALS_FILE (só imprimia e continuava),
@@ -1327,6 +1867,78 @@ class TestScheduledOpenTrigger(unittest.TestCase):
         called = {(c.args[0], c.args[1]) for c in mock_open_basket.call_args_list}
         self.assertEqual(called, {("CAD", "BUY"), ("USD", "SELL")})
         print("[✓] execute_phase_2105 abre só as ACTIVE, com a direção correta de cada uma")
+
+    def test_execute_phase_2105_measures_cost_only_on_full_success(self):
+        """Custo medido só faz sentido pra cesta COMPLETA — uma parcial não é
+        a cesta diversificada que o custo pretende caracterizar. Roda numa
+        thread própria agora (achado em revisão) — espera um Event em vez de
+        checar a chamada logo após execute_phase_2105() retornar, senão a
+        asserção corre contra a thread de fundo."""
+        import scripts.scheduler_daemon as daemon
+        payload = self._signals()
+        measured = threading.Event()
+        calls = []
+
+        def fake_measure(*args):
+            calls.append(args)
+            measured.set()
+
+        with patch.object(daemon, "SIGNALS_FILE", "/dev/null"), \
+             patch("builtins.open", mock_open(read_data=json.dumps(payload))), \
+             patch.object(daemon, "open_portfolio_basket") as mock_open_basket, \
+             patch.object(daemon, "measure_and_log_basket_cost", side_effect=fake_measure):
+            mock_open_basket.side_effect = [
+                {"success": True, "opened_count": 7, "total_pairs": 7,
+                 "results": [{"pair": "EURCAD", "lot": 0.01}]},  # CAD: completa
+                {"success": True, "opened_count": 5, "total_pairs": 7,
+                 "results": [{"pair": "EURUSD", "lot": 0.01}]},  # USD: parcial
+            ]
+            daemon.execute_phase_2105()
+            self.assertTrue(measured.wait(timeout=2), "custo nunca foi medido (thread de fundo)")
+        self.assertEqual(calls, [("CAD", "BUY", 0.01, {"EURCAD": 0.01})])
+        print("[✓] Custo só é medido pra cesta completa, nunca pra parcial")
+
+    def test_execute_phase_2105_uses_average_lot_across_confirmed_legs(self):
+        """Achado em revisão: uma perna com preenchimento parcial (volume
+        diferente das outras) não pode ser representada pelo lote de UMA
+        perna só. O campo "lot" gravado no log continua sendo a média
+        (arredondada) das pernas confirmadas — só como resumo —, mas
+        (achado em revisão /dual-r) o CÁLCULO do custo agora usa o mapa
+        {pair: lote real} de cada perna, passado à parte."""
+        import scripts.scheduler_daemon as daemon
+        payload = self._signals()
+        measured = threading.Event()
+        calls = []
+
+        def fake_measure(*args):
+            calls.append(args)
+            measured.set()
+
+        cad_legs = [{"pair": f"PAIR{i}", "lot": 0.01} for i in range(6)] + \
+                   [{"pair": "PAIR6", "lot": 0.006}]  # 1 perna parcial
+        with patch.object(daemon, "SIGNALS_FILE", "/dev/null"), \
+             patch("builtins.open", mock_open(read_data=json.dumps(payload))), \
+             patch.object(daemon, "open_portfolio_basket") as mock_open_basket, \
+             patch.object(daemon, "measure_and_log_basket_cost", side_effect=fake_measure):
+            mock_open_basket.side_effect = [
+                {"success": True, "opened_count": 7, "total_pairs": 7, "results": cad_legs},
+                {"success": True, "opened_count": 7, "total_pairs": 7,
+                 "results": [{"pair": f"PAIR{i}", "lot": 0.01} for i in range(7)]},
+            ]
+            daemon.execute_phase_2105()
+            self.assertTrue(measured.wait(timeout=2))
+            # Espera as duas medições (CAD e USD) — dá mais um instante pra
+            # segunda thread, já que a primeira wait() só garante a primeira.
+            for _ in range(20):
+                if len(calls) >= 2:
+                    break
+                time.sleep(0.05)
+        cad_call = next(c for c in calls if c[0] == "CAD")
+        self.assertAlmostEqual(cad_call[2], round((0.01 * 6 + 0.006) / 7, 4))
+        expected_leg_lots = {leg["pair"]: leg["lot"] for leg in cad_legs}
+        self.assertEqual(cad_call[3], expected_leg_lots)
+        print("[✓] Campo \"lot\" é a média das pernas confirmadas, e o mapa por perna "
+              "(usado no cálculo real do custo) chega intacto até measure_and_log_basket_cost")
 
     def test_execute_phase_2105_refuses_stale_signal(self):
         mock_open_basket = self._run_phase(self._signals(date_str="2020-01-01"))

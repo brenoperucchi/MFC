@@ -91,6 +91,64 @@ MT5_SYMBOL_SUFFIX = os.environ.get("CSS_MT5_SYMBOL_SUFFIX", "")
 # Cache de resolução lógico -> corretora, preenchido sob demanda.
 _SYMBOL_RESOLUTION_CACHE = {}
 
+# Sufixo descoberto sozinho no servidor (achado em revisão: CSS_MT5_SYMBOL_SUFFIX
+# exige alguém medir manualmente e configurar antes de qualquer ordem funcionar
+# — cada corretora nova, como a do Miquéias, repetiria esse trabalho). None =
+# ainda não tentou; string (mesmo vazia) = já tentou, resultado memorizado.
+_AUTO_DETECTED_SUFFIX = None
+_SUFFIX_PROBE_PAIR = "EURUSD"  # existe em toda corretora forex, referência estável
+
+
+def _detect_mt5_symbol_suffix():
+    """Descobre o sufixo de símbolo consultando o servidor diretamente
+    (mt5.symbols_get com padrão), em vez de depender só de
+    CSS_MT5_SYMBOL_SUFFIX configurado manualmente. Última linha de defesa
+    em to_broker_symbol() — só é chamada quando nem o sufixo configurado nem
+    o nome puro resolveram."""
+    global _AUTO_DETECTED_SUFFIX
+    if _AUTO_DETECTED_SUFFIX is not None:
+        return _AUTO_DETECTED_SUFFIX
+    if not MT5_AVAILABLE or mt5 is None:
+        return None
+    try:
+        matches = mt5.symbols_get(f"*{_SUFFIX_PROBE_PAIR}*")
+    except Exception:
+        matches = None
+    if not matches:
+        return None
+    # Nomes que começam com o par de referência, REALMENTE negociáveis nos
+    # dois sentidos (trade_mode == FULL) — achado em revisão /dual-r: filtrar
+    # só "!= DISABLED" (versão anterior) ainda deixava passar CLOSEONLY/
+    # LONGONLY/SHORTONLY como candidato a sufixo padrão — um desses pode
+    # rejeitar abertura de alguma perna só depois de outras já terem aberto
+    # (não é hipotético: symbols_get() devolve QUALQUER instrumento que bata
+    # o padrão, restrito ou não). E filtrar por "visible" era o filtro
+    # ERRADO: visible é só estado de UI (Market Watch, mutável por
+    # symbol_select), não direito de negociar — um símbolo FULL mas nunca
+    # aberto no Market Watch ainda é tradável (o resto do código já trata
+    # visible=False como corrigível via symbol_select(), nunca como
+    # descarte — ver o preflight em agents/portfolio_executor.py). Ausência
+    # do campo trade_mode (só ocorre em dublês de teste mínimos, nunca no
+    # MT5 real) é tratada como "presumir FULL". Entre os que sobram, o mais
+    # CURTO ainda é o melhor desempate (evita pegar uma série alternativa
+    # tipo "EURUSD.pro"). Não memoriza se nada bateu — permite tentar de
+    # novo no próximo par (ex.: se o MT5 ainda não tinha conectado).
+    full_mode = getattr(mt5, "SYMBOL_TRADE_MODE_FULL", 4)
+    candidates = sorted(
+        (
+            s.name[len(_SUFFIX_PROBE_PAIR):]
+            for s in matches
+            if s.name.startswith(_SUFFIX_PROBE_PAIR)
+            and getattr(s, "trade_mode", full_mode) == full_mode
+        ),
+        key=len,
+    )
+    if not candidates:
+        return None
+    _AUTO_DETECTED_SUFFIX = candidates[0]
+    print(f"[+] Sufixo de símbolo detectado automaticamente no servidor: {_AUTO_DETECTED_SUFFIX!r}")
+    return _AUTO_DETECTED_SUFFIX
+
 
 def to_broker_symbol(pair: str) -> str:
     """Nome lógico do par (ex.: 'EURUSD') -> nome no servidor da corretora
@@ -111,6 +169,12 @@ def to_broker_symbol(pair: str) -> str:
                 resolved, confirmed = pair + MT5_SYMBOL_SUFFIX, True
             elif mt5.symbol_info(pair) is not None:
                 resolved, confirmed = pair, True
+            else:
+                # Nem o sufixo configurado nem o nome puro resolveram — antes
+                # de desistir, descobre sozinho consultando o servidor.
+                auto = _detect_mt5_symbol_suffix()
+                if auto is not None and mt5.symbol_info(pair + auto) is not None:
+                    resolved, confirmed = pair + auto, True
         except Exception:
             pass
     # Só memoriza resolução CONFIRMADA contra o servidor. Cachear o palpite
@@ -139,9 +203,16 @@ def _stamp_provenance(payload, is_live: bool):
 def from_broker_symbol(symbol: str) -> str:
     """Nome no servidor da corretora -> nome lógico do par. Usado pra comparar
     posições abertas (que vêm com o nome da corretora) contra as listas
-    internas de pares."""
-    if MT5_SYMBOL_SUFFIX and symbol.endswith(MT5_SYMBOL_SUFFIX):
-        return symbol[: -len(MT5_SYMBOL_SUFFIX)]
+    internas de pares — em especial a checagem de colisão de símbolo em conta
+    netting (agents/portfolio_executor.py), que compara nomes lógicos. Tenta o
+    sufixo configurado primeiro, depois o detectado automaticamente (mesma
+    ordem de precedência de to_broker_symbol); sem isso, uma posição com
+    sufixo só descoberto via auto-detecção nunca seria reconhecida na
+    comparação (a idempotência em si é por MAGIC NUMBER, não por símbolo —
+    essa função não afeta aquela checagem)."""
+    for suf in (MT5_SYMBOL_SUFFIX, _AUTO_DETECTED_SUFFIX):
+        if suf and symbol.endswith(suf):
+            return symbol[: -len(suf)]
     return symbol
 
 ALL_28_PAIRS = [

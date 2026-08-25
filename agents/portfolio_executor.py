@@ -440,6 +440,205 @@ def get_portfolio_pairs(currency: str, bias: str):
     return pairs_list
 
 
+COST_LOG_FILE = os.path.join(DATA_DIR, "execution_cost_log.json")
+
+# Serializa o ciclo ler-modificar-gravar de COST_LOG_FILE (achado em revisão):
+# medir custo agora roda numa thread por moeda, e várias moedas costumam
+# abrir na mesma noite — sem essa trava, duas threads podiam ler o mesmo
+# histórico, cada uma acrescentar sua entrada e gravar por cima, perdendo a
+# entrada da outra silenciosamente (lost update). A escrita atômica já
+# existente evita JSON pela metade; esta trava evita perder uma gravação
+# inteira.
+_COST_LOG_LOCK = threading.Lock()
+
+# Registro de medições de custo em andamento, por MOEDA (achado em revisão
+# /dual-r): cada moeda qualificada dispara uma thread própria pra medir
+# custo, sem timeout — se uma chamada MT5 travar de vez (IPC do terminal
+# preso), essa thread nunca retorna. Python não tem como cancelar uma
+# chamada C-extension travada por dentro (nem ThreadPoolExecutor ajuda: seus
+# workers não são daemon desde a 3.9 e são join()ados no encerramento do
+# processo — trocaria "threads penduradas inofensivas" por "processo que não
+# encerra"). Isto não cura uma chamada travada, só limita o estrago: no
+# máximo 1 thread presa POR MOEDA (teto real de 8, o total de moedas),
+# mesmo depois de muitas noites — uma medição nova pra uma moeda que já tem
+# outra presa desiste na hora e avisa, em vez de empilhar mais uma. Um
+# semáforo com teto baixo (ex.: 2) foi cogitado e descartado: numa noite
+# normal com 3+ moedas qualificando ao mesmo tempo (nada incomum — até 8
+# podem qualificar juntas), a maioria seria pulada só por concorrência
+# passageira entre medições saudáveis, não por travamento de verdade. Por
+# moeda não tem esse efeito colateral: moedas DIFERENTES nunca competem
+# entre si, só a MESMA moeda com ela mesma.
+_COST_MEASUREMENT_IN_PROGRESS = set()
+_COST_MEASUREMENT_IN_PROGRESS_LOCK = threading.Lock()
+
+
+class CostModel:
+    """Spread e swap REAIS medidos no broker conectado, em USD, pro lote dado.
+    Movida de scripts/backtest_canonical.py (que tinha sua própria cópia
+    hardcoded em LOT=0.01) pra cá — este é o executor de verdade, e o
+    backtest agora importa esta classe em vez de duplicá-la (pedido do
+    Breno: medir spread de verdade em vez de perguntar 'valor típico' pro
+    Miquéias — a mesma lógica serve pra qualquer corretora que o processo
+    estiver conectado no momento, sem precisar saber de antemão o custo
+    típico de nenhuma conta específica)."""
+
+    def __init__(self, lot: float):
+        self.lot = lot
+        self._rate = {}
+        self._leg = {}
+
+    def _usd_rate(self, quote):
+        if quote in self._rate:
+            return self._rate[quote]
+        if quote == "USD":
+            self._rate[quote] = 1.0
+            return 1.0
+        for cand, invert in ((f"{quote}USD", False), (f"USD{quote}", True)):
+            tick = mt5.symbol_info_tick(to_broker_symbol(cand))
+            if tick and tick.bid > 0:
+                r = (1.0 / tick.bid) if invert else tick.bid
+                self._rate[quote] = r
+                return r
+        self._rate[quote] = None
+        return None
+
+    def leg(self, pair, action, lot=None):
+        """(spread_ida_usd, swap_noite_usd). Swap negativo = custo.
+        `lot` opcional substitui self.lot pra essa perna (achado em revisão
+        /dual-r: cesta com preenchimento parcial numa perna tem lote
+        diferente das outras — usar sempre o mesmo lote pra todas subestima
+        ou superestima o custo de quem divergiu). A chave do cache inclui o
+        lote usado: sem isso, a MESMA perna calculada de novo com outro lote
+        devolveria o valor velho em vez de recalcular."""
+        lot = self.lot if lot is None else lot
+        key = (pair, action, lot)
+        if key in self._leg:
+            return self._leg[key]
+        bsym = to_broker_symbol(pair)
+        si, tick = mt5.symbol_info(bsym), mt5.symbol_info_tick(bsym)
+        rate = self._usd_rate(pair[3:6])
+        if not si or not tick or rate is None:
+            self._leg[key] = (0.0, 0.0)
+            return self._leg[key]
+        units = lot * si.trade_contract_size
+        spread = (tick.ask - tick.bid) * units * rate
+        # Swap só é calculado certo pro modo PONTOS (o mais comum, mas não o
+        # único — achado em revisão: MT5 também aceita swap em moeda base,
+        # moeda de margem, moeda de depósito e percentual). Fora desse modo a
+        # fórmula abaixo dá número errado; melhor reportar 0.0 (subestima o
+        # custo, nunca infla) do que fingir uma precisão que não existe.
+        swap_mode_points = getattr(mt5, "SYMBOL_SWAP_MODE_POINTS", 1)
+        if getattr(si, "swap_mode", swap_mode_points) == swap_mode_points:
+            swap_pts = si.swap_long if action == "BUY" else si.swap_short
+            swap = swap_pts * si.point * units * rate
+        else:
+            swap = 0.0
+        # Não contabiliza rollover triplo (si.swap_rollover3days) —
+        # decisão deliberada, não descuido (achado em revisão /dual-r).
+        # Corrigir isso exigiria saber o dia-da-semana do SERVIDOR do
+        # broker, e este repositório já foi mordido por essa exata classe
+        # de bug (duas implementações de offset de fuso divergentes — ver
+        # web/history_tracker.py:30-37 vs. web/real_portfolio_audit.py
+        # get_broker_gmt_offset()). Pior: pra esta conta (GMT_OFFSET=-3,
+        # servidor UTC+0), a janela operacional 21:05→08:00 BRT cai em
+        # ~00:05→11:00 do servidor — dentro do MESMO dia-servidor — logo
+        # muito provavelmente não atravessa rollover nenhum, e aplicar um
+        # multiplicador ×3 aqui pioraria o dado em vez de melhorar. Se um
+        # dia for preciso um swap fiel, o caminho mais seguro não é estimar
+        # melhor — é ler o swap REALIZADO dos deals de fechamento (já lido
+        # em web/real_portfolio_audit.py, campo d.swap), que captura
+        # rollover triplo, modo de swap fora de pontos e tudo o mais sem
+        # nenhum cálculo de fuso novo.
+        self._leg[key] = (spread, swap)
+        return self._leg[key]
+
+    def basket(self, ccy, bias, leg_lots: dict = None):
+        """Custo total de uma cesta: spread ida+volta + swap de uma noite.
+        Retorna valor POSITIVO representando quanto a cesta custa.
+        `leg_lots` opcional: {pair: lote confirmado} pra usar o lote real de
+        cada perna em vez do escalar único de __init__; perna ausente do
+        mapa (ou mapa não informado) cai pro escalar."""
+        spread = swap = 0.0
+        for p in get_portfolio_pairs(ccy, bias):
+            lot = (leg_lots or {}).get(p["pair"])
+            s, w = self.leg(p["pair"], p["action"], lot)
+            spread += s
+            swap += w
+        return spread * 2.0 - swap  # swap negativo vira custo positivo
+
+
+def _read_cost_log(path: str) -> list:
+    """Lê o log existente em `path`, ou [] se o arquivo ainda não existe.
+    Levanta se o conteúdo for ilegível/corrompido — quem chama decide
+    (measure_and_log_basket_cost recusa sobrescrever nesse caso)."""
+    if not os.path.exists(path):
+        return []
+    with open(path, "r", encoding="utf-8") as f:
+        log = json.load(f)
+    if not isinstance(log, list):
+        raise ValueError("formato inesperado (não é uma lista)")
+    return log
+
+
+def measure_and_log_basket_cost(currency: str, bias: str, lot: float, leg_lots: dict = None):
+    """Mede o custo real (spread+swap) da cesta recém-aberta e acrescenta ao
+    histórico em COST_LOG_FILE — dado empírico próprio, sem depender de
+    ninguém informar 'valor típico'. Deliberadamente chamada DEPOIS de a
+    cesta já ter aberto (nunca antes, nunca durante) e nunca por
+    open_portfolio_basket() diretamente: é só observação, não pode atrasar
+    nem arriscar o envio de ordem real. Qualquer falha aqui fica só no log,
+    nunca propaga.
+
+    `lot` continua sendo o escalar (média, ou o lote pedido) gravado no
+    campo "lot" pra compatibilidade com quem já lê este log. `leg_lots`
+    opcional (achado em revisão /dual-r) — {pair: lote confirmado da perna}
+    — dá o custo exato quando alguma perna teve preenchimento parcial; sem
+    ele, CostModel.basket() cai pro escalar único pra todas as pernas."""
+    ccy_key = currency.upper()
+    with _COST_MEASUREMENT_IN_PROGRESS_LOCK:
+        if ccy_key in _COST_MEASUREMENT_IN_PROGRESS:
+            print(f"[-] Medição de custo da cesta {ccy_key} pulada — uma medição anterior pra "
+                  f"esta MESMA moeda ainda está presa (possível IPC do MT5 travado). Log fica "
+                  f"sem esta entrada; a cesta em si não é afetada.")
+            return
+        _COST_MEASUREMENT_IN_PROGRESS.add(ccy_key)
+    try:
+        # A medição em si (chamadas MT5) fica FORA do lock — só o ciclo
+        # ler-modificar-gravar do arquivo compartilhado precisa ser
+        # serializado, pra não travar a medição de uma moeda esperando a
+        # de outra.
+        cost_usd = CostModel(lot).basket(currency.upper(), bias, leg_lots)
+        entry = {
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "currency": currency.upper(),
+            "bias": bias,
+            "lot": round(lot, 4),
+            "cost_usd": round(cost_usd, 4),
+        }
+        if leg_lots:
+            entry["leg_lots"] = {pair: round(l, 4) for pair, l in leg_lots.items()}
+        with _COST_LOG_LOCK:
+            try:
+                log = _read_cost_log(COST_LOG_FILE)
+            except Exception as e:
+                # NÃO sobrescreve (achado em revisão): sem isso, um arquivo
+                # corrompido/ilegível virava um log novo de 1 entrada só,
+                # apagando silenciosamente todo o histórico acumulado. Perder
+                # ESTA medição é aceitável; apagar meses de histórico não.
+                print(f"[-] Falha ao ler {COST_LOG_FILE} ({e}) — NÃO sobrescrevendo "
+                      f"(evita apagar o histórico). Esta medição fica de fora do log.")
+                return
+            log.append(entry)
+            _atomic_write_json(COST_LOG_FILE, log)
+        print(f"[+] Custo medido da cesta {currency.upper()} ({bias}): ${cost_usd:.2f} "
+              f"(gravado em {COST_LOG_FILE})")
+    except Exception as e:
+        print(f"[-] Falha ao medir/gravar custo da cesta {currency}: {e}")
+    finally:
+        with _COST_MEASUREMENT_IN_PROGRESS_LOCK:
+            _COST_MEASUREMENT_IN_PROGRESS.discard(ccy_key)
+
+
 def open_portfolio_basket(currency: str, bias: str, lot: float = 0.01, deviation: int = 15):
     """
     Envia ordens a mercado no MT5 para os 7 pares do portfólio especificado
@@ -495,6 +694,16 @@ def open_portfolio_basket(currency: str, bias: str, lot: float = 0.01, deviation
     magic = PORTFOLIO_MAGICS.get(ccy, 801000)
     pairs = get_portfolio_pairs(ccy, bias)
 
+    # Aquece a resolução de símbolo ANTES da checagem de colisão em netting
+    # logo abaixo (achado em revisão): a auto-detecção de sufixo só dispara
+    # dentro de to_broker_symbol(), que só era chamada mais adiante no
+    # preflight — na primeira chamada do processo (sufixo manual ainda não
+    # configurado), a comparação de símbolo pra colisão em netting rodaria
+    # antes do sufixo estar descoberto. Barato: um symbol_info a mais, cacheado
+    # depois disso pro resto da vida do processo.
+    if pairs:
+        to_broker_symbol(pairs[0]["pair"])
+
     try:
         open_magics = get_open_magics_and_symbols()
     except MT5QueryError as e:
@@ -519,6 +728,24 @@ def open_portfolio_basket(currency: str, bias: str, lot: float = 0.01, deviation
     if safety.get("margin_mode") == "netting":
         target_symbols = {p["pair"] for p in pairs}
         for other_magic, other_symbols in open_magics.items():
+            # Acha em revisão (rodada 3): o aquecimento acima reduz mas não
+            # elimina a janela onde from_broker_symbol() ainda não sabe o
+            # sufixo (ex.: falha transitória bem na hora do aquecimento, numa
+            # corretora nova sem CSS_MT5_SYMBOL_SUFFIX configurado) — nesse
+            # caso o símbolo da corretora não seria normalizado e a colisão
+            # abaixo passaria batido. Em vez de confiar que o aquecimento deu
+            # certo, valida o DADO que a decisão realmente usa: se algum
+            # símbolo não bate com nenhum dos 28 pares conhecidos, a
+            # normalização falhou pra essa consulta — recusa por segurança.
+            unresolved = other_symbols - set(ALL_28_PAIRS)
+            if unresolved:
+                msg = (f"Conta em modo netting: símbolo(s) {sorted(unresolved)} da cesta "
+                       f"(magic {other_magic}) não bateram com nenhum par conhecido depois de "
+                       f"tentar remover o sufixo da corretora — resolução de símbolo pode ter "
+                       f"falhado nesta consulta. Abertura de {ccy} recusada por segurança: sem "
+                       f"essa normalização confiável, colisão de símbolo não pode ser descartada.")
+                print(f"[PORTFOLIO ROBOT {ccy}] {msg}")
+                return {"success": False, "error": "symbol_resolution_unreliable", "message": msg}
             collision = target_symbols & other_symbols
             if collision:
                 msg = (f"Conta em modo netting: cesta {ccy} colidiria com o magic {other_magic} "

@@ -38,7 +38,11 @@ from web.css_service import (
     calculate_full_css, get_tf_constant, to_broker_symbol,
 )
 from agents.confluence_engine import evaluate_currency_confluence
-from agents.portfolio_executor import get_portfolio_pairs, ensure_mt5
+# CostModel mora em agents/portfolio_executor.py (o executor de verdade) —
+# era duplicada aqui até 24/08; agora o backtest importa a mesma classe que
+# o sistema ao vivo usa pra medir custo real de cada cesta aberta, em vez de
+# manter uma segunda cópia da lógica.
+from agents.portfolio_executor import get_portfolio_pairs, ensure_mt5, CostModel
 from web.history_tracker import GMT_OFFSET, convert_pnl_to_usd
 
 LOT = 0.01
@@ -54,57 +58,6 @@ TF_COUNTS = {"MN1": 60, "W1": 120, "D1": 200, "H4": 600, "H1": 1600}
 def _brt_to_server(dt_brt):
     """BRT -> hora do servidor do broker (o inverso do GMT_OFFSET do EA)."""
     return dt_brt - timedelta(hours=GMT_OFFSET)
-
-
-class CostModel:
-    """Spread e swap REAIS da conta conectada, em USD por perna de 0.01 lote."""
-
-    def __init__(self):
-        self._rate = {}
-        self._leg = {}
-
-    def _usd_rate(self, quote):
-        if quote in self._rate:
-            return self._rate[quote]
-        if quote == "USD":
-            self._rate[quote] = 1.0
-            return 1.0
-        for cand, invert in ((f"{quote}USD", False), (f"USD{quote}", True)):
-            tick = mt5.symbol_info_tick(to_broker_symbol(cand))
-            if tick and tick.bid > 0:
-                r = (1.0 / tick.bid) if invert else tick.bid
-                self._rate[quote] = r
-                return r
-        self._rate[quote] = None
-        return None
-
-    def leg(self, pair, action):
-        """(spread_ida_usd, swap_noite_usd). Swap negativo = custo."""
-        key = (pair, action)
-        if key in self._leg:
-            return self._leg[key]
-        bsym = to_broker_symbol(pair)
-        si, tick = mt5.symbol_info(bsym), mt5.symbol_info_tick(bsym)
-        rate = self._usd_rate(pair[3:6])
-        if not si or not tick or rate is None:
-            self._leg[key] = (0.0, 0.0)
-            return self._leg[key]
-        units = LOT * si.trade_contract_size
-        spread = (tick.ask - tick.bid) * units * rate
-        swap_pts = si.swap_long if action == "BUY" else si.swap_short
-        swap = swap_pts * si.point * units * rate
-        self._leg[key] = (spread, swap)
-        return self._leg[key]
-
-    def basket(self, ccy, bias):
-        """Custo total de uma cesta: spread ida+volta + swap de uma noite.
-        Retorna valor POSITIVO representando quanto a cesta custa."""
-        spread = swap = 0.0
-        for p in get_portfolio_pairs(ccy, bias):
-            s, w = self.leg(p["pair"], p["action"])
-            spread += s
-            swap += w
-        return spread * 2.0 - swap  # swap negativo vira custo positivo
 
 
 def load_series():
@@ -168,7 +121,7 @@ def run(days=45):
     print(f"[*] Carregando preços H1 de {len(ALL_28_PAIRS)} pares...")
     prices = load_h1_prices()
     print(f"[+] {len(prices)} pares com preço disponível.")
-    costs = CostModel()
+    costs = CostModel(LOT)
 
     # Pontos de entrada: 21:00 BRT de cada dia, convertidos pra hora do servidor
     h1_times = series["H1"]["times"]
