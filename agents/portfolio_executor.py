@@ -762,6 +762,17 @@ def open_portfolio_basket(currency: str, bias: str, lot: float = 0.01, deviation
     ticks = {}
     unresolved = []
     no_tick = []
+    restricted = []
+    # Achado ALTO em revisão (/codex-r sobre o commit ad44e12): a
+    # auto-detecção de sufixo em web/css_service.py só valida
+    # trade_mode==FULL no par-sonda (EURUSD) — não garante NADA sobre as
+    # outras 27 pernas possíveis daquela mesma família de símbolos. Uma
+    # perna individual pode ser CLOSEONLY/LONGONLY/SHORTONLY mesmo com o
+    # sufixo "certo" escolhido, e antes disso passava batido aqui (só
+    # existência+tick eram checados) até falhar em order_send() — tarde
+    # demais, com pernas anteriores já abertas (exatamente a cesta parcial
+    # que este preflight all-or-nothing existe pra evitar).
+    full_mode = getattr(mt5, "SYMBOL_TRADE_MODE_FULL", 4)
     for p in pairs:
         b_sym = to_broker_symbol(p["pair"])
         info = mt5.symbol_info(b_sym)
@@ -770,6 +781,9 @@ def open_portfolio_basket(currency: str, bias: str, lot: float = 0.01, deviation
             info = mt5.symbol_info(b_sym)
         if info is None:
             unresolved.append(p["pair"])
+            continue
+        if getattr(info, "trade_mode", full_mode) != full_mode:
+            restricted.append(p["pair"])
             continue
         if not info.visible:
             mt5.symbol_select(b_sym, True)
@@ -789,18 +803,22 @@ def open_portfolio_basket(currency: str, bias: str, lot: float = 0.01, deviation
             continue
         ticks[p["pair"]] = price
 
-    if unresolved or no_tick:
+    if unresolved or no_tick or restricted:
         partes = []
         if unresolved:
             partes.append(f"não encontrados no servidor: {sorted(unresolved)} "
                           f"(sufixo configurado: {MT5_SYMBOL_SUFFIX!r} — confira CSS_MT5_SYMBOL_SUFFIX)")
+        if restricted:
+            partes.append(f"modo de negociação restrito, não FULL (CLOSEONLY/LONGONLY/SHORTONLY): "
+                          f"{sorted(restricted)}")
         if no_tick:
             partes.append(f"sem cotação válida agora: {sorted(no_tick)}")
         msg = (f"Cesta {ccy} recusada por inteiro antes de qualquer ordem — " + "; ".join(partes) +
                ". Melhor nenhuma perna do que uma cesta parcial.")
         print(f"[PORTFOLIO ROBOT {ccy}] {msg}")
         return {"success": False, "error": "preflight_failed", "message": msg,
-                "unresolved": sorted(unresolved), "no_tick": sorted(no_tick)}
+                "unresolved": sorted(unresolved), "no_tick": sorted(no_tick),
+                "restricted": sorted(restricted)}
 
     results = []
     success_count = 0

@@ -690,10 +690,12 @@ class TestSymbolResolution(unittest.TestCase):
         fake_mt5 = make_fake_mt5()
         fake_mt5.SYMBOL_TRADE_MODE_FULL = "FULL"
         fake_mt5.symbols_get.return_value = [
-            # Mais curto, mas desabilitado — não pode vencer.
+            # Todos mais curtos que o certo, mas nenhum negociável nos dois
+            # sentidos — nenhum pode vencer.
             SimpleNamespace(name="EURUSDx", visible=True, trade_mode="DISABLED"),
-            # Mais curto ainda, mas só fecha posição — também não pode vencer.
             SimpleNamespace(name="EURUSDy", visible=True, trade_mode="CLOSEONLY"),
+            SimpleNamespace(name="EURUSDw", visible=True, trade_mode="LONGONLY"),
+            SimpleNamespace(name="EURUSDv", visible=True, trade_mode="SHORTONLY"),
             # Mais longo, mas negociável nos dois sentidos — este é o certo.
             SimpleNamespace(name="EURUSDpro", visible=True, trade_mode="FULL"),
         ]
@@ -701,7 +703,8 @@ class TestSymbolResolution(unittest.TestCase):
              patch.object(cs, "_AUTO_DETECTED_SUFFIX", None):
             result = cs._detect_mt5_symbol_suffix()
         self.assertEqual(result, "pro")
-        print("[✓] Detecção automática só aceita trade_mode FULL — ignora DISABLED, CLOSEONLY e afins")
+        print("[✓] Detecção automática só aceita trade_mode FULL — ignora DISABLED, CLOSEONLY, "
+              "LONGONLY e SHORTONLY")
 
     def test_auto_detection_ignores_market_watch_visibility(self):
         """Achado em revisão /dual-r: "visible" é só estado de UI (Market
@@ -712,13 +715,19 @@ class TestSymbolResolution(unittest.TestCase):
         fake_mt5 = make_fake_mt5()
         fake_mt5.SYMBOL_TRADE_MODE_FULL = "FULL"
         fake_mt5.symbols_get.return_value = [
+            # Mais curto E invisível, mas só fecha posição — uma implementação
+            # que aceitasse "qualquer invisível" (em vez de continuar exigindo
+            # FULL) escolheria este por engano; ele tem que perder mesmo assim.
+            SimpleNamespace(name="EURUSDx", visible=False, trade_mode="CLOSEONLY"),
+            # Mais longo e também invisível, mas FULL — este é o certo.
             SimpleNamespace(name="EURUSDm", visible=False, trade_mode="FULL"),
         ]
         with patch.object(cs, "MT5_AVAILABLE", True), patch.object(cs, "mt5", fake_mt5), \
              patch.object(cs, "_AUTO_DETECTED_SUFFIX", None):
             result = cs._detect_mt5_symbol_suffix()
         self.assertEqual(result, "m")
-        print("[✓] Detecção automática não descarta candidato só por estar invisível no Market Watch")
+        print("[✓] Detecção automática não descarta candidato só por estar invisível no Market "
+              "Watch — mas continua exigindo trade_mode FULL mesmo assim")
 
     def test_auto_detection_result_is_cached_not_requeried(self):
         fake_mt5 = make_fake_mt5()
@@ -824,6 +833,37 @@ class TestSymbolResolution(unittest.TestCase):
         self.assertEqual(result["no_tick"], ["CADJPY"])
         fake_mt5.order_send.assert_not_called()
         print("[✓] Um único par sem cotação recusa a cesta inteira — zero perna aberta")
+
+    def test_open_refused_entirely_when_a_single_pair_has_restricted_trade_mode(self):
+        """Achado ALTO em revisão (/codex-r sobre o commit ad44e12): a
+        auto-detecção de sufixo em web/css_service.py só valida
+        trade_mode==FULL no par-sonda (EURUSD) — não garante nada sobre as
+        outras 27 pernas possíveis da mesma família de símbolos. Uma perna
+        individual pode ser CLOSEONLY/LONGONLY/SHORTONLY mesmo com o sufixo
+        certo, e sem esta checagem passaria batido no preflight até falhar
+        em order_send() — tarde demais, com pernas anteriores já abertas."""
+        fake_mt5 = make_fake_mt5()
+        fake_mt5.SYMBOL_TRADE_MODE_FULL = "FULL"
+        fake_mt5.account_info.return_value = SimpleNamespace(
+            login=999, server="Broker-Demo", trade_mode="DEMO",
+            trade_allowed=True, margin_mode="HEDGING")
+        fake_mt5.positions_get.return_value = ()
+
+        def info_for(sym):
+            # 6 dos 7 pares negociam livremente; CADJPYm só fecha posição.
+            mode = "CLOSEONLY" if sym.startswith("CADJPY") else "FULL"
+            return SimpleNamespace(visible=True, trade_mode=mode)
+
+        fake_mt5.symbol_info.side_effect = info_for
+        fake_mt5.symbol_info_tick.return_value = SimpleNamespace(ask=1.1000, bid=1.0998)
+        with patch.dict(os.environ, DEMO_GATE_ENV), \
+             patch.object(pe, "MT5_AVAILABLE", True), patch.object(pe, "mt5", fake_mt5):
+            result = pe.open_portfolio_basket("CAD", "BUY")
+        self.assertFalse(result["success"])
+        self.assertEqual(result["error"], "preflight_failed")
+        self.assertEqual(result["restricted"], ["CADJPY"])
+        fake_mt5.order_send.assert_not_called()
+        print("[✓] Um único par com trade_mode restrito recusa a cesta inteira — zero perna aberta")
 
 
 class TestReconciler(unittest.TestCase):
@@ -1508,6 +1548,60 @@ class TestCostModel(unittest.TestCase):
         self.assertGreater(spread_usd, 0.0, "spread continua calculado normalmente")
         print("[✓] swap_mode != PONTOS: swap reportado como 0.0, spread não é afetado")
 
+    def test_basket_applies_leg_lots_when_provided(self):
+        """Achado em revisão (/codex-r sobre o commit ad44e12, GAPS): o teste
+        de scheduler_daemon.py que cobre lote-por-perna só prova que o
+        MAPA é repassado pra uma função mockada — nunca prova que
+        CostModel.basket() de fato USA lotes diferentes por perna no
+        cálculo. Mede a cesta CAD duas vezes: uma com o mesmo lote em
+        todas as pernas, outra com UMA perna 10x maior — o custo tem que
+        ser maior na segunda (contradiz uma implementação que ignore
+        leg_lots e sempre use o self.lot escalar)."""
+        fake_mt5 = MagicMock()
+        fake_mt5.SYMBOL_SWAP_MODE_POINTS = 1
+        fake_mt5.symbol_info.return_value = SimpleNamespace(
+            trade_contract_size=100000, point=0.0001,
+            swap_long=0.0, swap_short=0.0, swap_mode=1)
+        fake_mt5.symbol_info_tick.return_value = SimpleNamespace(ask=1.1002, bid=1.1000)
+        with patch.object(pe, "mt5", fake_mt5), \
+             patch.object(pe, "to_broker_symbol", lambda p: p + "m"):
+            pairs = pe.get_portfolio_pairs("CAD", "BUY")
+            uniform_lots = {p["pair"]: 0.01 for p in pairs}
+            skewed_lots = dict(uniform_lots)
+            skewed_lots[pairs[0]["pair"]] = 0.10  # uma perna 10x maior
+
+            cost_uniform = pe.CostModel(0.01).basket("CAD", "BUY", uniform_lots)
+            cost_skewed = pe.CostModel(0.01).basket("CAD", "BUY", skewed_lots)
+
+        self.assertGreater(cost_skewed, cost_uniform,
+                            "custo não mudou ao aumentar o lote de uma perna — "
+                            "leg_lots está sendo ignorado no cálculo")
+        print("[✓] CostModel.basket() usa o lote de cada perna do mapa, não só o escalar")
+
+    def test_leg_cache_distinguishes_by_lot(self):
+        """Achado em revisão (/codex-r sobre o commit ad44e12, GAPS): a
+        chave do cache de leg() agora inclui o lote — prova que a MESMA
+        perna calculada de novo com um lote DIFERENTE não devolve o valor
+        velho (o que aconteceria se o cache ainda fosse só por
+        (pair, action), ignorando o lote)."""
+        fake_mt5 = MagicMock()
+        fake_mt5.SYMBOL_SWAP_MODE_POINTS = 1
+        fake_mt5.symbol_info.return_value = SimpleNamespace(
+            trade_contract_size=100000, point=0.0001,
+            swap_long=0.0, swap_short=0.0, swap_mode=1)
+        fake_mt5.symbol_info_tick.return_value = SimpleNamespace(ask=1.1002, bid=1.1000)
+        with patch.object(pe, "mt5", fake_mt5), \
+             patch.object(pe, "to_broker_symbol", lambda p: p + "m"):
+            model = pe.CostModel(0.01)
+            spread_a, _ = model.leg("EURUSD", "BUY", lot=0.01)
+            spread_b, _ = model.leg("EURUSD", "BUY", lot=0.05)
+        self.assertNotAlmostEqual(spread_a, spread_b,
+                                   msg="mesmo par/ação com lote diferente devolveu o mesmo "
+                                       "spread — cache não está diferenciando por lote")
+        self.assertAlmostEqual(spread_b, spread_a * 5,
+                                msg="spread não escalou linearmente com o lote")
+        print("[✓] Cache de leg() diferencia corretamente por lote — não devolve valor velho")
+
 
 class TestMeasureAndLogBasketCost(unittest.TestCase):
     """measure_and_log_basket_cost() — dado empírico próprio, acrescentado a
@@ -1691,26 +1785,43 @@ class TestMeasureAndLogBasketCost(unittest.TestCase):
                 release.set()
                 stuck_thread.join(timeout=5)
 
+                # Achado em revisão (/codex-r sobre o commit ad44e12, GAPS):
+                # provar só que a SEGUNDA medição foi pulada não prova que o
+                # guard é removido depois — uma implementação que nunca tira
+                # a moeda do registro (bug de "trava permanente") passaria
+                # pelas asserções acima do mesmo jeito. Uma TERCEIRA medição,
+                # já com a primeira thread terminada, tem que funcionar
+                # normalmente.
+                with patch.object(pe, "CostModel") as free_model:
+                    free_model.return_value.basket.return_value = 2.0
+                    pe.measure_and_log_basket_cost("CAD", "BUY", 0.01)
+
             with open(log_path, encoding="utf-8") as f:
                 log = json.load(f)
         self.assertFalse(stuck_thread.is_alive(), "thread travada nunca terminou")
-        self.assertEqual(len(log), 1, "a segunda medição (que devia ter sido pulada) gravou algo")
-        print("[✓] Segunda medição da mesma moeda presa desiste na hora, não empilha outra thread")
+        self.assertEqual(len(log), 2,
+                          "a segunda medição (pulada) gravou algo, ou a terceira "
+                          "(depois de liberar) NÃO gravou — guard preso pra sempre")
+        print("[✓] Segunda medição da mesma moeda presa desiste na hora, não empilha outra "
+              "thread, e uma terceira medição depois de liberar volta a funcionar normalmente")
 
     def test_stuck_currency_never_blocks_a_different_currency(self):
         """A trava é POR MOEDA, não um teto global — moedas diferentes nunca
-        competem entre si, só a mesma moeda com ela mesma (achado em revisão
-        /dual-r: um teto global baixo tipo threading.Semaphore(2) pularia a
-        maioria das medições numa noite normal com 3+ moedas qualificando ao
-        mesmo tempo, o que não é incomum)."""
-        entered = threading.Event()
+        competem entre si, só a mesma moeda com ela mesma. Usa DUAS moedas
+        presas (CAD e USD) e verifica que uma TERCEIRA (EUR) ainda mede
+        normalmente (achado em revisão /codex-r sobre o commit ad44e12,
+        GAPS): com só uma moeda presa, um teto global tipo
+        threading.Semaphore(2) passaria por engano — sobraria 1 vaga livre.
+        Com DUAS presas, um semáforo(2) já estaria esgotado e bloquearia a
+        terceira; o registro por moeda não bloqueia."""
+        entered = {"CAD": threading.Event(), "USD": threading.Event()}
         release = threading.Event()
 
         def stuck_model(lot):
             m = MagicMock()
 
             def stuck_basket(ccy, bias, leg_lots=None):
-                entered.set()
+                entered[ccy].set()
                 release.wait(timeout=5)
                 return 1.0
             m.basket.side_effect = stuck_basket
@@ -1720,23 +1831,28 @@ class TestMeasureAndLogBasketCost(unittest.TestCase):
             log_path = os.path.join(tmp, "execution_cost_log.json")
             with patch.object(pe, "COST_LOG_FILE", log_path), \
                  patch.object(pe, "CostModel", side_effect=stuck_model):
-                stuck_thread = threading.Thread(
-                    target=pe.measure_and_log_basket_cost, args=("CAD", "BUY", 0.01),
-                    daemon=True)
-                stuck_thread.start()
-                self.assertTrue(entered.wait(timeout=5), "thread nunca entrou na medição")
+                stuck_threads = [
+                    threading.Thread(target=pe.measure_and_log_basket_cost,
+                                      args=(ccy, "BUY", 0.01), daemon=True)
+                    for ccy in ("CAD", "USD")
+                ]
+                for t in stuck_threads:
+                    t.start()
+                for ev in entered.values():
+                    self.assertTrue(ev.wait(timeout=5), "thread nunca entrou na medição")
 
-                # Moeda DIFERENTE, com CAD ainda preso: não pode ser afetada.
+                # Terceira moeda, DIFERENTE das duas presas: não pode ser afetada.
                 with patch.object(pe, "CostModel") as free_model:
                     free_model.return_value.basket.return_value = 5.0
-                    pe.measure_and_log_basket_cost("USD", "BUY", 0.01)
+                    pe.measure_and_log_basket_cost("EUR", "BUY", 0.01)
                 with open(log_path, encoding="utf-8") as f:
                     log = json.load(f)
-                self.assertEqual([e["currency"] for e in log], ["USD"])
+                self.assertEqual([e["currency"] for e in log], ["EUR"])
 
                 release.set()
-                stuck_thread.join(timeout=5)
-        print("[✓] Moeda diferente mede normalmente mesmo com outra moeda presa")
+                for t in stuck_threads:
+                    t.join(timeout=5)
+        print("[✓] Terceira moeda mede normalmente mesmo com DUAS outras presas ao mesmo tempo")
 
     def test_never_raises_even_when_measurement_fails_completely(self):
         with tempfile.TemporaryDirectory() as tmp:
