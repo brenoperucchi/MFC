@@ -10,6 +10,7 @@ Regra de Negócio:
 import os
 import sys
 import json
+import math
 import time
 import tempfile
 from datetime import datetime, timedelta
@@ -26,7 +27,7 @@ if BASE_DIR not in sys.path:
 from web.css_service import (
     ALL_28_PAIRS, CURRENCIES, CCY_FLAGS, CCY_COLORS,
     MT5_AVAILABLE, mt5, MT5_PATH, MT5_SYMBOL_SUFFIX,
-    to_broker_symbol, from_broker_symbol
+    to_broker_symbol, from_broker_symbol, reset_family_detection_cooldown
 )
 from web.history_tracker import convert_pnl_to_usd
 
@@ -442,26 +443,47 @@ def get_portfolio_pairs(currency: str, bias: str):
 
 COST_LOG_FILE = os.path.join(DATA_DIR, "execution_cost_log.json")
 
-# Serializa o ciclo ler-modificar-gravar de COST_LOG_FILE (achado em revisão):
-# medir custo agora roda numa thread por moeda, e várias moedas costumam
-# abrir na mesma noite — sem essa trava, duas threads podiam ler o mesmo
-# histórico, cada uma acrescentar sua entrada e gravar por cima, perdendo a
-# entrada da outra silenciosamente (lost update). A escrita atômica já
-# existente evita JSON pela metade; esta trava evita perder uma gravação
-# inteira.
+# Serializa o ciclo ler-modificar-gravar de COST_LOG_FILE (achado em revisão).
+# Achado em revisão (Codex, achado 4 rodada 2): este comentário dizia "medir
+# custo agora roda numa thread por moeda" — desatualizado desde o achado 3
+# (ver o comentário do guard logo abaixo): hoje mede as cestas de uma noite
+# em LOTE, numa thread só (scheduler_daemon._measure_pending_costs), então
+# dentro de UMA execução da fase 21:05 não há concorrência nenhuma pro log.
+# A trava continua necessária porque measure_and_log_basket_cost() é função
+# PÚBLICA — o endpoint manual (POST /api/portfolio-robots/open) pode chamar
+# open_portfolio_basket() e, por tabela, medir custo, ao mesmo tempo em que
+# o daemon mede o lote da noite. Sem esta trava, dois chamadores podiam ler
+# o mesmo histórico, cada um acrescentar sua entrada e gravar por cima,
+# perdendo a entrada do outro silenciosamente (lost update). A escrita
+# atômica já existente evita JSON pela metade; esta trava evita perder uma
+# gravação inteira.
 _COST_LOG_LOCK = threading.Lock()
 
 # Registro de medições de custo em andamento, por MOEDA (achado em revisão
-# /dual-r): cada moeda qualificada dispara uma thread própria pra medir
-# custo, sem timeout — se uma chamada MT5 travar de vez (IPC do terminal
-# preso), essa thread nunca retorna. Python não tem como cancelar uma
+# /dual-r). O scheduler já não dispara uma thread por moeda: hoje mede as
+# cestas do dia em lote, numa thread só, DEPOIS de todas as aberturas (ver
+# scheduler_daemon._measure_pending_costs) — então DENTRO de uma execução da
+# fase 21:05 este guard não chega a disparar. Ele continua necessário por uma
+# razão que só aparece olhando MAIS de uma noite: se a cost_batch de uma
+# noite travar numa chamada MT5 (sem timeout) e não destravar a tempo, a
+# fase seguinte cria uma cost_batch NOVA sobre o mesmo pending_cost — sem
+# este guard, cada noite travada empilha mais uma thread presa (sem teto), e
+# pior, a moeda que travou primeiro nunca mais seria medida (a thread nova
+# trava exatamente no mesmo ponto). Com o guard, o teto continua sendo 8 —
+# uma por moeda que já está travada — e as OUTRAS moedas do lote seguem
+# sendo medidas normalmente na noite seguinte. Python não tem como cancelar uma
 # chamada C-extension travada por dentro (nem ThreadPoolExecutor ajuda: seus
 # workers não são daemon desde a 3.9 e são join()ados no encerramento do
 # processo — trocaria "threads penduradas inofensivas" por "processo que não
 # encerra"). Isto não cura uma chamada travada, só limita o estrago: no
 # máximo 1 thread presa POR MOEDA (teto real de 8, o total de moedas),
 # mesmo depois de muitas noites — uma medição nova pra uma moeda que já tem
-# outra presa desiste na hora e avisa, em vez de empilhar mais uma. Um
+# outra presa desiste na hora e avisa, em vez de empilhar mais uma. Note que
+# a UNIDADE de perda mudou com o lote único do scheduler: uma moeda travada
+# não perde só a si mesma, arrasta as moedas seguintes do MESMO lote (que
+# nunca chegam a rodar, presas atrás dela na mesma thread) — o guard limita
+# quantas THREADS acumulam, não quantas medições um travamento custa numa
+# única noite. Um
 # semáforo com teto baixo (ex.: 2) foi cogitado e descartado: numa noite
 # normal com 3+ moedas qualificando ao mesmo tempo (nada incomum — até 8
 # podem qualificar juntas), a maioria seria pulada só por concorrência
@@ -471,21 +493,75 @@ _COST_LOG_LOCK = threading.Lock()
 _COST_MEASUREMENT_IN_PROGRESS = set()
 _COST_MEASUREMENT_IN_PROGRESS_LOCK = threading.Lock()
 
+# Sentinela pra distinguir "swap_mode ausente" de "swap_mode presente com um
+# valor real" em CostModel.leg() — object() só é igual a si mesmo, nunca a
+# um valor de constante MT5 (achado em revisão: Codex, achado 4 rodada 4).
+_SWAP_MODE_MISSING = object()
+
+
+def _tick_valido(tick):
+    """Um tick só é confiável se os DOIS lados forem positivos, FINITOS e o
+    mercado não estiver cruzado (ask >= bid) — não só o lado que vai ser
+    usado numa ordem específica. Função de MÓDULO, não mais closure interna
+    de CostModel.leg() (achado em revisão: Codex + mfc-rev-2, achado 2/4
+    rodada 5, confirmado pelos dois independentemente): a versão anterior
+    só existia dentro de leg(), então o preflight real (open_portfolio_basket)
+    e _usd_rate() tinham suas PRÓPRIAS checagens, mais fracas — só o preço
+    do lado escolhido, sem exigir o outro lado positivo. Medido (Claude):
+    um tick com ask=1.1002/bid=0.0 (BUY) passava reto pelo preflight e as
+    7 ordens saíam, enquanto o CostModel (só diagnóstico) já rejeitava a
+    mesma perna. Uma função só, usada nos quatro lugares que fazem a
+    mesma pergunta ao mesmo binding, fecha a divergência estruturalmente
+    em vez de precisar lembrar de sincronizar quatro cópias.
+
+    Achado em revisão (Codex, rodada 6): `ask > 0` sozinho não barra
+    `float("inf")` — um tick `ask=inf, bid=1.0` passava, o preflight
+    gravava `inf` em `ticks[...]`, e a reconsulta no laço de envio aceitava
+    de novo, entregando `price=inf` a `order_send()` e ao cálculo do stop
+    catastrófico. `math.isfinite()` nos dois lados fecha isso."""
+    return (tick is not None
+            and math.isfinite(tick.ask) and math.isfinite(tick.bid)
+            and tick.ask > 0 and tick.bid > 0 and tick.ask >= tick.bid)
+
 
 class CostModel:
-    """Spread e swap REAIS medidos no broker conectado, em USD, pro lote dado.
-    Movida de scripts/backtest_canonical.py (que tinha sua própria cópia
-    hardcoded em LOT=0.01) pra cá — este é o executor de verdade, e o
-    backtest agora importa esta classe em vez de duplicá-la (pedido do
-    Breno: medir spread de verdade em vez de perguntar 'valor típico' pro
-    Miquéias — a mesma lógica serve pra qualquer corretora que o processo
-    estiver conectado no momento, sem precisar saber de antemão o custo
-    típico de nenhuma conta específica)."""
+    """ESTIMATIVA de spread e swap no broker conectado, em USD, pro lote dado
+    — não custo realizado (achado em revisão, Codex, recorrente desde a
+    rodada 2 do achado 4): usa o TICK CORRENTE (ask/bid de agora), não o
+    preço de preenchimento real da ordem, e não conta comissão nem
+    slippage; o swap usa os campos do símbolo, não o valor efetivamente
+    debitado/creditado nos deals de fechamento (esse dado mais fiel já é
+    lido em web/real_portfolio_audit.py, campo d.swap — ver o comentário
+    de leg() sobre rollover triplo pra mais contexto). "Real" aqui, nos
+    logs e no backtest, significa "medido no broker de verdade agora", em
+    contraste com um valor típico hardcoded — não "idêntico ao que a
+    corretora efetivamente cobrou". Movida de scripts/backtest_canonical.py
+    (que tinha sua própria cópia hardcoded em LOT=0.01) pra cá — este é o
+    executor de verdade, e o backtest agora importa esta classe em vez de
+    duplicá-la (pedido do Breno: medir spread de verdade em vez de
+    perguntar 'valor típico' pro Miquéias — a mesma lógica serve pra
+    qualquer corretora que o processo estiver conectado no momento, sem
+    precisar saber de antemão o custo típico de nenhuma conta
+    específica)."""
 
     def __init__(self, lot: float):
         self.lot = lot
         self._rate = {}
         self._leg = {}
+        # Achado 4 rodada 2 (mfc-rev-2, medido): as duas categorias abaixo
+        # NÃO podem compartilhar a mesma bandeira. _degraded é "perdi o
+        # dado" — spread E swap se foram, custo real da perna é
+        # desconhecido. _swap_unmodeled é "o spread é real, só o swap não
+        # tem fórmula fiel pra esse modo" — propriedade ESTÁTICA do
+        # símbolo, não falha transitória. Antes de separar, uma corretora
+        # com swap fora de pontos (comum: swap em moeda de depósito)
+        # marcava 100% das cestas como "degradadas" em toda medição, pra
+        # sempre — um alarme que nunca desliga é ignorado, o oposto do
+        # propósito deste mecanismo.
+        self._degraded = {}          # (pair, action, lot) -> motivo: dado perdido
+        self._swap_unmodeled = {}    # (pair, action, lot) -> motivo: swap fora de pontos
+        self.last_basket_degraded = set()        # pernas SEM dado na ÚLTIMA basket()
+        self.last_basket_swap_unmodeled = set()  # pernas com swap não modelado na ÚLTIMA
 
     def _usd_rate(self, quote):
         if quote in self._rate:
@@ -494,8 +570,26 @@ class CostModel:
             self._rate[quote] = 1.0
             return 1.0
         for cand, invert in ((f"{quote}USD", False), (f"USD{quote}", True)):
-            tick = mt5.symbol_info_tick(to_broker_symbol(cand))
-            if tick and tick.bid > 0:
+            bsym = to_broker_symbol(cand)
+            tick = mt5.symbol_info_tick(bsym)
+            if not _tick_valido(tick):
+                # Achado 4 (revisão de ad44e12/c24a44c, mfc-rev-2): o gatilho
+                # mais provável de degradação era este — pares de conversão
+                # (ex.: GBPUSD pra medir custo de uma cesta CAD) não fazem
+                # parte das 7 pernas que o preflight já seleciona; sem estar
+                # "selecionado" no Market Watch, symbol_info_tick() devolve
+                # None mesmo o símbolo existindo. Mesma correção que o
+                # preflight já usa pros 7 pares reais. Achado em revisão
+                # (Codex, achado 2/4 rodada 5): antes só checava "tick is
+                # None e tick.bid > 0" — um tick com ask<=0, ask<bid, ou
+                # bid<=0 no campo NÃO usado por esta conversão (ex.: par
+                # invertido usa só bid, mas ask=0 nunca era checado) podia
+                # gerar uma taxa a partir de dado inválido. Mesma régua de
+                # _tick_valido() usada em leg() — os dois lados, não só o
+                # usado.
+                mt5.symbol_select(bsym, True)
+                tick = mt5.symbol_info_tick(bsym)
+            if _tick_valido(tick):
                 r = (1.0 / tick.bid) if invert else tick.bid
                 self._rate[quote] = r
                 return r
@@ -516,23 +610,87 @@ class CostModel:
             return self._leg[key]
         bsym = to_broker_symbol(pair)
         si, tick = mt5.symbol_info(bsym), mt5.symbol_info_tick(bsym)
+        if si is None or tick is None or not _tick_valido(tick):
+            # Achado 4 rodada 2 (Codex + mfc-rev-2, achado confirmado pelos
+            # dois independentemente): o comentário original assumia que as
+            # 7 pernas "o preflight já seleciona" — verdade no caminho AO
+            # VIVO, falso no BACKTEST (scripts/backtest_canonical.py), que
+            # nunca roda open_portfolio_basket() e é justamente o
+            # consumidor que decide se a estratégia é lucrativa líquida.
+            # Sem isto, medido: backtest com Market Watch vazio zerava
+            # 7/7 pernas sempre. Mesma correção que _usd_rate() já tem
+            # pros pares de CONVERSÃO — agora a perna real também tenta.
+            #
+            # Achado em revisão (mfc-rev-2, achado 4 rodada 4, medido): a
+            # versão anterior só entrava aqui com tick is None — um tick
+            # ZERADO nunca disparava o retry, mesmo sendo o sintoma
+            # clássico de "símbolo ainda não presente no Market Watch"
+            # (mesma causa, mesma cura). Ressalva (mfc-rev-2, rodada 5,
+            # medido): pra tick CRUZADO (ask < bid) especificamente, NÃO é
+            # a mesma causa — symbol_select() não corrige um mercado
+            # cruzado, então o retry aqui é uma chamada garantidamente
+            # inútil nesse caso específico (inofensiva, só ruído de IPC;
+            # a segunda leitura vai reprovar de novo em _tick_valido logo
+            # abaixo, entrando em _degraded do mesmo jeito).
+            mt5.symbol_select(bsym, True)
+            si, tick = mt5.symbol_info(bsym), mt5.symbol_info_tick(bsym)
         rate = self._usd_rate(pair[3:6])
-        if not si or not tick or rate is None:
+        # "is None" (não "not"/"falsy") pra si e tick, igual ao retry acima
+        # — achado em revisão (mfc-rev-2, rodada 3): as duas checagens
+        # perguntavam a mesma coisa com rigor diferente (um objeto falsy
+        # que não seja None é inalcançável no MT5 real, mas convidava
+        # dúvida de qual delas era a intencional).
+        tick_valido = _tick_valido(tick)
+        if si is None or tick is None or not tick_valido or rate is None:
+            # Achado 4 (revisão de ad44e12/c24a44c, mfc-rev-2): (0.0, 0.0)
+            # aqui é indistinguível de "cesta com custo genuinamente zero"
+            # pra quem lê o log ou o backtest depois. Registra o motivo pra
+            # basket() poder sinalizar — quem soma os números continua
+            # recebendo 0.0 (nunca lança, nunca atrasa a cesta), só quem
+            # PERGUNTA (basket().last_basket_degraded) fica sabendo.
+            if si is None or tick is None:
+                motivo = "símbolo/tick indisponível"
+            elif not tick_valido:
+                motivo = f"tick inválido (ask={getattr(tick, 'ask', None)}, " \
+                         f"bid={getattr(tick, 'bid', None)})"
+            else:
+                motivo = f"taxa de conversão {pair[3:6]}→USD indisponível"
+            self._degraded[key] = motivo
             self._leg[key] = (0.0, 0.0)
             return self._leg[key]
         units = lot * si.trade_contract_size
         spread = (tick.ask - tick.bid) * units * rate
-        # Swap só é calculado certo pro modo PONTOS (o mais comum, mas não o
-        # único — achado em revisão: MT5 também aceita swap em moeda base,
-        # moeda de margem, moeda de depósito e percentual). Fora desse modo a
-        # fórmula abaixo dá número errado; melhor reportar 0.0 (subestima o
-        # custo, nunca infla) do que fingir uma precisão que não existe.
+        # Swap só é calculado certo pro modo PONTOS (não o único — MT5
+        # também aceita swap em moeda base, moeda de margem, moeda de
+        # depósito e percentual). Fora desse modo, reporta 0.0 em vez de
+        # fingir uma precisão que não existe. Achado em revisão (mfc-rev-2,
+        # achado 4 rodada 2, medido): isto NÃO é a mesma categoria do "sem
+        # símbolo/tick/taxa" acima — ali a perna inteira (spread E swap)
+        # se perde; aqui o SPREAD é real e contou pro custo, só o swap
+        # ficou de fora, por escopo deliberado do modelo (não é erro
+        # transitório de dado, é uma propriedade ESTÁTICA do símbolo).
+        # Marcar as duas com a mesma bandeira "degraded" faz um alarme que
+        # NUNCA desliga em qualquer corretora que use swap fora de pontos
+        # (medido: 7/7 pernas "degradadas" numa cesta cujo custo real foi
+        # medido e contado) — o oposto do propósito do achado 4. Categoria
+        # separada, tratada como aviso silencioso do modelo, não como dado
+        # perdido.
         swap_mode_points = getattr(mt5, "SYMBOL_SWAP_MODE_POINTS", 1)
-        if getattr(si, "swap_mode", swap_mode_points) == swap_mode_points:
+        # Achado em revisão (Codex, achado 4 rodada 4): o default do getattr
+        # abaixo era swap_mode_points — ausência do campo virava "presumir
+        # PONTOS" (fail-open), mesmo padrão que o achado 2 já fechou pro
+        # trade_mode. _SWAP_MODE_MISSING (um objeto único, nunca igual a
+        # nada além de si mesmo) garante que campo ausente NUNCA bate com
+        # swap_mode_points — cai no ramo de swap não modelado, como deveria.
+        swap_mode_atual = getattr(si, "swap_mode", _SWAP_MODE_MISSING)
+        if swap_mode_atual == swap_mode_points:
             swap_pts = si.swap_long if action == "BUY" else si.swap_short
             swap = swap_pts * si.point * units * rate
         else:
             swap = 0.0
+            motivo_swap = ("swap_mode ausente" if swap_mode_atual is _SWAP_MODE_MISSING
+                           else f"swap_mode {swap_mode_atual!r} não é PONTOS")
+            self._swap_unmodeled[key] = motivo_swap
         # Não contabiliza rollover triplo (si.swap_rollover3days) —
         # decisão deliberada, não descuido (achado em revisão /dual-r).
         # Corrigir isso exigiria saber o dia-da-semana do SERVIDOR do
@@ -557,13 +715,36 @@ class CostModel:
         Retorna valor POSITIVO representando quanto a cesta custa.
         `leg_lots` opcional: {pair: lote confirmado} pra usar o lote real de
         cada perna em vez do escalar único de __init__; perna ausente do
-        mapa (ou mapa não informado) cai pro escalar."""
+        mapa (ou mapa não informado) cai pro escalar.
+
+        Depois de chamar, duas bandeiras SEPARADAS (achado 4, rodada 2 —
+        conflar as duas fazia um alarme que nunca desliga em qualquer
+        corretora com swap fora de pontos):
+        - self.last_basket_degraded: pares DESTA cesta sem símbolo/tick/taxa
+          — spread E swap perdidos, custo real da perna é desconhecido.
+        - self.last_basket_swap_unmodeled: pares com spread real, mas swap
+          zerado por modo não suportado (propriedade estática do símbolo,
+          não falha transitória).
+        Nenhuma das duas muda o número devolvido — continua somando 0.0
+        pras pernas afetadas, nunca lança, nunca atrasa a cesta. Só expõe
+        quem quiser saber se o custo é medição completa, parcial, ou
+        completa-mas-sem-swap-modelado."""
         spread = swap = 0.0
+        degraded = set()
+        swap_unmodeled = set()
         for p in get_portfolio_pairs(ccy, bias):
-            lot = (leg_lots or {}).get(p["pair"])
-            s, w = self.leg(p["pair"], p["action"], lot)
+            raw_lot = (leg_lots or {}).get(p["pair"])
+            s, w = self.leg(p["pair"], p["action"], raw_lot)
             spread += s
             swap += w
+            resolved_lot = self.lot if raw_lot is None else raw_lot
+            key = (p["pair"], p["action"], resolved_lot)
+            if key in self._degraded:
+                degraded.add(p["pair"])
+            if key in self._swap_unmodeled:
+                swap_unmodeled.add(p["pair"])
+        self.last_basket_degraded = degraded
+        self.last_basket_swap_unmodeled = swap_unmodeled
         return spread * 2.0 - swap  # swap negativo vira custo positivo
 
 
@@ -581,13 +762,21 @@ def _read_cost_log(path: str) -> list:
 
 
 def measure_and_log_basket_cost(currency: str, bias: str, lot: float, leg_lots: dict = None):
-    """Mede o custo real (spread+swap) da cesta recém-aberta e acrescenta ao
-    histórico em COST_LOG_FILE — dado empírico próprio, sem depender de
-    ninguém informar 'valor típico'. Deliberadamente chamada DEPOIS de a
-    cesta já ter aberto (nunca antes, nunca durante) e nunca por
-    open_portfolio_basket() diretamente: é só observação, não pode atrasar
-    nem arriscar o envio de ordem real. Qualquer falha aqui fica só no log,
-    nunca propaga.
+    """Mede a ESTIMATIVA de custo (spread+swap) da cesta recém-aberta, via
+    CostModel — não custo realizado (achado em revisão: Codex, achado 2/4
+    rodada 5: esta docstring ainda dizia "custo real", contradizendo a
+    própria docstring de CostModel logo acima, que já deixa claro que usa o
+    tick corrente, não o preço de preenchimento, e não inclui comissão nem
+    slippage). Acrescenta ao histórico em COST_LOG_FILE — dado empírico
+    próprio, sem depender de ninguém informar 'valor típico'. Deliberadamente
+    chamada DEPOIS de a cesta já ter aberto (nunca antes, nunca durante) e
+    nunca por
+    open_portfolio_basket() diretamente: dentro de UMA execução da fase
+    21:05, isso garante que não atrasa nem arrisca o envio de ordem real.
+    Entre noites diferentes essa garantia é só P3 (ver o guard acima e
+    scheduler_daemon.py): uma medição presa numa noite ainda pode, em teoria,
+    estar rodando quando a fase seguinte envia ordem. Qualquer falha aqui
+    fica só no log, nunca propaga.
 
     `lot` continua sendo o escalar (média, ou o lote pedido) gravado no
     campo "lot" pra compatibilidade com quem já lê este log. `leg_lots`
@@ -607,7 +796,31 @@ def measure_and_log_basket_cost(currency: str, bias: str, lot: float, leg_lots: 
         # ler-modificar-gravar do arquivo compartilhado precisa ser
         # serializado, pra não travar a medição de uma moeda esperando a
         # de outra.
-        cost_usd = CostModel(lot).basket(currency.upper(), bias, leg_lots)
+        model = CostModel(lot)
+        cost_usd = model.basket(currency.upper(), bias, leg_lots)
+        # Achado 4 (revisão de ad44e12/c24a44c, mfc-rev-2): sem isto,
+        # "cesta com custo genuinamente zero" e "uma perna sem dado bem na
+        # hora da medição" eram gravadas de forma idêntica no log — e o
+        # backtest canônico (scripts/backtest_canonical.py) desconta este
+        # modelo do resultado líquido sem saber qual dos dois casos é este.
+        degraded = model.last_basket_degraded
+        swap_unmodeled = model.last_basket_swap_unmodeled
+        # Fail-closed de verdade (achado em revisão: Codex + mfc-rev-2,
+        # achado 4 rodada 3, confirmado pelos dois — remover o isinstance
+        # da rodada 2 sem validar nada não bastou). Reproduzido: um
+        # CostModel mal configurado (MagicMock cru, sem os dois atributos)
+        # é truthy E itera vazio — produzia "[!] Custo PARCIAL ... 0
+        # perna(s) sem dado real ()", uma mensagem que se contradiz, e
+        # gravava "degraded": [] no log (o campo vazio que o teste de
+        # caminho feliz existe pra impedir). Em vez de confiar cegamente
+        # ou silenciar, trata um formato inesperado como cesta INTEIRA não
+        # confiável — nunca como cesta completa.
+        if not isinstance(degraded, (set, frozenset)) or not isinstance(swap_unmodeled, (set, frozenset)):
+            print(f"[-] CostModel devolveu last_basket_degraded/last_basket_swap_unmodeled "
+                  f"num formato inesperado pra {currency.upper()} (tipos: "
+                  f"{type(degraded).__name__}, {type(swap_unmodeled).__name__}) — tratando "
+                  f"a cesta inteira como não confiável, não como medição completa.")
+            degraded, swap_unmodeled = {"<formato_inesperado_do_CostModel>"}, set()
         entry = {
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "currency": currency.upper(),
@@ -615,6 +828,10 @@ def measure_and_log_basket_cost(currency: str, bias: str, lot: float, leg_lots: 
             "lot": round(lot, 4),
             "cost_usd": round(cost_usd, 4),
         }
+        if degraded:
+            entry["degraded"] = sorted(degraded)
+        if swap_unmodeled:
+            entry["swap_not_modeled"] = sorted(swap_unmodeled)
         if leg_lots:
             entry["leg_lots"] = {pair: round(l, 4) for pair, l in leg_lots.items()}
         with _COST_LOG_LOCK:
@@ -630,8 +847,31 @@ def measure_and_log_basket_cost(currency: str, bias: str, lot: float, leg_lots: 
                 return
             log.append(entry)
             _atomic_write_json(COST_LOG_FILE, log)
-        print(f"[+] Custo medido da cesta {currency.upper()} ({bias}): ${cost_usd:.2f} "
-              f"(gravado em {COST_LOG_FILE})")
+        # Achado em revisão (mfc-rev-2, achado 4 rodada 3): as duas
+        # mensagens abaixo eram if/elif — quando degraded E swap_unmodeled
+        # coexistem na MESMA cesta (reproduzido: 2 pernas sem tick + 5 com
+        # swap fora de pontos), só a de degraded saía no stdout, mesmo o
+        # log gravando os dois campos corretamente. Agora são duas
+        # condições independentes — cada categoria fala por si.
+        if degraded:
+            print(f"[!] Custo PARCIAL da cesta {currency.upper()} ({bias}): ${cost_usd:.2f} "
+                  f"(gravado em {COST_LOG_FILE}) — {len(degraded)} perna(s) sem dado real na "
+                  f"hora da medição ({', '.join(sorted(degraded))}), contadas como custo zero. "
+                  f"Não é a mesma coisa que uma cesta com custo genuinamente baixo.")
+        if swap_unmodeled:
+            # Achado 4 rodada 2 (mfc-rev-2, medido): NÃO é a mesma classe de
+            # "[!] PARCIAL" — o spread de todas as pernas é real e já está
+            # no $cost_usd; só o swap de algumas ficou sem fórmula fiel
+            # (modo do símbolo, não falha de dado). Alertar como se fosse a
+            # mesma coisa que `degraded` é o que fazia este alarme nunca
+            # desligar em corretoras com swap fora de pontos.
+            print(f"[+] Custo medido da cesta {currency.upper()} ({bias}): ${cost_usd:.2f} "
+                  f"(gravado em {COST_LOG_FILE}) — swap não modelado em "
+                  f"{len(swap_unmodeled)} perna(s) ({', '.join(sorted(swap_unmodeled))}: modo "
+                  f"de swap do símbolo não é PONTOS); spread de todas as pernas está no valor.")
+        if not degraded and not swap_unmodeled:
+            print(f"[+] Custo medido da cesta {currency.upper()} ({bias}): ${cost_usd:.2f} "
+                  f"(gravado em {COST_LOG_FILE})")
     except Exception as e:
         print(f"[-] Falha ao medir/gravar custo da cesta {currency}: {e}")
     finally:
@@ -699,9 +939,25 @@ def open_portfolio_basket(currency: str, bias: str, lot: float = 0.01, deviation
     # dentro de to_broker_symbol(), que só era chamada mais adiante no
     # preflight — na primeira chamada do processo (sufixo manual ainda não
     # configurado), a comparação de símbolo pra colisão em netting rodaria
-    # antes do sufixo estar descoberto. Barato: um symbol_info a mais, cacheado
-    # depois disso pro resto da vida do processo.
+    # antes do sufixo estar descoberto.
+    #
+    # Desde o achado 1 (validação de família nos 28 pares, não só o
+    # par-sonda — achado em revisão: mfc-rev-2), este aquecimento ficou mais
+    # caro no caminho feliz (1 symbols_get + até 28 symbol_info por
+    # candidato, uma vez por processo, cacheado depois — não mais "um
+    # symbol_info a mais") e, no caso raro em que NENHUMA família valida,
+    # tem um cooldown (_FAMILY_DETECTION_COOLDOWN_SECONDS em css_service.py)
+    # em vez de reconsultar a cada chamada — sem isso, o preflight logo
+    # abaixo (7 pernas) reconsultaria o servidor do zero a cada perna.
+    #
+    # Esse cooldown (15s, pensado pro dashboard que recalcula a cada 3s) é
+    # LONGO DEMAIS pra esta fase — ela inteira roda em segundos. Sem forçar
+    # uma tentativa fresca aqui (achado em revisão, mfc-rev-2 rodada 3,
+    # medido: 0/8 cestas vs. 7/8 numa falha transitória), uma reconexão
+    # lenta do MT5 bem às 21:05 condenaria a noite inteira — nenhuma
+    # tentativa dentro da mesma execução chegaria a reconsultar o servidor.
     if pairs:
+        reset_family_detection_cooldown()
         to_broker_symbol(pairs[0]["pair"])
 
     try:
@@ -717,6 +973,20 @@ def open_portfolio_basket(currency: str, bias: str, lot: float = 0.01, deviation
         print(f"[PORTFOLIO ROBOT {ccy}] {msg}")
         return {"success": False, "error": "already_open", "message": msg}
 
+    # Ordem: tetos de exposição ANTES da colisão netting (achado em revisão:
+    # Codex, achado 2/4 rodada 4 — divergência com uma versão anterior do
+    # CLAUDE.md, que documentava a ordem inversa). Confirmado que essa ordem
+    # já existia assim no commit c24a44c, antes de qualquer correção desta
+    # sessão — não é regressão dela. Análise (Codex + mfc-rev-2, rodadas 4 e
+    # 5, ambos concordam): os dois gates são condições independentes, sem
+    # efeito colateral e sem dependência entre si — cada um só RECUSA; se
+    # qualquer um recusaria, a função retorna cedo nas duas ordens
+    # possíveis, então a decisão final (abre ou não abre) não muda com a
+    # ordem, só qual mensagem de erro sai quando os dois seriam verdade ao
+    # mesmo tempo. Decisão do usuário (rodada 5): em vez de reordenar código
+    # de execução real já testado, o CLAUDE.md foi corrigido pra documentar
+    # esta ordem (e o porquê dela ser segura) — ver "Live MT5 execution" lá.
+    #
     # Teto de cestas simultâneas: no padrão (8) não muda nada, mas permite
     # limitar a exposição total numa primeira sessão real sem mexer no código.
     if len(open_magics) >= MAX_CONCURRENT_BASKETS:
@@ -725,7 +995,34 @@ def open_portfolio_basket(currency: str, bias: str, lot: float = 0.01, deviation
         print(f"[PORTFOLIO ROBOT {ccy}] {msg}")
         return {"success": False, "error": "basket_cap_reached", "message": msg}
 
-    if safety.get("margin_mode") == "netting":
+    # Achado em revisão (Codex, achado 2/4 rodada 4, decisão do usuário):
+    # era "== netting" — margin_mode "desconhecido" (campo ausente,
+    # exceção na consulta, ou um terceiro valor real do MT5 nunca mapeado
+    # aqui, ex.: ACCOUNT_MARGIN_MODE_EXCHANGE) pulava esta checagem em
+    # SILÊNCIO, tratado como se fosse hedging. Se a conta FOSSE netting de
+    # verdade mas tivesse sido classificada errado, uma cesta nova podia
+    # se fundir com uma posição já aberta de outro magic sem essa proteção
+    # nunca rodar. Fail-closed: só pula quando SABEMOS que é hedging — "!=
+    # hedging" cobre netting E desconhecido com a mesma checagem.
+    #
+    # Achado em revisão (mfc-rev-2, achado 2/4 rodada 5): o custo de aplicar
+    # esta checagem "à toa" numa conta hedging mal classificada NÃO é zero —
+    # medido numa simulação de 8 cestas/noite: conta hedging classificada
+    # como "desconhecido" abre 1/8 cestas (as outras 7 recusam por colisão de
+    # símbolo com a primeira, já que todo par de cestas do CSS compartilha
+    # pelo menos 1 símbolo por desenho). O trade-off continua favorável ao
+    # fail-closed (1/8 de exposição é recuperável; posições fundidas numa
+    # conta netting mal classificada não são), mas fica registrado pelo que
+    # é: se margin_mode nunca resolver para "hedging" numa conta que É
+    # hedging, a estratégia roda a 1/8 da exposição pretendida todo noite,
+    # indefinidamente, até alguém investigar por que só 1 cesta abre.
+    margin_mode_real = safety.get("margin_mode")
+    if margin_mode_real != "hedging":
+        if margin_mode_real != "netting":
+            print(f"[PORTFOLIO ROBOT {ccy}] margin_mode não identificado como hedging "
+                  f"nem netting (valor: {margin_mode_real!r}) — aplicando a checagem de "
+                  f"colisão de símbolo por precaução. Se esta conta for hedging, cestas "
+                  f"seguintes serão recusadas até a classificação ser corrigida.")
         target_symbols = {p["pair"] for p in pairs}
         for other_magic, other_symbols in open_magics.items():
             # Acha em revisão (rodada 3): o aquecimento acima reduz mas não
@@ -739,7 +1036,8 @@ def open_portfolio_basket(currency: str, bias: str, lot: float = 0.01, deviation
             # normalização falhou pra essa consulta — recusa por segurança.
             unresolved = other_symbols - set(ALL_28_PAIRS)
             if unresolved:
-                msg = (f"Conta em modo netting: símbolo(s) {sorted(unresolved)} da cesta "
+                msg = (f"Conta em modo {margin_mode_real!r} (tratada como não-hedging): "
+                       f"símbolo(s) {sorted(unresolved)} da cesta "
                        f"(magic {other_magic}) não bateram com nenhum par conhecido depois de "
                        f"tentar remover o sufixo da corretora — resolução de símbolo pode ter "
                        f"falhado nesta consulta. Abertura de {ccy} recusada por segurança: sem "
@@ -748,7 +1046,8 @@ def open_portfolio_basket(currency: str, bias: str, lot: float = 0.01, deviation
                 return {"success": False, "error": "symbol_resolution_unreliable", "message": msg}
             collision = target_symbols & other_symbols
             if collision:
-                msg = (f"Conta em modo netting: cesta {ccy} colidiria com o magic {other_magic} "
+                msg = (f"Conta em modo {margin_mode_real!r} (tratada como não-hedging): "
+                       f"cesta {ccy} colidiria com o magic {other_magic} "
                        f"já aberto nos símbolos {sorted(collision)} — sem regra de consolidação "
                        f"definida ainda, abertura recusada por segurança.")
                 print(f"[PORTFOLIO ROBOT {ccy}] {msg}")
@@ -782,7 +1081,17 @@ def open_portfolio_basket(currency: str, bias: str, lot: float = 0.01, deviation
         if info is None:
             unresolved.append(p["pair"])
             continue
-        if getattr(info, "trade_mode", full_mode) != full_mode:
+        # Achado 2 (revisão de ad44e12/c24a44c): getattr(..., full_mode)
+        # presumia FULL quando trade_mode estava AUSENTE — fail-open. Duas
+        # rodadas de revisão (codex-r + mfc-rev-2) confirmaram, via
+        # documentação oficial e por este mesmo código já acessar
+        # trade_contract_size/swap_long/point/visible SEM getattr em outros
+        # lugares, que o objeto real do MT5 nunca vem incompleto —
+        # symbol_info() devolve tudo ou None. Ausência só ocorre em dublê de
+        # teste mínimo. Mesmo sendo teórico em produção, um preflight que
+        # decide se ordem real sai não presume o cenário mais permissivo:
+        # ausência de trade_mode agora é tratada como restrição.
+        if getattr(info, "trade_mode", None) != full_mode:
             restricted.append(p["pair"])
             continue
         if not info.visible:
@@ -795,13 +1104,25 @@ def open_portfolio_basket(currency: str, bias: str, lot: float = 0.01, deviation
         # de envio, as pernas anteriores já teriam sido abertas e a cesta
         # ficaria parcial — uma aposta direcional nua, sem rollback.
         tick = mt5.symbol_info_tick(b_sym)
-        price = None
-        if tick is not None:
-            price = tick.ask if p["action"] == "BUY" else tick.bid
-        if not tick or not price or price <= 0:
+        # Achado em revisão (mfc-rev-2, achado 4 rodada 4, medido): faltava
+        # aqui a MESMA checagem que o CostModel já exige pra não contar
+        # como medição completa. Sem isso, o diagnóstico (CostModel) era
+        # mais rigoroso que o gate que REALMENTE decide se a ordem sai.
+        #
+        # Achado em revisão (Codex + mfc-rev-2, achado 2/4 rodada 5,
+        # confirmado pelos dois independentemente): a primeira versão
+        # desta correção só checava "não cruzado" (ask < bid) e o preço do
+        # lado USADO — não exigia o OUTRO lado positivo. Medido (Claude):
+        # tick com ask=1.1002 (usado, positivo) e bid=0.0 (não usado)
+        # passava reto — não é "cruzado" (1.1002 >= 0), e price>0. Agora
+        # usa _tick_valido(), a MESMA função de módulo que o CostModel usa
+        # — os dois lados, não só o escolhido. _tick_valido já garante
+        # ask>0 e bid>0, então "price" (o lado escolhido) é necessariamente
+        # positivo quando ela passa — sem checagem redundante de price.
+        if not _tick_valido(tick):
             no_tick.append(p["pair"])
             continue
-        ticks[p["pair"]] = price
+        ticks[p["pair"]] = tick.ask if p["action"] == "BUY" else tick.bid
 
     if unresolved or no_tick or restricted:
         partes = []
@@ -831,15 +1152,20 @@ def open_portfolio_basket(currency: str, bias: str, lot: float = 0.01, deviation
         action = p["action"]
 
         order_type = mt5.ORDER_TYPE_BUY if action == "BUY" else mt5.ORDER_TYPE_SELL
-        # Repuxa a cotação mais recente; se sumiu entre o preflight e agora,
-        # cai no preço do preflight (já validado > 0) e deixa o `deviation`
-        # do request absorver a diferença — melhor que abandonar a perna e
-        # deixar a cesta parcial.
+        # Repuxa a cotação mais recente; se sumiu ou ficou inválida entre o
+        # preflight e agora, cai no preço do preflight (já validado por
+        # _tick_valido) e deixa o `deviation` do request absorver a
+        # diferença — melhor que abandonar a perna e deixar a cesta
+        # parcial. Achado em revisão (Codex, achado 2/4 rodada 5): a
+        # versão anterior só checava "price <= 0" nesta segunda consulta —
+        # não revalidava mercado cruzado. Um tick que ficasse cruzado
+        # bem entre o preflight e este laço (janela real, ainda que
+        # estreita) tinha o preço do lado escolhido aceito mesmo assim,
+        # alimentando order_send() e o stop catastrófico com um preço do
+        # lado errado do book. Agora usa _tick_valido() aqui também.
         tick = mt5.symbol_info_tick(broker_sym)
-        price = None
-        if tick is not None:
-            price = tick.ask if action == "BUY" else tick.bid
-        if not price or price <= 0:
+        price = (tick.ask if action == "BUY" else tick.bid) if _tick_valido(tick) else None
+        if not price:
             price = ticks[pair_sym]
 
         sl_price = _compute_catastrophic_sl(pair_sym, action == "BUY", price)

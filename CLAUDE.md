@@ -92,9 +92,16 @@ reverts to the EA doing both, without recompiling.
 
 Every safety gate is checked inside `open_portfolio_basket()`, in order: kill switch →
 account identity (`CSS_MT5_EXPECTED_LOGIN`) → demo lock (`CSS_LIVE_TRADING`) →
-idempotency → netting symbol collision → exposure caps → symbol/tick preflight
+idempotency → exposure caps → netting symbol collision → symbol/tick preflight
 (all-or-nothing) → broker-side catastrophic stop-loss. All configured via `.env`
-(see `.env.example`); a missing/invalid value fails closed, never open.
+(see `.env.example`); a missing/invalid value fails closed, never open. Exposure caps
+and netting symbol collision are both pure refusal checks reading the same
+`open_magics` snapshot with no side effects, so their relative order doesn't change
+the open/refuse decision — only which error/message comes back when both would have
+refused (verified true since at least `c24a44c`, reviewed rounds 4–5). Reordering
+either of THESE two specifically is not the P0 "gate ordering" case this invariant
+exists to prevent; reordering any gate relative to kill switch, account identity,
+demo lock, or idempotency still is.
 
 **Kill switch:** `touch data/CSS_KILL.flag` blocks any NEW basket. Closing is never
 blocked — reducing risk always proceeds. The EA reads the same file name from the

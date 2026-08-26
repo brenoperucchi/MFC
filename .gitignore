@@ -32,6 +32,19 @@ ENV/
 data/RECONCILE_ALERT.json
 data/reconcile_alerts.log
 
+# Família de símbolos MT5 auto-detectada (achado 1) — específica da
+# corretora conectada, sem sentido versionar (misturaria a família de uma
+# corretora com o checkout de outra pessoa)
+data/mt5_symbol_family.json
+
+# Temporários da escrita atômica em data/ (achado em revisão: mfc-rev-2,
+# rodada 4) — tempfile.mkstemp(prefix=".tmp_") gera nomes tipo
+# "data/.tmp_ab12cd", que NÃO batem com o padrão "*.tmp" acima (sem essa
+# extensão). Usado tanto por _persist_family (web/css_service.py) quanto
+# por _atomic_write_json (agents/portfolio_executor.py) — uma escrita
+# interrompida (kill, disco cheio) deixaria lixo rastreado sem isto.
+data/.tmp_*
+
 # herdr review-cycle: estado efemero (rodadas de review/ask, handoffs) -
 # reviewer.md fica versionado
 .herdr/*

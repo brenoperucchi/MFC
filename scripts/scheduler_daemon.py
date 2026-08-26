@@ -93,6 +93,22 @@ def execute_phase_2102():
         return False
 
 
+def _measure_pending_costs(pending):
+    """Mede o custo das cestas já abertas, uma de cada vez, fora da thread
+    principal do daemon. Só é chamada depois que a fase 21:05 terminou de
+    enviar TODAS as ordens, então nenhuma medição concorre com um order_send.
+
+    Roda numa thread daemon de propósito: measure_and_log_basket_cost não tem
+    timeout e uma chamada MT5 travada nunca retorna. Pendurar esta thread é o
+    preço aceitável (o mesmo que portfolio_executor.py já escolheu pagar);
+    pendurar o relógio do daemon não é."""
+    for ccy, direction, avg_lot, leg_lots_by_pair in pending:
+        try:
+            measure_and_log_basket_cost(ccy, direction, avg_lot, leg_lots_by_pair)
+        except Exception as e:
+            print(f"[-] {ccy}: falha ao medir custo (cesta NÃO afetada) — {e}")
+
+
 def execute_phase_2105():
     """21:05 BRT - Abre as cestas no MT5 pelo lado Python, lendo o sinal
     gravado às 21:02 (arquitetura recomendada pela revisão de 23/08: Python
@@ -129,6 +145,11 @@ def execute_phase_2105():
 
     portfolios = signals_payload.get("portfolios", {})
     opened, refused, neutral, partial = [], [], [], []
+    # Medições de custo adiadas: nada NESTE PROCESSO pode falar com o MT5
+    # enquanto o laço abaixo ainda está enviando ordem. (O subprocesso das
+    # 21:00 pode estar em css_engine.update_data até ~21:10 — fora do nosso
+    # alcance aqui, e outra classe de problema.)
+    pending_cost = []
 
     for ccy, sig in portfolios.items():
         direction = sig.get("direction", "NEUTRAL")
@@ -156,31 +177,72 @@ def execute_phase_2105():
             else:
                 opened.append(ccy)
                 print(f"[+] {ccy}: cesta aberta ({opened_count}/{total_pairs} pares).")
-                # Custo real medido, não pedido a ninguém — só observação,
-                # roda DEPOIS da cesta já estar aberta (nunca atrasa nem
-                # arrisca o envio de ordem). Numa THREAD separada (achado em
-                # revisão): rodava síncrono aqui, atrasando o envio de ordem
-                # das MOEDAS SEGUINTES no mesmo laço enquanto media a cesta
-                # anterior. Passa o lote REAL de cada perna (achado em
-                # revisão /dual-r) — uma perna com preenchimento parcial
-                # (DONE_PARTIAL) tem lote diferente das outras, e usar a
-                # média pra todas subestima/superestima o custo de quem
-                # divergiu; a média (arredondada) continua sendo gravada no
-                # campo "lot" só como resumo, mas o cálculo usa o mapa por
-                # perna. Nunca lança (ver measure_and_log_basket_cost).
+                # Estimativa de custo medida (via tick atual, não custo
+                # realizado — achado em revisão: Codex, rodada 6, mesma
+                # correção de nomenclatura já aplicada em
+                # agents/portfolio_executor.py e scripts/backtest_canonical.py),
+                # não pedido a ninguém — só observação.
+                # Aqui apenas ENFILEIRA; a medição roda depois que TODAS as
+                # cestas abriram (ver logo abaixo do resumo). Passou por três
+                # formas até chegar nesta: síncrono dentro do laço (atrasava o
+                # envio das moedas seguintes), depois numa thread por moeda
+                # (tirava o atraso, mas punha as chamadas MT5 da medição
+                # concorrendo com o order_send da cesta seguinte no MESMO
+                # binding global — e o binding Python do MT5 não documenta
+                # thread-safety em lugar nenhum), e agora adiada. Passa o lote
+                # REAL de cada perna (achado em revisão /dual-r) — uma perna
+                # com preenchimento parcial (DONE_PARTIAL) tem lote diferente
+                # das outras, e usar a média pra todas subestima/superestima o
+                # custo de quem divergiu; a média (arredondada) continua sendo
+                # gravada no campo "lot" só como resumo, mas o cálculo usa o
+                # mapa por perna.
                 leg_lots_by_pair = {r["pair"]: r["lot"] for r in res.get("results", [])
                                      if r.get("pair") and r.get("lot")}
                 lots = list(leg_lots_by_pair.values())
                 avg_lot = round((sum(lots) / len(lots)) if lots else 0.01, 4)
-                threading.Thread(target=measure_and_log_basket_cost,
-                                  args=(ccy, direction, avg_lot, leg_lots_by_pair),
-                                  name=f"cost_{ccy}", daemon=True).start()
+                pending_cost.append((ccy, direction, avg_lot, leg_lots_by_pair))
         else:
             refused.append((ccy, res.get("error"), res.get("message")))
             print(f"[!] {ccy}: abertura recusada — {res.get('error')}: {res.get('message')}")
 
     print(f"\n[RESUMO 21:05] Abertas: {opened} | Parciais: {partial} | "
           f"Recusadas: {[c for c, *_ in refused]} | Neutras: {neutral}")
+
+    # Só agora, com todas as ordens já enviadas, o binding do MT5 volta a ser
+    # usado para observação. A virtude do desenho é a ausência de SOBREPOSIÇÃO
+    # com o envio de ordem, não a ausência de thread — e as duas condições
+    # precisam valer ao mesmo tempo:
+    #
+    #   (a) nenhuma medição entre o primeiro e o último order_send — garantida
+    #       por só enfileirar dentro do laço;
+    #   (b) o relógio do daemon não pode ficar refém de uma medição travada —
+    #       garantida por rodar fora da thread principal.
+    #
+    # Uma versão intermediária media aqui de forma SÍNCRONA e satisfazia (a)
+    # mas quebrava (b): execute_phase_2105() é chamada direto no while do
+    # run_daemon_loop, então uma chamada MT5 presa (IPC do terminal travado —
+    # cenário que portfolio_executor.py já trata como plausível) impediria o
+    # laço de alcançar o encerramento compulsório das 08:00 e a reconciliação
+    # das 08:10. Trocaria uma corrida improvável por perder o fechamento.
+    #
+    # UMA thread só, e não uma por moeda: as medições não precisam correr
+    # entre si, e assim no máximo uma thread fica pendurada se o IPC travar
+    # (o guard em portfolio_executor.py._COST_MEASUREMENT_IN_PROGRESS impede
+    # essa contagem de crescer noite após noite — ver o comentário lá).
+    #
+    # Residual aceito (P3, achado em revisão): as duas garantias (a) e (b)
+    # acima valem DENTRO de uma execução desta fase, não entre noites. Se uma
+    # cost_batch travar numa chamada MT5 sem retornar, e destravar só durante
+    # a janela de order_send da fase seguinte, ela volta a concorrer com
+    # ordens reais — o defeito original, com janela de ~24h em vez de
+    # milissegundos. Fechar isso de vez exigiria voltar a sincronizar os dois
+    # atores (ex.: a fase esperar a cost_batch anterior antes de abrir),
+    # trocando o problema que este desenho comprou o direito de não ter por
+    # um atraso na abertura. Probabilidade muito baixa — exige travamento E
+    # recuperação dentro da janela certa —, por isso aceito sem fechar.
+    if pending_cost:
+        threading.Thread(target=_measure_pending_costs, args=(pending_cost,),
+                         name="cost_batch", daemon=True).start()
 
 
 def execute_phase_0800():

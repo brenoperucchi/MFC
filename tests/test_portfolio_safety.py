@@ -51,6 +51,13 @@ def make_fake_mt5(**overrides):
     fake.ORDER_FILLING_IOC = 1
     fake.ORDER_FILLING_RETURN = 2
     fake.TRADE_RETCODE_DONE = 10009
+    # Achado 2 (revisão de ad44e12/c24a44c): sem isso, um MagicMock sem essa
+    # constante configurada devolve outro Mock (nunca o default de getattr,
+    # já que MagicMock nunca lança AttributeError) — todo teste que não
+    # setasse isso ficaria com full_mode == algum Mock arbitrário. O valor
+    # aqui é o mesmo "FULL" que todo teste desta suíte já usa quando define
+    # a constante manualmente — só uniformiza o padrão.
+    fake.SYMBOL_TRADE_MODE_FULL = "FULL"
     fake.terminal_info.return_value = SimpleNamespace(connected=True)
     fake.positions_get.return_value = []
     for k, v in overrides.items():
@@ -325,7 +332,7 @@ class TestAccountSafety(unittest.TestCase):
             login=999, server="Broker-Demo", trade_mode="DEMO",
             trade_allowed=True, margin_mode="HEDGING"
         )
-        fake_mt5.symbol_info.return_value = SimpleNamespace(visible=True)
+        fake_mt5.symbol_info.return_value = SimpleNamespace(visible=True, trade_mode="FULL")
         fake_mt5.symbol_info_tick.return_value = SimpleNamespace(ask=1.1000, bid=1.0998)
         fake_mt5.order_send.return_value = SimpleNamespace(
             retcode=fake_mt5.TRADE_RETCODE_DONE, order=1, price=1.1000, comment="ok"
@@ -399,7 +406,7 @@ class TestAccountGate(unittest.TestCase):
             login=555, server="Broker-Real", trade_mode="REAL",
             trade_allowed=True, margin_mode="HEDGING"
         )
-        fake_mt5.symbol_info.return_value = SimpleNamespace(visible=True)
+        fake_mt5.symbol_info.return_value = SimpleNamespace(visible=True, trade_mode="FULL")
         fake_mt5.symbol_info_tick.return_value = SimpleNamespace(ask=1.1000, bid=1.0998)
         fake_mt5.order_send.return_value = SimpleNamespace(
             retcode=fake_mt5.TRADE_RETCODE_DONE, order=1, price=1.1000, comment="ok"
@@ -464,6 +471,20 @@ class TestIdempotency(unittest.TestCase):
 
 
 class TestNettingCollision(unittest.TestCase):
+    def setUp(self):
+        # Isola _FAMILY_STATE_FILE num tmpdir — dois testes desta classe
+        # exercitam _detect_mt5_symbol_family() (o aquecimento antes da
+        # checagem de colisão), e sem isso vazariam
+        # data/mt5_symbol_family.json DE VERDADE no repositório (bug real,
+        # encontrado rodando esta suíte antes deste isolamento existir).
+        self._tmp_family_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp_family_dir.cleanup)
+        patcher = patch.object(
+            cs, "_FAMILY_STATE_FILE",
+            os.path.join(self._tmp_family_dir.name, "mt5_symbol_family.json"))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def test_refuses_open_on_symbol_collision_in_netting_mode(self):
         fake_mt5 = make_fake_mt5()
         fake_mt5.account_info.return_value = SimpleNamespace(
@@ -494,7 +515,7 @@ class TestNettingCollision(unittest.TestCase):
         fake_mt5.positions_get.return_value = [
             SimpleNamespace(magic=pe.PORTFOLIO_MAGICS["USD"], symbol="USDCAD")
         ]
-        fake_mt5.symbol_info.return_value = SimpleNamespace(visible=True)
+        fake_mt5.symbol_info.return_value = SimpleNamespace(visible=True, trade_mode="FULL")
         fake_mt5.symbol_info_tick.return_value = SimpleNamespace(ask=1.1000, bid=1.0998)
         fake_mt5.order_send.return_value = SimpleNamespace(
             retcode=fake_mt5.TRADE_RETCODE_DONE, order=1, price=1.1000, comment="ok"
@@ -504,6 +525,64 @@ class TestNettingCollision(unittest.TestCase):
             result = pe.open_portfolio_basket("CAD", "BUY")
         self.assertTrue(fake_mt5.order_send.called)
         print("[✓] Conta hedging permite colisão de símbolo entre cestas diferentes")
+
+    def test_refuses_open_on_symbol_collision_when_margin_mode_is_unknown(self):
+        """A REGRESSÃO CENTRAL do achado em revisão (Codex, achado 2/4
+        rodada 4, decisão do usuário): antes, a checagem de colisão só
+        rodava com margin_mode == "netting" — um valor "desconhecido" (nem
+        NETTING nem HEDGING; get_account_safety_info() cai nesse estado
+        quando o campo falta, uma exceção ocorre, ou o MT5 devolve um
+        terceiro valor real nunca mapeado, ex.: ACCOUNT_MARGIN_MODE_EXCHANGE)
+        pulava a checagem em SILÊNCIO, tratado como se fosse hedging. Se a
+        conta FOSSE netting de verdade mas classificada errado, a cesta
+        podia se fundir com uma posição já aberta sem essa proteção nunca
+        rodar. Simula exatamente esse estado: margin_mode que não bate com
+        nenhuma das duas constantes conhecidas."""
+        fake_mt5 = make_fake_mt5()
+        fake_mt5.account_info.return_value = SimpleNamespace(
+            login=999, server="Broker-Demo", trade_mode="DEMO",
+            trade_allowed=True, margin_mode="ALGUM_MODO_NAO_MAPEADO"
+        )
+        fake_mt5.positions_get.return_value = [
+            SimpleNamespace(magic=pe.PORTFOLIO_MAGICS["USD"], symbol="USDCAD")
+        ]
+        with patch.dict(os.environ, DEMO_GATE_ENV), \
+             patch.object(pe, "MT5_AVAILABLE", True), patch.object(pe, "mt5", fake_mt5):
+            result = pe.open_portfolio_basket("CAD", "BUY")
+        self.assertFalse(result["success"],
+                         "margin_mode desconhecido não pode pular a checagem de colisão")
+        self.assertEqual(result["error"], "netting_symbol_collision")
+        fake_mt5.order_send.assert_not_called()
+        print("[✓] margin_mode desconhecido roda a checagem de colisão — não pula em silêncio, "
+              "só pula quando SABE que é hedging")
+
+    def test_collision_refusal_message_reflects_real_margin_mode_not_hardcoded_netting(self):
+        """Achado em revisão (mfc-rev-2, achado 2/4 rodada 5): a mensagem de
+        recusa dizia literalmente "Conta em modo netting: ..." mesmo quando
+        margin_mode era "desconhecido" (ou qualquer outro valor não-hedging) —
+        um operador via 7 recusas afirmando um modo de conta que não é o
+        dela, sem pista de que a causa raiz é a classificação do
+        margin_mode. A mensagem agora deve citar o valor REAL de
+        margin_mode, não a string fixa "netting"."""
+        fake_mt5 = make_fake_mt5()
+        fake_mt5.account_info.return_value = SimpleNamespace(
+            login=999, server="Broker-Demo", trade_mode="DEMO",
+            trade_allowed=True, margin_mode="ALGUM_MODO_NAO_MAPEADO"
+        )
+        fake_mt5.positions_get.return_value = [
+            SimpleNamespace(magic=pe.PORTFOLIO_MAGICS["USD"], symbol="USDCAD")
+        ]
+        with patch.dict(os.environ, DEMO_GATE_ENV), \
+             patch.object(pe, "MT5_AVAILABLE", True), patch.object(pe, "mt5", fake_mt5):
+            result = pe.open_portfolio_basket("CAD", "BUY")
+        self.assertFalse(result["success"])
+        self.assertEqual(result["error"], "netting_symbol_collision")
+        self.assertNotIn("modo netting:", result["message"],
+                          "mensagem não pode afirmar 'netting' quando o modo real é outro")
+        self.assertIn("desconhecido", result["message"],
+                       "mensagem deve citar o margin_mode REAL classificado ('desconhecido'), "
+                       "não um valor fixo 'netting'")
+        print("[✓] mensagem de recusa cita o margin_mode real, não 'netting' hardcoded")
 
     def test_symbol_suffix_auto_detection_warms_up_before_netting_check(self):
         """Regressão (achado MÉDIO em revisão): a auto-detecção de sufixo só
@@ -528,9 +607,13 @@ class TestNettingCollision(unittest.TestCase):
         ]
         # Só o nome COM sufixo resolve — sem isso, symbol_info(nome puro)
         # "confirmaria" antes de precisar da auto-detecção, e o teste não
-        # provaria nada de verdade.
+        # provaria nada de verdade. trade_contract_size PRECISA ser
+        # consistente entre os 28: a auto-detecção agora valida família
+        # inteira (achado 1), não só o par-sonda — um dublê sem esse campo
+        # reprovaria "m" e o teste pararia de provar o que promete.
         fake_mt5.symbol_info.side_effect = (
-            lambda sym: SimpleNamespace(visible=True) if sym.endswith("m") else None)
+            lambda sym: SimpleNamespace(visible=True, trade_mode="FULL", trade_contract_size=100000)
+            if sym.endswith("m") else None)
         fake_mt5.symbol_info_tick.return_value = SimpleNamespace(ask=1.1, bid=1.0998)
 
         with patch.dict(os.environ, DEMO_GATE_ENV), \
@@ -538,12 +621,57 @@ class TestNettingCollision(unittest.TestCase):
              patch.object(cs, "MT5_AVAILABLE", True), patch.object(cs, "mt5", fake_mt5), \
              patch.object(cs, "MT5_SYMBOL_SUFFIX", ""), \
              patch.object(cs, "_AUTO_DETECTED_SUFFIX", None), \
+             patch.object(cs, "_LAST_FAILED_FAMILY_DETECTION_AT", None), \
              patch.dict(cs._SYMBOL_RESOLUTION_CACHE, {}, clear=True):
             result = pe.open_portfolio_basket("CAD", "BUY")
         self.assertFalse(result["success"])
         self.assertEqual(result["error"], "netting_symbol_collision")
         print("[✓] Colisão em netting é detectada mesmo sem sufixo configurado — "
               "auto-detecção já rodou a tempo")
+
+    def test_warmup_forces_fresh_detection_even_if_a_previous_attempt_just_failed(self):
+        """Achado em revisão (mfc-rev-2, achado 1 rodada 3, medido): o
+        cooldown de 15s existe pro caminho quente do dashboard (recalcula a
+        cada 3s) — mas a fase de abertura inteira roda em segundos, bem
+        dentro dessa janela. Sem forçar uma tentativa fresca no aquecimento,
+        uma falha transitória (ex.: MT5 terminando de conectar bem às
+        21:05) fica presa no cooldown pelo resto da mesma execução — 0/8
+        cestas em vez de até 8/8. Simula exatamente isso: uma falha de
+        detecção "recente" (_LAST_FAILED_FAMILY_DETECTION_AT = agora) que,
+        sem o reset, bloquearia esta tentativa também."""
+        fake_mt5 = make_fake_mt5()
+        fake_mt5.account_info.return_value = SimpleNamespace(
+            login=999, server="Broker-Demo", trade_mode="DEMO",
+            trade_allowed=True, margin_mode="HEDGING")
+        fake_mt5.positions_get.return_value = ()
+        fake_mt5.SYMBOL_TRADE_MODE_FULL = "FULL"
+        fake_mt5.symbols_get.return_value = [
+            SimpleNamespace(name="EURUSDm", visible=True, trade_mode="FULL")
+        ]
+        fake_mt5.symbol_info.side_effect = (
+            lambda sym: SimpleNamespace(visible=True, trade_mode="FULL", trade_contract_size=100000)
+            if sym.endswith("m") else None)
+        fake_mt5.symbol_info_tick.return_value = SimpleNamespace(ask=1.1, bid=1.0998)
+        fake_mt5.order_send.return_value = SimpleNamespace(
+            retcode=fake_mt5.TRADE_RETCODE_DONE, order=1, price=1.1, comment="ok")
+
+        with patch.dict(os.environ, DEMO_GATE_ENV), \
+             patch.object(pe, "MT5_AVAILABLE", True), patch.object(pe, "mt5", fake_mt5), \
+             patch.object(cs, "MT5_AVAILABLE", True), patch.object(cs, "mt5", fake_mt5), \
+             patch.object(cs, "MT5_SYMBOL_SUFFIX", ""), \
+             patch.object(cs, "_AUTO_DETECTED_SUFFIX", None), \
+             patch.object(cs, "_LAST_FAILED_FAMILY_DETECTION_AT", cs.time.monotonic()), \
+             patch.dict(cs._SYMBOL_RESOLUTION_CACHE, {}, clear=True):
+            result = pe.open_portfolio_basket("CAD", "BUY")
+            # DENTRO do with: patch.dict/patch.object restauram o valor
+            # original ao sair — checar fora provaria o estado anterior ao
+            # teste, não o que aconteceu durante (o mesmo bug de escopo que
+            # os revisores encontraram duas vezes nesta rodada).
+            self.assertEqual(cs._AUTO_DETECTED_SUFFIX, "m")
+        self.assertTrue(result["success"],
+                        f"aquecimento não forçou detecção fresca — resultado: {result}")
+        print("[✓] O aquecimento força tentativa fresca mesmo com o cooldown ainda ativo — "
+              "uma falha transitória não condena a noite inteira")
 
     def test_refuses_open_when_position_symbol_cannot_be_normalized(self):
         """Regressão (achado MÉDIO em revisão, rodada 3): o aquecimento acima
@@ -574,6 +702,7 @@ class TestNettingCollision(unittest.TestCase):
              patch.object(cs, "MT5_AVAILABLE", True), patch.object(cs, "mt5", fake_mt5), \
              patch.object(cs, "MT5_SYMBOL_SUFFIX", ""), \
              patch.object(cs, "_AUTO_DETECTED_SUFFIX", None), \
+             patch.object(cs, "_LAST_FAILED_FAMILY_DETECTION_AT", None), \
              patch.dict(cs._SYMBOL_RESOLUTION_CACHE, {}, clear=True):
             result = pe.open_portfolio_basket("CAD", "BUY")
         self.assertFalse(result["success"])
@@ -624,7 +753,7 @@ class TestPositionQueryFailsClosed(unittest.TestCase):
         """Tupla vazia é 'nenhuma posição' de verdade — deve seguir normal."""
         fake_mt5 = self._demo_mt5()
         fake_mt5.positions_get.return_value = ()
-        fake_mt5.symbol_info.return_value = SimpleNamespace(visible=True)
+        fake_mt5.symbol_info.return_value = SimpleNamespace(visible=True, trade_mode="FULL")
         fake_mt5.symbol_info_tick.return_value = SimpleNamespace(ask=1.1, bid=1.0998)
         fake_mt5.order_send.return_value = SimpleNamespace(
             retcode=fake_mt5.TRADE_RETCODE_DONE, order=1, price=1.1, comment="ok")
@@ -654,39 +783,419 @@ class TestSymbolResolution(unittest.TestCase):
     28 existem como 'EURUSDm' etc. Sem resolução de sufixo o sistema não abre
     uma perna sequer."""
 
+    def setUp(self):
+        # _FAMILY_STATE_FILE isolado num tmpdir por teste — sem isso, os
+        # testes leriam/escreveriam data/mt5_symbol_family.json DE VERDADE
+        # (bug real encontrado rodando esta suíte: vazou um arquivo real no
+        # repositório antes deste isolamento existir).
+        self._tmp_family_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp_family_dir.cleanup)
+        patcher = patch.object(
+            cs, "_FAMILY_STATE_FILE",
+            os.path.join(self._tmp_family_dir.name, "mt5_symbol_family.json"))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    @staticmethod
+    def _mixed_family_symbol_info(mixed_pairs, mixed_size=1000, standard_size=100000):
+        """Fake de symbol_info() pra uma corretora que lista DUAS séries: os
+        pares em `mixed_pairs` só existem com sufixo "m" (contrato micro);
+        os demais dos 28 só existem SEM sufixo (contrato padrão). Nenhum par
+        existe nas duas séries ao mesmo tempo — reproduz o cenário real do
+        achado 1: um sufixo cobre uma FATIA dos 28, não todos."""
+        def info_for(sym):
+            for pair in mixed_pairs:
+                if sym == pair + "m":
+                    return SimpleNamespace(trade_mode="FULL", trade_contract_size=mixed_size)
+                if sym == pair:
+                    return None
+            for pair in cs.ALL_28_PAIRS:
+                if pair in mixed_pairs:
+                    continue
+                if sym == pair:
+                    return SimpleNamespace(trade_mode="FULL", trade_contract_size=standard_size)
+                if sym == pair + "m":
+                    return None
+            return None
+        return info_for
+
+    @staticmethod
+    def _uniform_family_symbol_info(suffix, contract_size=1000):
+        """Fake de symbol_info() pra uma corretora onde os 28 pares existem
+        TODOS com o mesmo sufixo (ou sem sufixo, se suffix="") e o MESMO
+        trade_contract_size — a família boa, que deve ser aceita."""
+        def info_for(sym):
+            for pair in cs.ALL_28_PAIRS:
+                if sym == pair + suffix:
+                    return SimpleNamespace(trade_mode="FULL", trade_contract_size=contract_size)
+            return None
+        return info_for
+
     def test_to_broker_symbol_applies_suffix(self):
         with patch.object(cs, "MT5_SYMBOL_SUFFIX", "m"), \
              patch.object(cs, "MT5_AVAILABLE", False), \
              patch.dict(cs._SYMBOL_RESOLUTION_CACHE, {}, clear=True):
             self.assertEqual(cs.to_broker_symbol("EURUSD"), "EURUSDm")
 
+    def test_configured_suffix_does_not_fall_back_to_bare_per_pair(self):
+        """Mudança de escopo desta rodada: o sufixo CONFIGURADO tinha o
+        MESMO defeito que o auto-detectado — se um par específico não
+        existisse com ele, caía pro nome puro só PRA ESSE par, o que é a
+        mesma classe de mistura de família que o achado 1 fecha do lado
+        automático. Configuração explícita do operador continua tendo
+        precedência absoluta (não é revalidada contra os 28 pares — isso é
+        confiança no operador, não bug), mas não muda de família por par."""
+        fake_mt5 = make_fake_mt5()
+
+        def info_for(sym):
+            if sym == "EURUSDm":
+                return None                      # não existe com o sufixo configurado
+            if sym == "EURUSD":
+                return SimpleNamespace(trade_mode="FULL", trade_contract_size=100000)
+            return None
+
+        fake_mt5.symbol_info.side_effect = info_for
+        with patch.object(cs, "MT5_SYMBOL_SUFFIX", "m"), \
+             patch.object(cs, "MT5_AVAILABLE", True), patch.object(cs, "mt5", fake_mt5), \
+             patch.dict(cs._SYMBOL_RESOLUTION_CACHE, {}, clear=True):
+            result = cs.to_broker_symbol("EURUSD")
+        self.assertEqual(result, "EURUSDm",
+                         "não pode cair pro nome puro só porque EURUSDm não resolveu")
+        self.assertNotIn("EURUSD", cs._SYMBOL_RESOLUTION_CACHE,
+                         "resolução não confirmada não pode ser cacheada")
+        print("[✓] Sufixo configurado nunca cai pro nome puro por par — fica não confirmado")
+
     def test_from_broker_symbol_strips_suffix(self):
         with patch.object(cs, "MT5_SYMBOL_SUFFIX", "m"):
             self.assertEqual(cs.from_broker_symbol("EURUSDm"), "EURUSD")
             self.assertEqual(cs.from_broker_symbol("EURUSD"), "EURUSD")
 
+    def test_mixed_family_is_rejected_even_though_every_leg_individually_resolves(self):
+        """A REGRESSÃO CENTRAL do achado 1 (reproduzida por mfc-rev-2 numa
+        cópia fora do repo, achado real em c24a44c): sem CSS_MT5_SYMBOL_SUFFIX
+        configurado, EURUSD (que existe com sufixo "m", contract_size=1000,
+        junto com 26 outros pares) resolvia pra "m" via auto-detecção,
+        enquanto CADCHF (que só existe SEM sufixo, contract_size=100000)
+        resolvia pro nome puro — mesma chamada, duas séries com nocional
+        100x diferente, ambas FULL. Fixture fiel ao cenário: "m" APARECE
+        como candidato (symbols_get devolve EURUSDm), mas falha a validação
+        de família porque CADCHFm não existe — então nem "m" nem o nome puro
+        (que nunca chega a ser tentado pra CADCHF, ver o teste de baixo)
+        ficam confirmados."""
+        fake_mt5 = make_fake_mt5()
+        fake_mt5.SYMBOL_TRADE_MODE_FULL = "FULL"
+        # "m" é o único candidato que a busca descobre — CADCHF bare nunca
+        # aparece aqui, porque a busca só varre "*EURUSD*".
+        fake_mt5.symbols_get.return_value = [
+            SimpleNamespace(name="EURUSDm", trade_mode="FULL"),
+        ]
+        fake_mt5.symbol_info.side_effect = self._mixed_family_symbol_info(
+            mixed_pairs=[p for p in cs.ALL_28_PAIRS if p != "CADCHF"])
+        with patch.object(cs, "MT5_SYMBOL_SUFFIX", ""), \
+             patch.object(cs, "MT5_AVAILABLE", True), patch.object(cs, "mt5", fake_mt5), \
+             patch.object(cs, "_AUTO_DETECTED_SUFFIX", None), \
+             patch.object(cs, "_LAST_FAILED_FAMILY_DETECTION_AT", None), \
+             patch.dict(cs._SYMBOL_RESOLUTION_CACHE, {}, clear=True):
+            eurusd = cs.to_broker_symbol("EURUSD")
+            cadchf = cs.to_broker_symbol("CADCHF")
+            gbpusd = cs.to_broker_symbol("GBPUSD")
+            self.assertIsNone(cs._AUTO_DETECTED_SUFFIX,
+                              "'m' cobre 27 dos 28 — não pode virar família só por isso")
+            # Achado em revisão (mfc-rev-2, achado 1 rodada 2): as três
+            # asserções de cache abaixo ficavam FORA deste "with" na versão
+            # anterior — patch.dict(..., clear=True) restaura o dict ORIGINAL
+            # ao sair do bloco, então checar depois provava o estado
+            # anterior ao teste, não o que aconteceu durante. O teste
+            # continuava passando contra o código com o defeito, porque não
+            # olhava pro lugar certo. Movido pra dentro.
+            self.assertNotIn("EURUSD", cs._SYMBOL_RESOLUTION_CACHE)
+            self.assertNotIn("CADCHF", cs._SYMBOL_RESOLUTION_CACHE)
+            self.assertNotIn("GBPUSD", cs._SYMBOL_RESOLUTION_CACHE)
+        # Igualdade exata, não assertNotIn: com o marcador de família não
+        # resolvida (_UNRESOLVED_FAMILY_MARKER), o valor certo é conhecido —
+        # checar o valor exato é mais forte que só excluir os dois errados.
+        self.assertEqual(eurusd, "EURUSD" + cs._UNRESOLVED_FAMILY_MARKER)
+        self.assertEqual(cadchf, "CADCHF" + cs._UNRESOLVED_FAMILY_MARKER)
+        self.assertEqual(gbpusd, "GBPUSD" + cs._UNRESOLVED_FAMILY_MARKER)
+        print("[✓] Família com nocional inconsistente entre pares é rejeitada por inteiro — "
+              "nenhuma perna resolve, mesmo as que existem sozinhas")
+
+    def test_unresolved_family_fallback_cannot_be_mistaken_for_a_real_symbol(self):
+        """A LACUNA que a rodada anterior de revisão achou (Codex, achado 1):
+        o teste acima prova que to_broker_symbol() não CONFIRMA nada quando a
+        família falha — mas o preflight em portfolio_executor.py não confia
+        no cache desta função, ele CHAMA mt5.symbol_info() de novo por conta
+        própria. Se o valor devolvido aqui por falta de família (o nome
+        puro) acontecer de EXISTIR no servidor — que é exatamente o caso de
+        CADCHF neste fixture —, essa segunda chamada do preflight aceitava
+        mesmo assim, sem saber que era só um palpite não confirmado.
+
+        Prova as duas pontas: (1) to_broker_symbol NÃO devolve o nome puro
+        quando o MT5 está disponível pra checar; (2) o valor que ELE devolve,
+        re-consultado exatamente como o preflight faz, continua None — a
+        cesta seria recusada pelo caminho já testado, não aceita por
+        coincidência."""
+        fake_mt5 = make_fake_mt5()
+        fake_mt5.SYMBOL_TRADE_MODE_FULL = "FULL"
+        fake_mt5.symbols_get.return_value = [SimpleNamespace(name="EURUSDm", trade_mode="FULL")]
+        fake_mt5.symbol_info.side_effect = self._mixed_family_symbol_info(
+            mixed_pairs=[p for p in cs.ALL_28_PAIRS if p != "CADCHF"])
+        with patch.object(cs, "MT5_SYMBOL_SUFFIX", ""), \
+             patch.object(cs, "MT5_AVAILABLE", True), patch.object(cs, "mt5", fake_mt5), \
+             patch.object(cs, "_AUTO_DETECTED_SUFFIX", None), \
+             patch.object(cs, "_LAST_FAILED_FAMILY_DETECTION_AT", None), \
+             patch.dict(cs._SYMBOL_RESOLUTION_CACHE, {}, clear=True):
+            cadchf = cs.to_broker_symbol("CADCHF")
+            self.assertNotEqual(cadchf, "CADCHF",
+                                "não pode devolver o nome puro quando dá pra confirmar no MT5 — "
+                                "CADCHF bare EXISTE de verdade neste fixture, e aceitá-lo é a "
+                                "lacuna que este teste existe pra fechar")
+            # Exatamente o que o preflight faz: revalida o retorno por conta
+            # própria, sem olhar pro cache desta função.
+            reconfirmado = fake_mt5.symbol_info(cadchf)
+        self.assertIsNone(reconfirmado,
+                          "o nome devolvido pra família indeterminada tem que continuar "
+                          "'não resolvido' quando o preflight o revalida — nunca pode ser um "
+                          "símbolo que por acaso existe numa família diferente da decidida")
+        print("[✓] Fallback de família indeterminada nunca é confundível com um símbolo real — "
+              "o preflight não consegue aceitá-lo por coincidência")
+
+    def test_uniform_bare_family_is_accepted_and_shared_by_all_pairs(self):
+        """O caso simples continua funcionando: se os 28 pares existirem
+        TODOS sem sufixo e com o mesmo contrato, essa família bare (suffix
+        "") é aceita — e usada por igual pra qualquer par, não descoberta de
+        novo par a par."""
+        fake_mt5 = make_fake_mt5()
+        fake_mt5.SYMBOL_TRADE_MODE_FULL = "FULL"
+        fake_mt5.symbols_get.return_value = [SimpleNamespace(name="EURUSD", trade_mode="FULL")]
+        fake_mt5.symbol_info.side_effect = self._uniform_family_symbol_info("", contract_size=100000)
+        with patch.object(cs, "MT5_SYMBOL_SUFFIX", ""), \
+             patch.object(cs, "MT5_AVAILABLE", True), patch.object(cs, "mt5", fake_mt5), \
+             patch.object(cs, "_AUTO_DETECTED_SUFFIX", None), \
+             patch.object(cs, "_LAST_FAILED_FAMILY_DETECTION_AT", None), \
+             patch.dict(cs._SYMBOL_RESOLUTION_CACHE, {}, clear=True):
+            eurusd = cs.to_broker_symbol("EURUSD")
+            cadjpy = cs.to_broker_symbol("CADJPY")
+            self.assertEqual(cs._AUTO_DETECTED_SUFFIX, "",
+                             "família bare precisa ficar memorizada como '' (não None)")
+        self.assertEqual((eurusd, cadjpy), ("EURUSD", "CADJPY"))
+        print("[✓] Família bare consistente nos 28 pares é aceita e compartilhada por todos")
+
+    def test_reads_family_persisted_by_another_process_without_requerying(self):
+        """A REGRESSÃO CENTRAL da coordenação entre processos (achado em
+        revisão: Codex, achado 1 rodada 3; decisão do usuário). Daemon e web
+        server são processos separados, cada um com seu próprio
+        _AUTO_DETECTED_SUFFIX em memória — sem persistência, cada um podia
+        validar uma família diferente se o servidor devolvesse candidatos em
+        ordens diferentes pra cada conexão (o dict.fromkeys resolve
+        determinismo DENTRO de um processo, não coordenação ENTRE
+        processos). Simula: outro processo já validou e gravou 'm'; ESTE
+        processo, sem família em memória, lê o arquivo em vez de
+        redescobrir do zero."""
+        fake_mt5 = make_fake_mt5()
+        fake_mt5.SYMBOL_TRADE_MODE_FULL = "FULL"
+        fake_mt5.symbol_info.side_effect = self._uniform_family_symbol_info("m")
+        cs._persist_family("m")  # simula outro processo já tendo validado
+        with patch.object(cs, "MT5_SYMBOL_SUFFIX", ""), \
+             patch.object(cs, "MT5_AVAILABLE", True), patch.object(cs, "mt5", fake_mt5), \
+             patch.object(cs, "_AUTO_DETECTED_SUFFIX", None), \
+             patch.object(cs, "_LAST_FAILED_FAMILY_DETECTION_AT", None):
+            result = cs._detect_mt5_symbol_family()
+        self.assertEqual(result, "m")
+        fake_mt5.symbols_get.assert_not_called()
+        print("[✓] Família persistida por outro processo é lida e revalidada, sem redescobrir")
+
+    def test_ignores_persisted_family_that_no_longer_validates(self):
+        """A persistência nunca é confiada cegamente — sempre revalidada
+        contra os 28 pares ANTES de ser adotada. Um arquivo de uma corretora
+        antiga (ou editado à mão) que não bate mais com o servidor tem que
+        ser ignorado, não travar a detecção nem virar família adotada por
+        engano."""
+        fake_mt5 = make_fake_mt5()
+        fake_mt5.SYMBOL_TRADE_MODE_FULL = "FULL"
+        fake_mt5.symbols_get.return_value = [SimpleNamespace(name="EURUSDpro", trade_mode="FULL")]
+        fake_mt5.symbol_info.side_effect = self._uniform_family_symbol_info("pro")
+        cs._persist_family("m")  # "m" não existe mais nesta corretora (só "pro")
+        with patch.object(cs, "MT5_SYMBOL_SUFFIX", ""), \
+             patch.object(cs, "MT5_AVAILABLE", True), patch.object(cs, "mt5", fake_mt5), \
+             patch.object(cs, "_AUTO_DETECTED_SUFFIX", None), \
+             patch.object(cs, "_LAST_FAILED_FAMILY_DETECTION_AT", None):
+            result = cs._detect_mt5_symbol_family()
+        self.assertEqual(result, "pro",
+                         "família persistida obsoleta tem que ser ignorada, não travar a detecção")
+        fake_mt5.symbols_get.assert_called_once()
+        print("[✓] Família persistida que não valida mais é ignorada — descobre de novo, não trava")
+
+    def test_persisted_family_failure_arms_the_cooldown(self):
+        """Achado em revisão (mfc-rev-2, rodada 4, medido): a versão anterior
+        lia e revalidava o arquivo persistido ANTES do cooldown — um arquivo
+        presente mas obsoleto reintroduzia a MESMA tempestade de IPC que o
+        cooldown existe pra evitar (~3948 chamadas MT5/ciclo medidas). Aqui,
+        nem o arquivo persistido nem a descoberta normal encontram família
+        válida — família continua None depois da 1ª chamada, então uma
+        segunda chamada logo em seguida precisa respeitar o cooldown em vez
+        de revalidar o arquivo obsoleto de novo."""
+        fake_mt5 = make_fake_mt5()
+        fake_mt5.symbol_info.return_value = None  # "m" não existe mais em pair nenhum
+        fake_mt5.symbols_get.return_value = []  # descoberta normal também não acha nada
+        with patch.object(cs, "mt5", fake_mt5):
+            cs._persist_family("m")  # não existe mais nesta corretora
+        with patch.object(cs, "MT5_SYMBOL_SUFFIX", ""), \
+             patch.object(cs, "MT5_AVAILABLE", True), patch.object(cs, "mt5", fake_mt5), \
+             patch.object(cs, "_AUTO_DETECTED_SUFFIX", None), \
+             patch.object(cs, "_LAST_FAILED_FAMILY_DETECTION_AT", None):
+            first = cs._detect_mt5_symbol_family()
+            second = cs._detect_mt5_symbol_family()
+        self.assertIsNone(first, "arquivo obsoleto não pode virar família sozinho")
+        self.assertIsNone(second)
+        self.assertEqual(fake_mt5.symbols_get.call_count, 1,
+                         "segunda chamada dentro do cooldown não pode reconsultar, mesmo com "
+                         "um arquivo persistido (e obsoleto) no caminho")
+        print("[✓] Arquivo persistido que reprova arma o cooldown — não vira brecha pra "
+              "reconsultar a cada chamada")
+
+    def test_persisted_family_from_a_different_account_is_rejected(self):
+        """Achado em revisão (Codex/mfc-rev-2, rodada 4): validar só o
+        nocional não basta — se o MESMO checkout (mesmo data/) for
+        reaproveitado entre contas/corretoras diferentes, e a família antiga
+        por coincidência também for válida (mas não a pretendida) na conta
+        nova, ela passaria despercebida. Identidade de conta CONHECIDA e
+        DIFERENTE tem que reprovar, mesmo que o nocional bateria."""
+        fake_mt5 = make_fake_mt5()
+        fake_mt5.SYMBOL_TRADE_MODE_FULL = "FULL"
+        fake_mt5.account_info.return_value = SimpleNamespace(login=111, server="BrokerA-Demo")
+        fake_mt5.symbols_get.return_value = [SimpleNamespace(name="EURUSDm", trade_mode="FULL")]
+        fake_mt5.symbol_info.side_effect = self._uniform_family_symbol_info("m")
+        with patch.object(cs, "mt5", fake_mt5):
+            cs._persist_family("m")  # grava com login=111 (conta atual do fake acima)
+
+        # Troca de conta: mesmo sufixo 'm' AINDA validaria (coincidência),
+        # mas a conta agora é outra.
+        fake_mt5.account_info.return_value = SimpleNamespace(login=222, server="BrokerB-Live")
+        with patch.object(cs, "MT5_SYMBOL_SUFFIX", ""), \
+             patch.object(cs, "MT5_AVAILABLE", True), patch.object(cs, "mt5", fake_mt5), \
+             patch.object(cs, "_AUTO_DETECTED_SUFFIX", None), \
+             patch.object(cs, "_LAST_FAILED_FAMILY_DETECTION_AT", None):
+            result = cs._detect_mt5_symbol_family()
+        self.assertEqual(result, "m",
+                         "descobre de novo (não herda o arquivo da conta antiga) e chega no "
+                         "mesmo valor por conta própria — o que prova a rejeição é o "
+                         "symbols_get sendo chamado, não o resultado final")
+        fake_mt5.symbols_get.assert_called_once()
+        print("[✓] Família persistida por outra conta é rejeitada mesmo quando o nocional "
+              "coincidentemente bateria — descobre de novo em vez de herdar")
+
+    def test_reread_after_persist_adopts_the_winner_of_a_concurrent_write(self):
+        """Achado em revisão (mfc-rev-2, rodada 4, reproduzido com
+        subprocessos reais: 3 de 5 execuções divergiram sem esta mitigação).
+        Simula a corrida: ESTE processo valida 'm' sozinho, mas entre a
+        escrita e a releitura, outro processo já escreveu 'z' por cima —
+        este processo tem que adotar 'z' (o que está no disco), não 'm' (o
+        que ele mesmo calculou), pra convergir com quem quer que tenha
+        vencido a corrida."""
+        fake_mt5 = make_fake_mt5()
+        fake_mt5.SYMBOL_TRADE_MODE_FULL = "FULL"
+        fake_mt5.symbols_get.return_value = [SimpleNamespace(name="EURUSDm", trade_mode="FULL")]
+
+        def info_for(sym):
+            for pair in cs.ALL_28_PAIRS:
+                if sym == pair + "m":
+                    return SimpleNamespace(trade_mode="FULL", trade_contract_size=1000)
+                if sym == pair + "z":
+                    return SimpleNamespace(trade_mode="FULL", trade_contract_size=999999)
+            return None
+        fake_mt5.symbol_info.side_effect = info_for
+
+        real_persist = cs._persist_family
+
+        def persist_then_let_other_process_win(suffix):
+            real_persist(suffix)
+            real_persist("z")  # "outro processo" escreve por cima, bem aqui —
+            # chama a função REAL, não cs._persist_family (que está mockada
+            # neste teste): usar a mockada aqui recursaria nela mesma.
+
+        with patch.object(cs, "MT5_SYMBOL_SUFFIX", ""), \
+             patch.object(cs, "MT5_AVAILABLE", True), patch.object(cs, "mt5", fake_mt5), \
+             patch.object(cs, "_AUTO_DETECTED_SUFFIX", None), \
+             patch.object(cs, "_LAST_FAILED_FAMILY_DETECTION_AT", None), \
+             patch.object(cs, "_persist_family", side_effect=persist_then_let_other_process_win):
+            result = cs._detect_mt5_symbol_family()
+        self.assertEqual(result, "z",
+                         "tem que adotar o que está no disco (o vencedor da corrida), não o "
+                         "que este processo mesmo calculou")
+        print("[✓] Reread-after-write adota o vencedor de uma escrita concorrente, não o "
+              "próprio valor calculado")
+
+    def test_reading_a_corrupted_persisted_file_never_raises(self):
+        """Achado em revisão (mfc-rev-2, rodada 4, reproduzido): a versão
+        anterior só capturava (OSError, json.JSONDecodeError). Um arquivo
+        com bytes que não decodificam como UTF-8 lança UnicodeDecodeError no
+        open() ANTES do json.load — não é um JSONDecodeError (não herda
+        dele) — e isso propagava até to_broker_symbol(), derrubando o
+        cálculo inteiro numa corretora saudável só por causa de um arquivo
+        de CACHE corrompido."""
+        with open(cs._FAMILY_STATE_FILE, "wb") as f:
+            f.write(b"\xff\xfe\x00\x01garbage-not-utf8")
+        try:
+            result = cs._read_persisted_family()
+        except Exception as e:
+            self.fail(f"_read_persisted_family() lançou {type(e).__name__}: {e} — "
+                      f"um arquivo de cache corrompido não pode derrubar o chamador")
+        self.assertIsNone(result)
+        print("[✓] Arquivo persistido com bytes inválidos nunca lança — trata como ausente")
+
+    def test_persisted_family_survives_as_json_readable_by_another_process(self):
+        """Prova de ponta a ponta do arquivo em si — não só da função que o
+        lê internamente: grava, e um leitor de JSON puro (sem passar por
+        nenhuma função deste módulo) consegue ler o mesmo valor."""
+        fake_mt5 = make_fake_mt5()
+        fake_mt5.SYMBOL_TRADE_MODE_FULL = "FULL"
+        fake_mt5.symbols_get.return_value = [SimpleNamespace(name="EURUSDm", trade_mode="FULL")]
+        fake_mt5.symbol_info.side_effect = self._uniform_family_symbol_info("m")
+        with patch.object(cs, "MT5_AVAILABLE", True), patch.object(cs, "mt5", fake_mt5), \
+             patch.object(cs, "_AUTO_DETECTED_SUFFIX", None):
+            cs._detect_mt5_symbol_family()
+        with open(cs._FAMILY_STATE_FILE, "r", encoding="utf-8") as f:
+            on_disk = json.load(f)
+        self.assertEqual(on_disk["suffix"], "m")
+        print("[✓] Família validada é persistida em disco como JSON legível por outro processo")
+
     def test_auto_detects_suffix_by_querying_the_server(self):
         """Regressão (pedido do Breno): em vez de exigir CSS_MT5_SYMBOL_SUFFIX
         configurado manualmente pra cada corretora nova, consulta o servidor
-        direto — igual à sugestão original: 'fazer uma consulta do symbol ou
-        coletar alguns símbolo e ver a resposta'."""
+        direto. Agora a família também precisa ser válida nos 28 pares —
+        "pro" existe pro par-sonda mas não forma família (rejeitada); "m"
+        cobre os 28 com contrato consistente."""
         fake_mt5 = make_fake_mt5()
+        fake_mt5.SYMBOL_TRADE_MODE_FULL = "FULL"
         fake_mt5.symbols_get.return_value = [
-            SimpleNamespace(name="EURUSDpro"),  # série alternativa, mais longa
-            SimpleNamespace(name="EURUSDm"),    # série padrão, mais curta — essa vence
+            SimpleNamespace(name="EURUSDpro", trade_mode="FULL"),  # série alternativa, mais longa
+            SimpleNamespace(name="EURUSDm", trade_mode="FULL"),    # série padrão, mais curta — essa vence
         ]
+
+        def info_for(sym):
+            if sym.endswith("pro"):
+                return None if sym != "EURUSDpro" else SimpleNamespace(
+                    trade_mode="FULL", trade_contract_size=100000)
+            if sym.endswith("m") and sym[:-1] in cs.ALL_28_PAIRS:
+                return SimpleNamespace(trade_mode="FULL", trade_contract_size=1000)
+            return None
+
+        fake_mt5.symbol_info.side_effect = info_for
         with patch.object(cs, "MT5_AVAILABLE", True), patch.object(cs, "mt5", fake_mt5), \
-             patch.object(cs, "_AUTO_DETECTED_SUFFIX", None):
-            result = cs._detect_mt5_symbol_suffix()
+             patch.object(cs, "_AUTO_DETECTED_SUFFIX", None), \
+             patch.object(cs, "_LAST_FAILED_FAMILY_DETECTION_AT", None):
+            result = cs._detect_mt5_symbol_family()
         self.assertEqual(result, "m")
         fake_mt5.symbols_get.assert_called_once_with("*EURUSD*")
-        print("[✓] Detecção automática consulta o servidor e pega a série mais curta (padrão)")
+        print("[✓] Detecção consulta o servidor e adota o candidato mais curto que forma "
+              "família válida nos 28 pares — não só o par-sonda")
 
     def test_auto_detection_excludes_non_full_trade_modes(self):
         """Achado em revisão /dual-r: filtrar só "!= DISABLED" ainda deixava
         passar CLOSEONLY/LONGONLY/SHORTONLY como candidato a sufixo padrão —
         um desses pode rejeitar abertura de alguma perna só depois de outras
-        já terem aberto. Agora só aceita trade_mode == FULL."""
+        já terem aberto. Agora só aceita trade_mode == FULL no par-sonda."""
         fake_mt5 = make_fake_mt5()
         fake_mt5.SYMBOL_TRADE_MODE_FULL = "FULL"
         fake_mt5.symbols_get.return_value = [
@@ -699,11 +1208,13 @@ class TestSymbolResolution(unittest.TestCase):
             # Mais longo, mas negociável nos dois sentidos — este é o certo.
             SimpleNamespace(name="EURUSDpro", visible=True, trade_mode="FULL"),
         ]
+        fake_mt5.symbol_info.side_effect = self._uniform_family_symbol_info("pro")
         with patch.object(cs, "MT5_AVAILABLE", True), patch.object(cs, "mt5", fake_mt5), \
-             patch.object(cs, "_AUTO_DETECTED_SUFFIX", None):
-            result = cs._detect_mt5_symbol_suffix()
+             patch.object(cs, "_AUTO_DETECTED_SUFFIX", None), \
+             patch.object(cs, "_LAST_FAILED_FAMILY_DETECTION_AT", None):
+            result = cs._detect_mt5_symbol_family()
         self.assertEqual(result, "pro")
-        print("[✓] Detecção automática só aceita trade_mode FULL — ignora DISABLED, CLOSEONLY, "
+        print("[✓] Detecção só aceita trade_mode FULL no par-sonda — ignora DISABLED, CLOSEONLY, "
               "LONGONLY e SHORTONLY")
 
     def test_auto_detection_ignores_market_watch_visibility(self):
@@ -722,62 +1233,154 @@ class TestSymbolResolution(unittest.TestCase):
             # Mais longo e também invisível, mas FULL — este é o certo.
             SimpleNamespace(name="EURUSDm", visible=False, trade_mode="FULL"),
         ]
+        fake_mt5.symbol_info.side_effect = self._uniform_family_symbol_info("m")
         with patch.object(cs, "MT5_AVAILABLE", True), patch.object(cs, "mt5", fake_mt5), \
-             patch.object(cs, "_AUTO_DETECTED_SUFFIX", None):
-            result = cs._detect_mt5_symbol_suffix()
+             patch.object(cs, "_AUTO_DETECTED_SUFFIX", None), \
+             patch.object(cs, "_LAST_FAILED_FAMILY_DETECTION_AT", None):
+            result = cs._detect_mt5_symbol_family()
         self.assertEqual(result, "m")
-        print("[✓] Detecção automática não descarta candidato só por estar invisível no Market "
-              "Watch — mas continua exigindo trade_mode FULL mesmo assim")
+        print("[✓] Detecção não descarta candidato do par-sonda só por estar invisível no "
+              "Market Watch — mas continua exigindo trade_mode FULL mesmo assim")
 
     def test_auto_detection_result_is_cached_not_requeried(self):
         fake_mt5 = make_fake_mt5()
-        fake_mt5.symbols_get.return_value = [SimpleNamespace(name="EURUSDm")]
+        fake_mt5.SYMBOL_TRADE_MODE_FULL = "FULL"
+        fake_mt5.symbols_get.return_value = [SimpleNamespace(name="EURUSDm", trade_mode="FULL")]
+        fake_mt5.symbol_info.side_effect = self._uniform_family_symbol_info("m")
         with patch.object(cs, "MT5_AVAILABLE", True), patch.object(cs, "mt5", fake_mt5), \
-             patch.object(cs, "_AUTO_DETECTED_SUFFIX", None):
-            cs._detect_mt5_symbol_suffix()
-            cs._detect_mt5_symbol_suffix()
+             patch.object(cs, "_AUTO_DETECTED_SUFFIX", None), \
+             patch.object(cs, "_LAST_FAILED_FAMILY_DETECTION_AT", None):
+            cs._detect_mt5_symbol_family()
+            cs._detect_mt5_symbol_family()
         self.assertEqual(fake_mt5.symbols_get.call_count, 1)
-        print("[✓] Sufixo detectado é memorizado — não reconsulta o servidor de novo")
+        print("[✓] Família detectada é memorizada — não reconsulta o servidor de novo")
 
-    def test_auto_detection_does_not_cache_failure_so_it_can_retry_later(self):
+    def test_auto_detection_does_not_retry_immediately_after_failure(self):
+        """Achado em revisão (mfc-rev-2, achado 1 rodada 2, medido): sem
+        cooldown, cada chamada de to_broker_symbol() com família
+        indeterminada refazia symbols_get() + a validação inteira do zero —
+        e to_broker_symbol() é chamado ~140 vezes por ciclo de update_data().
+        Numa corretora onde a família nunca fecha, isso virava uma
+        tempestade de IPC contra o mesmo canal que envia ordem real. Uma
+        segunda chamada imediata (mesmo instante) não pode reconsultar."""
         fake_mt5 = make_fake_mt5()
         fake_mt5.symbols_get.return_value = []  # servidor ainda não respondeu nada útil
         with patch.object(cs, "MT5_AVAILABLE", True), patch.object(cs, "mt5", fake_mt5), \
-             patch.object(cs, "_AUTO_DETECTED_SUFFIX", None):
-            first = cs._detect_mt5_symbol_suffix()
-            second = cs._detect_mt5_symbol_suffix()
+             patch.object(cs, "_AUTO_DETECTED_SUFFIX", None), \
+             patch.object(cs, "_LAST_FAILED_FAMILY_DETECTION_AT", None):
+            first = cs._detect_mt5_symbol_family()
+            second = cs._detect_mt5_symbol_family()
         self.assertIsNone(first)
         self.assertIsNone(second)
-        self.assertEqual(fake_mt5.symbols_get.call_count, 2, "falha não pode virar desistência permanente")
-        print("[✓] Falha em detectar não gruda pra sempre — tenta de novo na próxima chamada")
+        self.assertEqual(fake_mt5.symbols_get.call_count, 1,
+                         "segunda chamada dentro do cooldown não pode reconsultar o servidor")
+        print("[✓] Falha em detectar não dispara reconsulta imediata — respeita o cooldown")
+
+    def test_auto_detection_retries_after_the_cooldown_expires(self):
+        """A outra metade da mesma garantia: o cooldown NÃO pode virar
+        desistência permanente — depois que o intervalo passa (ex.: o MT5
+        finalmente conectou), a próxima chamada tenta de novo."""
+        fake_mt5 = make_fake_mt5()
+        fake_mt5.symbols_get.return_value = []
+        t = [1000.0]
+        with patch.object(cs, "MT5_AVAILABLE", True), patch.object(cs, "mt5", fake_mt5), \
+             patch.object(cs, "_AUTO_DETECTED_SUFFIX", None), \
+             patch.object(cs, "_LAST_FAILED_FAMILY_DETECTION_AT", None), \
+             patch.object(cs.time, "monotonic", lambda: t[0]):
+            first = cs._detect_mt5_symbol_family()
+            t[0] += cs._FAMILY_DETECTION_COOLDOWN_SECONDS + 0.01
+            second = cs._detect_mt5_symbol_family()
+        self.assertIsNone(first)
+        self.assertIsNone(second)
+        self.assertEqual(fake_mt5.symbols_get.call_count, 2,
+                         "depois do cooldown expirar, a próxima chamada tem que reconsultar")
+        print("[✓] Depois do cooldown expirar, a detecção tenta de novo — não desiste pra sempre")
+
+    def test_auto_detection_does_not_cache_when_no_candidate_forms_a_valid_family(self):
+        """Achado 1: mesmo com candidatos existindo pro par-sonda, se NENHUM
+        deles cobrir os 28 pares com contrato consistente, a detecção falha
+        — e falha SEM memorizar, senão a família ruim ficaria congelada."""
+        fake_mt5 = make_fake_mt5()
+        fake_mt5.SYMBOL_TRADE_MODE_FULL = "FULL"
+        fake_mt5.symbols_get.return_value = [SimpleNamespace(name="EURUSDm", trade_mode="FULL")]
+        # "m" resolve o par-sonda, mas não os outros 27 — família inválida.
+        fake_mt5.symbol_info.side_effect = (
+            lambda sym: SimpleNamespace(trade_mode="FULL", trade_contract_size=1000)
+            if sym == "EURUSDm" else None)
+        with patch.object(cs, "MT5_AVAILABLE", True), patch.object(cs, "mt5", fake_mt5), \
+             patch.object(cs, "_AUTO_DETECTED_SUFFIX", None), \
+             patch.object(cs, "_LAST_FAILED_FAMILY_DETECTION_AT", None):
+            first = cs._detect_mt5_symbol_family()
+            second = cs._detect_mt5_symbol_family()
+        self.assertIsNone(first)
+        self.assertIsNone(second)
+        self.assertEqual(fake_mt5.symbols_get.call_count, 1,
+                         "segunda chamada dentro do cooldown não pode reconsultar")
+        print("[✓] Candidato que só resolve o par-sonda (não os 28) é rejeitado, sem memorizar "
+              "— e sem reconsultar de novo dentro do cooldown")
+
+    def test_symbol_family_consistency_treats_missing_contract_size_as_inconsistent(self):
+        """Objeto MT5 sem trade_contract_size (só ocorre em dublê de teste
+        mínimo — o objeto real do MT5 sempre expõe) não pode ser tratado como
+        'compatível por padrão' — precisa reprovar o candidato."""
+        fake_mt5 = make_fake_mt5()
+
+        def info_for(sym):
+            if sym == "EURUSDm":
+                return SimpleNamespace(trade_mode="FULL")  # sem trade_contract_size
+            return None
+
+        fake_mt5.symbol_info.side_effect = info_for
+        with patch.object(cs, "MT5_AVAILABLE", True), patch.object(cs, "mt5", fake_mt5):
+            self.assertFalse(cs._symbol_family_is_consistent("m"))
+        print("[✓] trade_contract_size ausente reprova o candidato — não presume compatível")
+
+    def test_symbol_family_consistency_treats_non_positive_contract_size_as_inconsistent(self):
+        """Achado em revisão (Codex, achado 1 rodada 3): trade_contract_size
+        zerado ou negativo é inválido, mas 'todos zerados' bateria em
+        len(sizes) == 1 se a checagem fosse só 'is None'."""
+        fake_mt5 = make_fake_mt5()
+
+        def info_for(sym):
+            for pair in cs.ALL_28_PAIRS:
+                if sym == pair + "m":
+                    return SimpleNamespace(trade_mode="FULL", trade_contract_size=0)
+            return None
+
+        fake_mt5.symbol_info.side_effect = info_for
+        with patch.object(cs, "MT5_AVAILABLE", True), patch.object(cs, "mt5", fake_mt5):
+            self.assertFalse(cs._symbol_family_is_consistent("m"))
+        print("[✓] trade_contract_size zerado (mesmo consistente entre os 28) reprova o candidato")
 
     def test_to_broker_symbol_falls_back_to_auto_detection_as_last_resort(self):
-        """Sem CSS_MT5_SYMBOL_SUFFIX configurado e sem o nome puro resolver,
-        a resolução não desiste mais — descobre sozinha antes de devolver
-        um nome não confirmado."""
+        """Sem CSS_MT5_SYMBOL_SUFFIX configurado, a resolução descobre a
+        família sozinha antes de devolver um nome não confirmado."""
         fake_mt5 = make_fake_mt5()
-        fake_mt5.symbols_get.return_value = [SimpleNamespace(name="EURUSDm")]
-
-        def fake_symbol_info(sym):
-            return SimpleNamespace() if sym == "EURUSDm" else None
-        fake_mt5.symbol_info.side_effect = fake_symbol_info
+        fake_mt5.SYMBOL_TRADE_MODE_FULL = "FULL"
+        fake_mt5.symbols_get.return_value = [SimpleNamespace(name="EURUSDm", trade_mode="FULL")]
+        fake_mt5.symbol_info.side_effect = self._uniform_family_symbol_info("m")
 
         with patch.object(cs, "MT5_SYMBOL_SUFFIX", ""), \
              patch.object(cs, "MT5_AVAILABLE", True), patch.object(cs, "mt5", fake_mt5), \
              patch.object(cs, "_AUTO_DETECTED_SUFFIX", None), \
+             patch.object(cs, "_LAST_FAILED_FAMILY_DETECTION_AT", None), \
              patch.dict(cs._SYMBOL_RESOLUTION_CACHE, {}, clear=True):
             result = cs.to_broker_symbol("EURUSD")
         self.assertEqual(result, "EURUSDm")
-        print("[✓] to_broker_symbol() resolve via auto-detecção quando configuração manual não existe")
+        print("[✓] to_broker_symbol() resolve via família auto-detectada quando configuração "
+              "manual não existe")
 
     def test_to_broker_symbol_does_not_query_server_when_configured_suffix_already_works(self):
         """A configuração explícita continua tendo precedência — não faz uma
-        consulta mais cara (symbols_get) quando o palpite já resolveu."""
+        consulta mais cara (symbols_get) quando o sufixo configurado já
+        resolve, e nem tenta validar família nesse caso."""
         fake_mt5 = make_fake_mt5()
-        fake_mt5.symbol_info.return_value = SimpleNamespace()  # qualquer símbolo "resolve"
+        fake_mt5.symbol_info.return_value = SimpleNamespace(
+            trade_mode="FULL", trade_contract_size=1000)
         with patch.object(cs, "MT5_SYMBOL_SUFFIX", "m"), \
              patch.object(cs, "MT5_AVAILABLE", True), patch.object(cs, "mt5", fake_mt5), \
              patch.object(cs, "_AUTO_DETECTED_SUFFIX", None), \
+             patch.object(cs, "_LAST_FAILED_FAMILY_DETECTION_AT", None), \
              patch.dict(cs._SYMBOL_RESOLUTION_CACHE, {}, clear=True):
             cs.to_broker_symbol("EURUSD")
         fake_mt5.symbols_get.assert_not_called()
@@ -816,7 +1419,7 @@ class TestSymbolResolution(unittest.TestCase):
             login=999, server="Broker-Demo", trade_mode="DEMO",
             trade_allowed=True, margin_mode="HEDGING")
         fake_mt5.positions_get.return_value = ()
-        fake_mt5.symbol_info.return_value = SimpleNamespace(visible=True)
+        fake_mt5.symbol_info.return_value = SimpleNamespace(visible=True, trade_mode="FULL")
 
         def tick_for(sym):
             # 6 dos 7 pares cotam; CADJPYm (o último da cesta) não.
@@ -833,6 +1436,122 @@ class TestSymbolResolution(unittest.TestCase):
         self.assertEqual(result["no_tick"], ["CADJPY"])
         fake_mt5.order_send.assert_not_called()
         print("[✓] Um único par sem cotação recusa a cesta inteira — zero perna aberta")
+
+    def test_open_refused_entirely_when_a_single_pair_has_a_crossed_market_tick(self):
+        """A REGRESSÃO CENTRAL do achado 4 rodada 4 (Claude, medido): o
+        CostModel já rejeitava mercado cruzado (ask < bid) como dado
+        inválido, mas o PREFLIGHT — o gate que REALMENTE decide se a ordem
+        sai — não tinha a mesma checagem. Um tick cruzado era aceito aqui e
+        abriria as 7 pernas com um price potencialmente do lado errado do
+        book, que também alimenta o stop catastrófico. Antes desta
+        correção, o diagnóstico era mais rigoroso que o gate de execução —
+        exatamente o oposto do que deveria ser."""
+        fake_mt5 = make_fake_mt5()
+        fake_mt5.account_info.return_value = SimpleNamespace(
+            login=999, server="Broker-Demo", trade_mode="DEMO",
+            trade_allowed=True, margin_mode="HEDGING")
+        fake_mt5.positions_get.return_value = ()
+        fake_mt5.symbol_info.return_value = SimpleNamespace(visible=True, trade_mode="FULL")
+
+        def tick_for(sym):
+            # 6 dos 7 pares cotam normal; CADJPYm vem com mercado cruzado
+            # (ask < bid) — dado de tick claramente inválido, não "sem tick".
+            if sym.startswith("CADJPY"):
+                return SimpleNamespace(ask=1.0998, bid=1.1000)
+            return SimpleNamespace(ask=1.1000, bid=1.0998)
+
+        fake_mt5.symbol_info_tick.side_effect = tick_for
+        with patch.dict(os.environ, DEMO_GATE_ENV), \
+             patch.object(pe, "MT5_AVAILABLE", True), patch.object(pe, "mt5", fake_mt5):
+            result = pe.open_portfolio_basket("CAD", "BUY")
+        self.assertFalse(result["success"])
+        self.assertEqual(result["error"], "preflight_failed")
+        self.assertEqual(result["no_tick"], ["CADJPY"],
+                         "mercado cruzado tem que ser tratado como tick inválido, não aceito")
+        fake_mt5.order_send.assert_not_called()
+        print("[✓] Tick com mercado cruzado recusa a cesta inteira — mesma régua do CostModel")
+
+    def test_open_refused_when_one_side_of_the_tick_is_zero_in_a_mono_direction_basket(self):
+        """Achado em revisão (mfc-rev-2, achado 2/4 rodada 5, P2-2, medido):
+        a versão anterior do preflight só exigia "não cruzado" (ask >= bid)
+        e o preço do lado USADO positivo — não exigia o OUTRO lado positivo.
+        Numa cesta que mistura BUY e SELL isso ficava mascarado, porque a
+        perna do lado oposto costuma cair em "sem tick" primeiro. EUR/BUY é
+        uma cesta MONO-DIREÇÃO de verdade (EUR é base nos 7 pares da sua
+        cesta, então toda perna é BUY, usa só o ask) — o cenário exato em
+        que a proteção acidental não existe. ask positivo + bid=0 (não é
+        "cruzado": 150.02 >= 0) tinha que passar reto antes desta correção;
+        agora _tick_valido() exige os dois lados positivos."""
+        fake_mt5 = make_fake_mt5()
+        fake_mt5.account_info.return_value = SimpleNamespace(
+            login=999, server="Broker-Demo", trade_mode="DEMO",
+            trade_allowed=True, margin_mode="HEDGING"
+        )
+        fake_mt5.positions_get.return_value = ()
+        fake_mt5.symbol_info.return_value = SimpleNamespace(visible=True, trade_mode="FULL")
+
+        def tick_for(sym):
+            if sym.startswith("EURJPY"):
+                return SimpleNamespace(ask=150.02, bid=0.0)  # ask>0, bid=0 — não "cruzado"
+            return SimpleNamespace(ask=1.1002, bid=1.1000)
+
+        fake_mt5.symbol_info_tick.side_effect = tick_for
+        with patch.dict(os.environ, DEMO_GATE_ENV), \
+             patch.object(pe, "MT5_AVAILABLE", True), patch.object(pe, "mt5", fake_mt5):
+            result = pe.open_portfolio_basket("EUR", "BUY")
+        self.assertFalse(result["success"])
+        self.assertEqual(result["error"], "preflight_failed")
+        self.assertEqual(result["no_tick"], ["EURJPY"],
+                         "bid=0 com ask positivo tem que ser recusado mesmo numa cesta "
+                         "mono-direção, sem a proteção acidental da perna do lado oposto")
+        fake_mt5.order_send.assert_not_called()
+        print("[✓] preflight recusa tick com um lado zerado mesmo numa cesta só-BUY "
+              "(EUR), onde não existe perna do lado oposto pra mascarar o bug")
+
+    def test_order_send_falls_back_to_preflight_price_when_tick_degrades_before_send(self):
+        """Achado em revisão (mfc-rev-2, achado 2/4 rodada 5, P2-2, medido):
+        o laço de envio reconsulta o tick antes de cada order_send(); se
+        esse tick vier cruzado bem entre o preflight e o envio (janela real,
+        ainda que estreita), a versão anterior só checava "price <= 0" —
+        aceitava o lado escolhido mesmo com mercado cruzado. Agora usa
+        _tick_valido() também aqui: tick inválido na 2ª consulta cai pro
+        preço JÁ VALIDADO no preflight, não é aceito cru."""
+        fake_mt5 = make_fake_mt5()
+        fake_mt5.account_info.return_value = SimpleNamespace(
+            login=999, server="Broker-Demo", trade_mode="DEMO",
+            trade_allowed=True, margin_mode="HEDGING"
+        )
+        fake_mt5.positions_get.return_value = ()
+        fake_mt5.symbol_info.return_value = SimpleNamespace(visible=True, trade_mode="FULL")
+        fake_mt5.order_send.return_value = SimpleNamespace(
+            retcode=fake_mt5.TRADE_RETCODE_DONE, order=1, price=1.1002, comment="ok")
+
+        calls_per_symbol = {}
+
+        def tick_for(sym):
+            n = calls_per_symbol.get(sym, 0)
+            calls_per_symbol[sym] = n + 1
+            if sym.startswith("CADJPY") and n == 1:
+                # 2ª consulta (laço de envio, depois do preflight já ter
+                # validado este par): mercado ficou cruzado nesse meio-tempo.
+                return SimpleNamespace(ask=1.0998, bid=1.1000)
+            return SimpleNamespace(ask=1.1002, bid=1.1000)
+
+        fake_mt5.symbol_info_tick.side_effect = tick_for
+        with patch.dict(os.environ, DEMO_GATE_ENV), \
+             patch.object(pe, "MT5_AVAILABLE", True), patch.object(pe, "mt5", fake_mt5):
+            result = pe.open_portfolio_basket("CAD", "BUY")
+        self.assertEqual(result["opened_count"], 7,
+                         "a cesta inteira já passou pelo preflight — um tick que degrada "
+                         "só depois não pode abortar a perna nem travar a cesta")
+        cadjpy_calls = [c for c in fake_mt5.order_send.call_args_list
+                        if c.args[0]["symbol"].startswith("CADJPY")]
+        self.assertEqual(len(cadjpy_calls), 1)
+        self.assertEqual(cadjpy_calls[0].args[0]["price"], 1.1002,
+                         "com tick cruzado só na 2ª consulta, o price enviado tem que ser "
+                         "o do preflight (já validado), não o do lado errado do book")
+        print("[✓] tick que fica cruzado entre preflight e envio cai no preço já validado "
+              "do preflight, não é aceito cru na 2ª consulta")
 
     def test_open_refused_entirely_when_a_single_pair_has_restricted_trade_mode(self):
         """Achado ALTO em revisão (/codex-r sobre o commit ad44e12): a
@@ -864,6 +1583,42 @@ class TestSymbolResolution(unittest.TestCase):
         self.assertEqual(result["restricted"], ["CADJPY"])
         fake_mt5.order_send.assert_not_called()
         print("[✓] Um único par com trade_mode restrito recusa a cesta inteira — zero perna aberta")
+
+    def test_open_refused_when_trade_mode_is_missing_from_symbol_info(self):
+        """Achado 2 (revisão de ad44e12/c24a44c, codex-r + mfc-rev-2): o
+        preflight usava getattr(info, "trade_mode", full_mode) — campo
+        AUSENTE era presumido FULL (fail-open). As duas rodadas de revisão
+        confirmaram, via documentação oficial do binding e por inspeção do
+        próprio código (que já acessa trade_contract_size, swap_long, point
+        e visible SEM getattr em outros lugares), que o objeto real do MT5
+        NUNCA vem incompleto — symbol_info() devolve o namedtuple inteiro ou
+        None, nunca um meio-termo. Ou seja: campo ausente só pode acontecer
+        aqui dentro de um dublê de teste, nunca em produção. Mesmo assim,
+        presumir o caso mais permissivo (FULL) quando a garantia é teórica
+        é a escolha errada num preflight que existe pra decidir se dinheiro
+        real sai. Corrigido pra fail-closed: ausência de trade_mode agora
+        é tratada como restrição, não como negociável."""
+        fake_mt5 = make_fake_mt5()
+        fake_mt5.SYMBOL_TRADE_MODE_FULL = "FULL"
+        fake_mt5.account_info.return_value = SimpleNamespace(
+            login=999, server="Broker-Demo", trade_mode="DEMO",
+            trade_allowed=True, margin_mode="HEDGING")
+        fake_mt5.positions_get.return_value = ()
+        # CADJPY sem trade_mode nenhum (não CLOSEONLY — AUSENTE); os outros
+        # 6 pares vêm com FULL explícito.
+        fake_mt5.symbol_info.side_effect = (
+            lambda sym: SimpleNamespace(visible=True) if sym.startswith("CADJPY")
+            else SimpleNamespace(visible=True, trade_mode="FULL"))
+        fake_mt5.symbol_info_tick.return_value = SimpleNamespace(ask=1.1000, bid=1.0998)
+        with patch.dict(os.environ, DEMO_GATE_ENV), \
+             patch.object(pe, "MT5_AVAILABLE", True), patch.object(pe, "mt5", fake_mt5):
+            result = pe.open_portfolio_basket("CAD", "BUY")
+        self.assertFalse(result["success"])
+        self.assertEqual(result["error"], "preflight_failed")
+        self.assertEqual(result["restricted"], ["CADJPY"],
+                         "trade_mode AUSENTE tem que ser tratado como restrito, não como FULL")
+        fake_mt5.order_send.assert_not_called()
+        print("[✓] trade_mode ausente é tratado como restrito (fail-closed) — não presume FULL")
 
 
 class TestReconciler(unittest.TestCase):
@@ -970,7 +1725,7 @@ class TestExposureCaps(unittest.TestCase):
             login=999, server="Broker-Demo", trade_mode="DEMO",
             trade_allowed=True, margin_mode="HEDGING")
         fake.positions_get.return_value = positions
-        fake.symbol_info.return_value = SimpleNamespace(visible=True)
+        fake.symbol_info.return_value = SimpleNamespace(visible=True, trade_mode="FULL")
         fake.symbol_info_tick.return_value = SimpleNamespace(ask=1.1, bid=1.0998)
         fake.order_send.return_value = SimpleNamespace(
             retcode=fake.TRADE_RETCODE_DONE, order=1, price=1.1, comment="ok")
@@ -1133,7 +1888,7 @@ class TestAmbiguousRetcodeConfirmation(unittest.TestCase):
         fake_mt5.account_info.return_value = SimpleNamespace(
             login=999, server="Broker-Demo", trade_mode="DEMO",
             trade_allowed=True, margin_mode="HEDGING")
-        fake_mt5.symbol_info.return_value = SimpleNamespace(visible=True)
+        fake_mt5.symbol_info.return_value = SimpleNamespace(visible=True, trade_mode="FULL")
         fake_mt5.symbol_info_tick.return_value = SimpleNamespace(ask=1.1, bid=1.0998)
         fake_mt5.TRADE_RETCODE_DONE_PARTIAL = 10010
 
@@ -1178,7 +1933,7 @@ class TestAmbiguousRetcodeConfirmation(unittest.TestCase):
             login=999, server="Broker-Demo", trade_mode="DEMO",
             trade_allowed=True, margin_mode="HEDGING")
         fake_mt5.positions_get.return_value = []
-        fake_mt5.symbol_info.return_value = SimpleNamespace(visible=True)
+        fake_mt5.symbol_info.return_value = SimpleNamespace(visible=True, trade_mode="FULL")
         fake_mt5.symbol_info_tick.return_value = SimpleNamespace(ask=1.1, bid=1.0998)
         fake_mt5.TRADE_RETCODE_PLACED = 10008
 
@@ -1217,7 +1972,7 @@ class TestAmbiguousRetcodeConfirmation(unittest.TestCase):
             login=999, server="Broker-Demo", trade_mode="DEMO",
             trade_allowed=True, margin_mode="HEDGING")
         fake_mt5.positions_get.return_value = []
-        fake_mt5.symbol_info.return_value = SimpleNamespace(visible=True)
+        fake_mt5.symbol_info.return_value = SimpleNamespace(visible=True, trade_mode="FULL")
         fake_mt5.symbol_info_tick.return_value = SimpleNamespace(ask=1.1, bid=1.0998)
 
         pairs = pe.get_portfolio_pairs("CAD", "BUY")
@@ -1253,7 +2008,7 @@ class TestAmbiguousRetcodeConfirmation(unittest.TestCase):
             login=999, server="Broker-Demo", trade_mode="DEMO",
             trade_allowed=True, margin_mode="HEDGING")
         fake_mt5.positions_get.return_value = []
-        fake_mt5.symbol_info.return_value = SimpleNamespace(visible=True)
+        fake_mt5.symbol_info.return_value = SimpleNamespace(visible=True, trade_mode="FULL")
         fake_mt5.symbol_info_tick.return_value = SimpleNamespace(ask=1.1, bid=1.0998)
         fake_mt5.TRADE_RETCODE_REQUOTE = 10004  # não ambíguo — rejeição pura
 
@@ -1471,15 +2226,22 @@ class TestCostModel(unittest.TestCase):
     E pelo backtest, uma cópia só."""
 
     def test_leg_computes_spread_and_swap_in_usd(self):
+        """Achado em revisão (Codex, achado 4 rodada 4): este teste dizia no
+        nome "spread e swap", mas o dublê não tinha swap_mode (dependia do
+        default antigo, que presumia PONTOS quando ausente — o mesmo
+        fail-open que a rodada 4 fechou) e a asserção só checava spread.
+        Agora o dublê declara swap_mode=PONTOS explicitamente e o teste
+        também verifica swap_usd — passa a testar o que o nome promete."""
         fake_mt5 = MagicMock()
+        fake_mt5.SYMBOL_SWAP_MODE_POINTS = 1
 
         def fake_symbol_info(sym):
             if sym == "USDJPYm":
                 return SimpleNamespace(trade_contract_size=100000, point=0.01,
-                                       swap_long=-5.0, swap_short=2.0)
+                                       swap_long=-5.0, swap_short=2.0, swap_mode=1)
             if sym == "USDCADm":  # usado pra converter CAD -> USD (par de referência)
                 return SimpleNamespace(trade_contract_size=100000, point=0.0001,
-                                       swap_long=0.0, swap_short=0.0)
+                                       swap_long=0.0, swap_short=0.0, swap_mode=1)
             return None
 
         def fake_symbol_info_tick(sym):
@@ -1502,7 +2264,34 @@ class TestCostModel(unittest.TestCase):
         # o que importa aqui é confirmar que saiu um número > 0 coerente com
         # spread de 2 pips num contrato padrão de 0.01 lote.
         self.assertGreater(spread_usd, 0)
-        print(f"[✓] CostModel.leg() calcula spread real em USD: ${spread_usd:.4f}")
+        # BUY em USDJPY usa swap_long=-5.0 pontos — negativo, custo real.
+        self.assertLess(swap_usd, 0, "swap_mode=PONTOS deveria calcular um swap não-zero")
+        print(f"[✓] CostModel.leg() calcula spread E swap reais em USD: "
+              f"${spread_usd:.4f} / ${swap_usd:.4f}")
+
+    def test_leg_treats_missing_swap_mode_as_unmodeled_not_points(self):
+        """A REGRESSÃO CENTRAL do achado em revisão (Codex, achado 4 rodada
+        4): getattr(si, "swap_mode", swap_mode_points) tinha o MESMO
+        fail-open que o achado 2 fechou pro trade_mode — campo ausente
+        virava "presumir PONTOS", calculando um swap como se o modo
+        estivesse confirmado. Objeto real do MT5 sempre expõe o campo
+        (mesmo argumento do achado 2), mas o preflight já mostrou que
+        vale a mesma disciplina mesmo sendo teórico em produção."""
+        fake_mt5 = MagicMock()
+        fake_mt5.SYMBOL_SWAP_MODE_POINTS = 1
+        fake_mt5.symbol_info.return_value = SimpleNamespace(
+            trade_contract_size=100000, point=0.0001,
+            swap_long=-2.5, swap_short=1.0)  # sem swap_mode
+        fake_mt5.symbol_info_tick.return_value = SimpleNamespace(ask=1.1002, bid=1.1000)
+        with patch.object(pe, "mt5", fake_mt5), \
+             patch.object(pe, "to_broker_symbol", lambda p: p + "m"):
+            model = pe.CostModel(0.01)
+            spread_usd, swap_usd = model.leg("EURUSD", "BUY")
+        self.assertGreater(spread_usd, 0.0, "spread continua real")
+        self.assertEqual(swap_usd, 0.0, "swap_mode ausente não pode calcular swap como PONTOS")
+        self.assertIn(("EURUSD", "BUY", 0.01), model._swap_unmodeled,
+                      "swap_mode ausente tem que cair em swap não modelado, não em PONTOS")
+        print("[✓] swap_mode ausente é tratado como não modelado — não presume PONTOS")
 
     def test_leg_returns_zero_when_symbol_unavailable(self):
         fake_mt5 = MagicMock()
@@ -1514,6 +2303,178 @@ class TestCostModel(unittest.TestCase):
             spread_usd, swap_usd = model.leg("EURUSD", "BUY")
         self.assertEqual((spread_usd, swap_usd), (0.0, 0.0))
         print("[✓] CostModel.leg() nunca quebra — devolve zero quando o símbolo não resolve")
+
+    def test_leg_retries_symbol_select_on_its_own_pair_before_giving_up(self):
+        """Achado 4 rodada 2 (Codex + mfc-rev-2, achado confirmado pelos
+        DOIS revisores independentemente): _usd_rate() já tentava
+        symbol_select() nos pares de CONVERSÃO, mas leg() nunca tentava na
+        PRÓPRIA perna — o comentário original assumia "o preflight já
+        selecionou as 7 pernas", verdade no caminho ao vivo, falso no
+        backtest canônico (scripts/backtest_canonical.py), que nunca roda
+        open_portfolio_basket() e é o consumidor que decide se a estratégia
+        é lucrativa líquida. Sem isto, medido: Market Watch vazio zerava
+        7/7 pernas sempre no backtest."""
+        fake_mt5 = MagicMock()
+        fake_mt5.SYMBOL_SWAP_MODE_POINTS = 1
+
+        def info_for(sym):
+            # Só resolve DEPOIS do symbol_select — simula "existe no
+            # servidor, mas não está selecionado no Market Watch".
+            if sym == "EURUSDm" and fake_mt5.symbol_select.called:
+                return SimpleNamespace(trade_contract_size=100000, point=0.0001,
+                                       swap_long=0.0, swap_short=0.0, swap_mode=1)
+            return None
+
+        def tick_for(sym):
+            if sym == "EURUSDm" and fake_mt5.symbol_select.called:
+                return SimpleNamespace(ask=1.1002, bid=1.1000)
+            return None
+
+        fake_mt5.symbol_info.side_effect = info_for
+        fake_mt5.symbol_info_tick.side_effect = tick_for
+        with patch.object(pe, "mt5", fake_mt5), \
+             patch.object(pe, "to_broker_symbol", lambda p: p + "m"):
+            model = pe.CostModel(0.01)
+            spread_usd, _ = model.leg("EURUSD", "BUY")
+        fake_mt5.symbol_select.assert_called_once_with("EURUSDm", True)
+        self.assertGreater(spread_usd, 0.0,
+                           "symbol_select deveria ter destravado o símbolo da própria perna")
+        print("[✓] leg() tenta symbol_select() na própria perna antes de desistir")
+
+    def test_leg_treats_zero_price_tick_as_degraded_not_zero_cost(self):
+        """Achado em revisão (Codex, achado 4 rodada 3): leg() só checava
+        `tick is None` — um tick com ask==0 ou bid==0 (dado de mercado
+        obviamente inválido) passava como "resolvido", gerando custo ZERO
+        sem cair em _degraded. O preflight já trata isso como inválido
+        (agents/portfolio_executor.py, no_tick); CostModel tinha que
+        espelhar a mesma regra."""
+        fake_mt5 = MagicMock()
+        fake_mt5.SYMBOL_SWAP_MODE_POINTS = 1
+        fake_mt5.symbol_info.return_value = SimpleNamespace(
+            trade_contract_size=100000, point=0.0001,
+            swap_long=0.0, swap_short=0.0, swap_mode=1)
+        fake_mt5.symbol_info_tick.return_value = SimpleNamespace(ask=0.0, bid=0.0)
+        with patch.object(pe, "mt5", fake_mt5), \
+             patch.object(pe, "to_broker_symbol", lambda p: p + "m"):
+            model = pe.CostModel(0.01)
+            spread_usd, swap_usd = model.leg("EURUSD", "BUY")
+        self.assertEqual((spread_usd, swap_usd), (0.0, 0.0))
+        self.assertIn(("EURUSD", "BUY", 0.01), model._degraded,
+                      "tick com preço zero não pode passar como medição completa")
+        print("[✓] Tick com ask/bid zerado é tratado como degradado, não como custo real zero")
+
+    def test_leg_treats_infinite_tick_as_degraded_not_valid(self):
+        """Achado em revisão (Codex, rodada 6, medido): `ask > 0` sozinho
+        não barra `float("inf")` — um tick com ask=inf passava por
+        _tick_valido() antes desta correção, e um custo/preço infinito
+        podia se propagar pro cálculo (e, no preflight/laço de envio, até
+        pro order_send() e pro stop catastrófico). math.isfinite() nos dois
+        lados fecha isso."""
+        fake_mt5 = MagicMock()
+        fake_mt5.SYMBOL_SWAP_MODE_POINTS = 1
+        fake_mt5.symbol_info.return_value = SimpleNamespace(
+            trade_contract_size=100000, point=0.0001,
+            swap_long=0.0, swap_short=0.0, swap_mode=1)
+        fake_mt5.symbol_info_tick.return_value = SimpleNamespace(ask=float("inf"), bid=1.1000)
+        with patch.object(pe, "mt5", fake_mt5), \
+             patch.object(pe, "to_broker_symbol", lambda p: p + "m"):
+            model = pe.CostModel(0.01)
+            spread_usd, _ = model.leg("EURUSD", "BUY")
+        self.assertEqual(spread_usd, 0.0, "tick infinito nunca pode virar custo/preço")
+        self.assertIn(("EURUSD", "BUY", 0.01), model._degraded)
+        print("[✓] Tick com lado infinito (ask=inf) é tratado como degradado, não aceito")
+
+    def test_leg_treats_crossed_market_tick_as_degraded(self):
+        """Achado em revisão (Codex, achado 4 rodada 3): ask < bid (mercado
+        cruzado — dado de tick claramente ruim) gerava spread NEGATIVO,
+        subtraindo do custo total em vez de somar."""
+        fake_mt5 = MagicMock()
+        fake_mt5.SYMBOL_SWAP_MODE_POINTS = 1
+        fake_mt5.symbol_info.return_value = SimpleNamespace(
+            trade_contract_size=100000, point=0.0001,
+            swap_long=0.0, swap_short=0.0, swap_mode=1)
+        fake_mt5.symbol_info_tick.return_value = SimpleNamespace(ask=1.0998, bid=1.1000)
+        with patch.object(pe, "mt5", fake_mt5), \
+             patch.object(pe, "to_broker_symbol", lambda p: p + "m"):
+            model = pe.CostModel(0.01)
+            spread_usd, _ = model.leg("EURUSD", "BUY")
+        self.assertEqual(spread_usd, 0.0, "spread negativo nunca pode sair de leg()")
+        self.assertIn(("EURUSD", "BUY", 0.01), model._degraded)
+        print("[✓] Tick com mercado cruzado (ask < bid) é tratado como degradado")
+
+    def test_leg_retries_symbol_select_when_tick_is_invalid_not_just_none(self):
+        """Achado em revisão (Claude, achado 4 rodada 4, medido): o retry de
+        symbol_select só disparava com tick is None — um tick INVÁLIDO mas
+        não nulo (ask=bid=0, sintoma clássico de símbolo ainda não presente
+        no Market Watch, a MESMA causa que o retry existe pra curar) nunca
+        acionava o retry. Simula: antes do symbol_select, tick zerado;
+        depois, tick real."""
+        fake_mt5 = MagicMock()
+        fake_mt5.SYMBOL_SWAP_MODE_POINTS = 1
+        fake_mt5.symbol_info.return_value = SimpleNamespace(
+            trade_contract_size=100000, point=0.0001,
+            swap_long=0.0, swap_short=0.0, swap_mode=1)
+
+        def tick_for(sym):
+            if fake_mt5.symbol_select.called:
+                return SimpleNamespace(ask=1.1002, bid=1.1000)
+            return SimpleNamespace(ask=0.0, bid=0.0)  # tick zerado, não None
+
+        fake_mt5.symbol_info_tick.side_effect = tick_for
+        with patch.object(pe, "mt5", fake_mt5), \
+             patch.object(pe, "to_broker_symbol", lambda p: p + "m"):
+            model = pe.CostModel(0.01)
+            spread_usd, _ = model.leg("EURUSD", "BUY")
+        fake_mt5.symbol_select.assert_called_once_with("EURUSDm", True)
+        self.assertGreater(spread_usd, 0.0,
+                           "symbol_select deveria ter destravado o tick zerado")
+        print("[✓] Retry de symbol_select cobre tick inválido (zerado), não só tick None")
+
+    def test_usd_rate_retries_symbol_select_before_giving_up(self):
+        """Achado 4 (revisão de ad44e12/c24a44c, mfc-rev-2): o gatilho mais
+        provável de degradação — o par de CONVERSÃO (não uma das 7 pernas
+        reais da cesta, essas o preflight já seleciona) pode não estar
+        "selecionado" no Market Watch, e symbol_info_tick() devolve None
+        mesmo o símbolo existindo. _usd_rate() agora tenta symbol_select()
+        e reconsulta antes de desistir — mesma correção que o preflight já
+        tem pros 7 pares reais (agents/portfolio_executor.py, preflight de
+        open_portfolio_basket)."""
+        fake_mt5 = MagicMock()
+
+        def tick_for(sym):
+            # GBPUSDm existe, mas só devolve tick depois do symbol_select.
+            if sym == "GBPUSDm" and fake_mt5.symbol_select.called:
+                return SimpleNamespace(ask=1.2502, bid=1.2500)
+            return None
+
+        fake_mt5.symbol_info_tick.side_effect = tick_for
+        with patch.object(pe, "mt5", fake_mt5), \
+             patch.object(pe, "to_broker_symbol", lambda p: p + "m"):
+            model = pe.CostModel(0.01)
+            rate = model._usd_rate("GBP")
+        fake_mt5.symbol_select.assert_called_once_with("GBPUSDm", True)
+        self.assertEqual(rate, 1.2500)
+        print("[✓] _usd_rate() tenta symbol_select() antes de desistir do par de conversão")
+
+    def test_usd_rate_rejects_conversion_tick_with_one_side_zeroed(self):
+        """Achado em revisão (mfc-rev-2, achado 2/4 rodada 5, P2-2, medido):
+        antes só checava "tick is None e tick.bid > 0" — um tick de
+        CONVERSÃO com ask=0 (campo não usado por este par, já que o par
+        direto usa só bid) nunca era checado, e podia gerar uma taxa a
+        partir de dado inválido sem marcar degradação. Simula GBPUSD com
+        ask=0, bid positivo: o par direto (invert=False) usa só bid, mas
+        _tick_valido() agora exige os dois lados."""
+        fake_mt5 = MagicMock()
+        fake_mt5.symbol_info_tick.return_value = SimpleNamespace(ask=0.0, bid=1.2500)
+        with patch.object(pe, "mt5", fake_mt5), \
+             patch.object(pe, "to_broker_symbol", lambda p: p + "m"):
+            model = pe.CostModel(0.01)
+            rate = model._usd_rate("GBP")
+        self.assertIsNone(rate,
+                          "ask=0 no par de conversão tem que recusar a taxa, mesmo o par "
+                          "direto usando só o bid pra este cálculo")
+        print("[✓] _usd_rate() recusa tick de conversão com um lado zerado, não só quando "
+              "o lado USADO está inválido")
 
     def test_leg_computes_swap_when_mode_is_points(self):
         fake_mt5 = MagicMock()
@@ -1532,8 +2493,14 @@ class TestCostModel(unittest.TestCase):
     def test_leg_skips_swap_when_mode_is_not_points(self):
         """Regressão (achado ALTO em revisão): MT5 também aceita swap em
         moeda base/margem/depósito e percentual — a fórmula em pontos dá
-        número ERRADO nesses casos. Reporta 0.0 (subestima, nunca infla) em
-        vez de fingir uma precisão que não existe."""
+        número ERRADO nesses casos. Reporta 0.0 em vez de fingir uma
+        precisão que não existe. Achado em revisão (Codex, recorrente
+        desde a rodada 2 do achado 4): "subestima, nunca infla" (frase
+        antiga deste docstring) só vale se o swap real for sempre débito —
+        MT5 também aceita swap CRÉDITO (positivo), caso em que zerar na
+        verdade INFLA o custo reportado (deixa de contar um alívio real).
+        O efeito correto é "produz um número diferente do real, sinal
+        desconhecido", não uma direção garantida."""
         fake_mt5 = MagicMock()
         fake_mt5.SYMBOL_SWAP_MODE_POINTS = 1
         fake_mt5.symbol_info.return_value = SimpleNamespace(
@@ -1547,6 +2514,34 @@ class TestCostModel(unittest.TestCase):
         self.assertEqual(swap_usd, 0.0)
         self.assertGreater(spread_usd, 0.0, "spread continua calculado normalmente")
         print("[✓] swap_mode != PONTOS: swap reportado como 0.0, spread não é afetado")
+
+    def test_swap_mode_not_points_is_not_reported_as_degraded(self):
+        """A REGRESSÃO CENTRAL do achado 4 rodada 2 (mfc-rev-2, medido): antes
+        desta correção, swap_mode fora de PONTOS usava a MESMA bandeira que
+        "sem símbolo/tick/taxa" — uma cesta com spread REAL medido e contado
+        aparecia com 7/7 pernas "degradadas", disparando o alarme de PnL
+        otimista em TODA cesta, toda noite, pra sempre, em qualquer corretora
+        que use swap fora de pontos (comum: swap em moeda de depósito). Um
+        alarme que nunca desliga é ignorado — o oposto do propósito do
+        mecanismo. last_basket_degraded tem que ficar vazio aqui; a
+        informação vai pra last_basket_swap_unmodeled, categoria separada."""
+        fake_mt5 = MagicMock()
+        fake_mt5.SYMBOL_SWAP_MODE_POINTS = 1
+        fake_mt5.symbol_info.return_value = SimpleNamespace(
+            trade_contract_size=100000, point=0.0001,
+            swap_long=-2.5, swap_short=1.0, swap_mode=5)
+        fake_mt5.symbol_info_tick.return_value = SimpleNamespace(ask=1.1002, bid=1.1000)
+        with patch.object(pe, "mt5", fake_mt5), \
+             patch.object(pe, "to_broker_symbol", lambda p: p + "m"):
+            model = pe.CostModel(0.01)
+            cost = model.basket("CAD", "BUY")
+        all_pairs = {p["pair"] for p in pe.get_portfolio_pairs("CAD", "BUY")}
+        self.assertGreater(cost, 0.0, "spread real de todas as 7 pernas tem que estar no custo")
+        self.assertEqual(model.last_basket_degraded, set(),
+                         "swap fora de pontos não é 'dado perdido' — spread é real")
+        self.assertEqual(model.last_basket_swap_unmodeled, all_pairs,
+                         "todas as 7 pernas têm swap_mode 5 — todas devem aparecer aqui")
+        print("[✓] swap_mode != PONTOS não aparece como degradado — categoria separada")
 
     def test_basket_applies_leg_lots_when_provided(self):
         """Achado em revisão (/codex-r sobre o commit ad44e12, GAPS): o teste
@@ -1602,6 +2597,52 @@ class TestCostModel(unittest.TestCase):
                                 msg="spread não escalou linearmente com o lote")
         print("[✓] Cache de leg() diferencia corretamente por lote — não devolve valor velho")
 
+    def test_basket_reports_which_legs_degraded_to_zero(self):
+        """Achado 4 (revisão de ad44e12/c24a44c, mfc-rev-2): quando um
+        símbolo/tick/taxa de conversão falta, leg() devolve (0.0, 0.0) e o
+        cálculo segue em frente — sem isso, "falha transitória de UM par"
+        e "cesta com custo genuinamente zero" ficam indistinguíveis pra
+        quem lê o log ou o backtest depois. basket() agora expõe, após a
+        chamada, QUAIS pernas desta cesta específica caíram no zero."""
+        fake_mt5 = MagicMock()
+        fake_mt5.SYMBOL_SWAP_MODE_POINTS = 1
+
+        def tick_for(sym):
+            # Uma perna sem cotação (símbolo "sumido" bem na hora da
+            # medição) — as outras 6 cotam normal.
+            if sym.startswith("CADJPY"):
+                return None
+            return SimpleNamespace(ask=1.1002, bid=1.1000)
+
+        fake_mt5.symbol_info.return_value = SimpleNamespace(
+            trade_contract_size=100000, point=0.0001,
+            swap_long=0.0, swap_short=0.0, swap_mode=1)
+        fake_mt5.symbol_info_tick.side_effect = tick_for
+        with patch.object(pe, "mt5", fake_mt5), \
+             patch.object(pe, "to_broker_symbol", lambda p: p + "m"):
+            model = pe.CostModel(0.01)
+            model.basket("CAD", "BUY")
+        self.assertEqual(model.last_basket_degraded, {"CADJPY"},
+                         "CADJPY não teve tick — tem que aparecer como degradada")
+        print("[✓] basket() expõe quais pernas caíram no zero por falta de dado, não só o "
+              "número final")
+
+    def test_basket_reports_no_degradation_when_every_leg_has_real_data(self):
+        """O caminho feliz não pode acusar degradação nenhuma — sem isso, o
+        alerta do achado 4 vira ruído em toda medição normal."""
+        fake_mt5 = MagicMock()
+        fake_mt5.SYMBOL_SWAP_MODE_POINTS = 1
+        fake_mt5.symbol_info.return_value = SimpleNamespace(
+            trade_contract_size=100000, point=0.0001,
+            swap_long=0.0, swap_short=0.0, swap_mode=1)
+        fake_mt5.symbol_info_tick.return_value = SimpleNamespace(ask=1.1002, bid=1.1000)
+        with patch.object(pe, "mt5", fake_mt5), \
+             patch.object(pe, "to_broker_symbol", lambda p: p + "m"):
+            model = pe.CostModel(0.01)
+            model.basket("CAD", "BUY")
+        self.assertEqual(model.last_basket_degraded, set())
+        print("[✓] Nenhuma perna degradada no caminho feliz — sem falso positivo")
+
 
 class TestMeasureAndLogBasketCost(unittest.TestCase):
     """measure_and_log_basket_cost() — dado empírico próprio, acrescentado a
@@ -1615,6 +2656,8 @@ class TestMeasureAndLogBasketCost(unittest.TestCase):
             with patch.object(pe, "COST_LOG_FILE", log_path), \
                  patch.object(pe, "CostModel") as MockModel:
                 MockModel.return_value.basket.return_value = 12.34
+                MockModel.return_value.last_basket_degraded = set()
+                MockModel.return_value.last_basket_swap_unmodeled = set()
                 pe.measure_and_log_basket_cost("cad", "BUY", 0.01)
             with open(log_path, encoding="utf-8") as f:
                 log = json.load(f)
@@ -1624,11 +2667,75 @@ class TestMeasureAndLogBasketCost(unittest.TestCase):
         self.assertEqual(log[0]["cost_usd"], 12.34)
         print("[✓] Primeira medição cria o log com a entrada certa")
 
+    def test_logs_degraded_legs_when_cost_model_reports_them(self):
+        """Achado 4 (revisão de ad44e12/c24a44c, mfc-rev-2): a entrada
+        precisa registrar QUAIS pernas ficaram sem dado real, não só o
+        número final — sem isso "cesta cara mas medida direito" e "cesta
+        com uma perna sem cotação" são a mesma entrada no log."""
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = os.path.join(tmp, "execution_cost_log.json")
+            with patch.object(pe, "COST_LOG_FILE", log_path), \
+                 patch.object(pe, "CostModel") as MockModel:
+                MockModel.return_value.basket.return_value = 3.0
+                MockModel.return_value.last_basket_degraded = {"CADJPY"}
+                MockModel.return_value.last_basket_swap_unmodeled = set()
+                pe.measure_and_log_basket_cost("cad", "BUY", 0.01)
+            with open(log_path, encoding="utf-8") as f:
+                log = json.load(f)
+        self.assertEqual(log[0]["degraded"], ["CADJPY"])
+        print("[✓] Entrada do log registra quais pernas ficaram sem dado real")
+
+    def test_does_not_add_degraded_field_when_nothing_degraded(self):
+        """O caminho feliz não pode ganhar um campo "degraded": [] em toda
+        entrada — poluiria o log inteiro por uma checagem que quase nunca
+        dispara."""
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = os.path.join(tmp, "execution_cost_log.json")
+            with patch.object(pe, "COST_LOG_FILE", log_path), \
+                 patch.object(pe, "CostModel") as MockModel:
+                MockModel.return_value.basket.return_value = 12.34
+                MockModel.return_value.last_basket_degraded = set()
+                MockModel.return_value.last_basket_swap_unmodeled = set()
+                pe.measure_and_log_basket_cost("cad", "BUY", 0.01)
+            with open(log_path, encoding="utf-8") as f:
+                log = json.load(f)
+        self.assertNotIn("degraded", log[0])
+        print("[✓] Sem degradação, o campo \"degraded\" nem aparece na entrada")
+
+    def test_malformed_cost_model_attributes_are_treated_as_unreliable_not_complete(self):
+        """A REGRESSÃO CENTRAL do fail-closed (achado em revisão: Codex +
+        mfc-rev-2, achado 4 rodada 3, confirmado pelos dois). Remover o
+        isinstance da rodada anterior sem validar nada deixava um
+        MagicMock cru (truthy, mas itera vazio) produzir "[!] Custo
+        PARCIAL ... 0 perna(s) sem dado real ()" — mensagem que se
+        contradiz — e gravar "degraded": [] no log, o campo vazio que o
+        teste de caminho feliz existe pra impedir. Um formato inesperado
+        tem que ser tratado como cesta INTEIRA não confiável, nunca como
+        cesta completa."""
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = os.path.join(tmp, "execution_cost_log.json")
+            with patch.object(pe, "COST_LOG_FILE", log_path), \
+                 patch.object(pe, "CostModel") as MockModel:
+                MockModel.return_value.basket.return_value = 3.0
+                # NÃO configura last_basket_degraded/last_basket_swap_unmodeled
+                # de propósito — simula um CostModel mal formado.
+                pe.measure_and_log_basket_cost("cad", "BUY", 0.01)
+            with open(log_path, encoding="utf-8") as f:
+                log = json.load(f)
+        self.assertIn("degraded", log[0])
+        self.assertNotEqual(log[0]["degraded"], [],
+                           "formato inesperado não pode virar 'degraded': [] — "
+                           "isso é indistinguível do caminho feliz")
+        print("[✓] CostModel mal formado é tratado como cesta não confiável, não como "
+              "medição completa")
+
     def test_appends_without_overwriting_previous_entries(self):
         with tempfile.TemporaryDirectory() as tmp:
             log_path = os.path.join(tmp, "execution_cost_log.json")
             with patch.object(pe, "COST_LOG_FILE", log_path), \
                  patch.object(pe, "CostModel") as MockModel:
+                MockModel.return_value.last_basket_degraded = set()
+                MockModel.return_value.last_basket_swap_unmodeled = set()
                 MockModel.return_value.basket.return_value = 5.0
                 pe.measure_and_log_basket_cost("EUR", "SELL", 0.01)
                 MockModel.return_value.basket.return_value = 8.0
@@ -1640,12 +2747,16 @@ class TestMeasureAndLogBasketCost(unittest.TestCase):
         print("[✓] Medições seguintes acrescentam ao histórico, não sobrescrevem")
 
     def test_concurrent_measurements_from_multiple_threads_lose_nothing(self):
-        """Regressão (achado MÉDIO em revisão): medir custo agora roda numa
-        thread por moeda, e várias moedas costumam abrir na mesma noite —
-        sem serializar o ciclo ler-modificar-gravar, duas threads podiam ler
-        o mesmo histórico e uma gravação apagar a outra silenciosamente
-        (lost update). Um CostModel.basket() artificialmente lento alarga a
-        janela de corrida — sem o lock, este teste perderia entradas."""
+        """Regressão (achado MÉDIO em revisão). O scheduler hoje mede as
+        cestas de uma noite em LOTE, numa thread só (achado 3) — não é mais
+        de onde vem a concorrência real. Mas measure_and_log_basket_cost()
+        é função PÚBLICA (achado em revisão, Codex rodada 2 do achado 4): o
+        endpoint manual de abertura e o daemon podem chamá-la ao mesmo
+        tempo. Sem serializar o ciclo ler-modificar-gravar, duas chamadas
+        concorrentes podiam ler o mesmo histórico e uma gravação apagar a
+        outra silenciosamente (lost update). Um CostModel.basket()
+        artificialmente lento alarga a janela de corrida — sem o lock, este
+        teste perderia entradas."""
         with tempfile.TemporaryDirectory() as tmp:
             log_path = os.path.join(tmp, "execution_cost_log.json")
             n = 8
@@ -1653,6 +2764,8 @@ class TestMeasureAndLogBasketCost(unittest.TestCase):
             def slow_model(lot):
                 m = MagicMock()
                 m.basket.side_effect = lambda ccy, bias, leg_lots=None: (time.sleep(0.02), 1.0)[1]
+                m.last_basket_degraded = set()
+                m.last_basket_swap_unmodeled = set()
                 return m
 
             with patch.object(pe, "COST_LOG_FILE", log_path), \
@@ -1708,6 +2821,8 @@ class TestMeasureAndLogBasketCost(unittest.TestCase):
                  patch.object(pe, "CostModel") as MockModel, \
                  patch.object(pe, "_read_cost_log", side_effect=blocking_read):
                 MockModel.return_value.basket.return_value = 1.0
+                MockModel.return_value.last_basket_degraded = set()
+                MockModel.return_value.last_basket_swap_unmodeled = set()
                 writer = threading.Thread(
                     target=pe.measure_and_log_basket_cost, args=("CAD", "BUY", 0.01),
                     daemon=True)  # defesa extra: um bug neste teste não deve travar o processo
@@ -1756,6 +2871,8 @@ class TestMeasureAndLogBasketCost(unittest.TestCase):
                 release.wait(timeout=5)
                 return 1.0
             m.basket.side_effect = stuck_basket
+            m.last_basket_degraded = set()
+            m.last_basket_swap_unmodeled = set()
             return m
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -1794,6 +2911,8 @@ class TestMeasureAndLogBasketCost(unittest.TestCase):
                 # normalmente.
                 with patch.object(pe, "CostModel") as free_model:
                     free_model.return_value.basket.return_value = 2.0
+                    free_model.return_value.last_basket_degraded = set()
+                    free_model.return_value.last_basket_swap_unmodeled = set()
                     pe.measure_and_log_basket_cost("CAD", "BUY", 0.01)
 
             with open(log_path, encoding="utf-8") as f:
@@ -1825,6 +2944,8 @@ class TestMeasureAndLogBasketCost(unittest.TestCase):
                 release.wait(timeout=5)
                 return 1.0
             m.basket.side_effect = stuck_basket
+            m.last_basket_degraded = set()
+            m.last_basket_swap_unmodeled = set()
             return m
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -1844,6 +2965,8 @@ class TestMeasureAndLogBasketCost(unittest.TestCase):
                 # Terceira moeda, DIFERENTE das duas presas: não pode ser afetada.
                 with patch.object(pe, "CostModel") as free_model:
                     free_model.return_value.basket.return_value = 5.0
+                    free_model.return_value.last_basket_degraded = set()
+                    free_model.return_value.last_basket_swap_unmodeled = set()
                     pe.measure_and_log_basket_cost("EUR", "BUY", 0.01)
                 with open(log_path, encoding="utf-8") as f:
                     log = json.load(f)
@@ -1877,6 +3000,8 @@ class TestMeasureAndLogBasketCost(unittest.TestCase):
             with patch.object(pe, "COST_LOG_FILE", log_path), \
                  patch.object(pe, "CostModel") as MockModel:
                 MockModel.return_value.basket.return_value = 9.99
+                MockModel.return_value.last_basket_degraded = set()
+                MockModel.return_value.last_basket_swap_unmodeled = set()
                 pe.measure_and_log_basket_cost("EUR", "SELL", 0.01)
 
             with open(log_path, encoding="utf-8") as f:
@@ -1986,10 +3111,11 @@ class TestScheduledOpenTrigger(unittest.TestCase):
 
     def test_execute_phase_2105_measures_cost_only_on_full_success(self):
         """Custo medido só faz sentido pra cesta COMPLETA — uma parcial não é
-        a cesta diversificada que o custo pretende caracterizar. Roda numa
-        thread própria agora (achado em revisão) — espera um Event em vez de
-        checar a chamada logo após execute_phase_2105() retornar, senão a
-        asserção corre contra a thread de fundo."""
+        a cesta diversificada que o custo pretende caracterizar. A medição
+        roda numa thread de lote (cost_batch, ver
+        TestCostMeasurementNeverConcurrentWithOrders), não síncrona — o
+        measured.wait(timeout=2) abaixo não é vestígio documental, é o que
+        de fato impede este teste de correr contra essa thread de fundo."""
         import scripts.scheduler_daemon as daemon
         payload = self._signals()
         measured = threading.Event()
@@ -2043,8 +3169,9 @@ class TestScheduledOpenTrigger(unittest.TestCase):
             ]
             daemon.execute_phase_2105()
             self.assertTrue(measured.wait(timeout=2))
-            # Espera as duas medições (CAD e USD) — dá mais um instante pra
-            # segunda thread, já que a primeira wait() só garante a primeira.
+            # Espera as duas medições (CAD e USD). Hoje a thread de lote as
+            # faz em sequência, então o laço sai na primeira iteração; fica
+            # como rede caso a medição volte a ser assíncrona por moeda.
             for _ in range(20):
                 if len(calls) >= 2:
                     break
@@ -2094,6 +3221,167 @@ class TestScheduledOpenTrigger(unittest.TestCase):
         m0800.assert_not_called()
         self.assertTrue(m2102.called and m0805.called)
         print("[✓] --test não dispara nenhuma fase que envia ordem real")
+
+
+class TestCostMeasurementNeverConcurrentWithOrders(unittest.TestCase):
+    """Regressão: a medição de custo era disparada numa thread DENTRO do laço
+    de aberturas (`threading.Thread(...).start()` logo após cada cesta), e o
+    laço seguia imediatamente para a moeda seguinte. As duas coisas usam o
+    MESMO binding global do MetaTrader5: a medição chama symbol_info/
+    symbol_info_tick enquanto a cesta seguinte chama order_send.
+
+    O binding Python do MT5 não documenta thread-safety em lugar nenhum — a
+    integração é descrita só como IPC com o terminal, e projetos do
+    ecossistema divergem (uns serializam tudo num executor de thread única,
+    outros não). Para código que envia ordem real, ausência de garantia é
+    motivo suficiente para não depender dela.
+
+    A correção não sincroniza os dois atores DENTRO de uma execução da fase:
+    remove o segundo. A medição sai de dentro do laço e roda numa thread só,
+    depois que todas as aberturas terminaram — sem lock e sem concorrência
+    ENTRE MEDIÇÕES. A pergunta sobre thread-safety não fica irrelevante
+    (por isso o guard por moeda em portfolio_executor.py permanece): uma
+    medição presa numa noite pode, em tese, ainda estar rodando quando a
+    fase da noite seguinte envia ordem — risco residual P3, aceito e descrito
+    em scheduler_daemon.py."""
+
+    @staticmethod
+    def _signals():
+        from datetime import datetime as _dt
+        return {
+            "date": _dt.now().strftime("%Y-%m-%d"),
+            "mt5_connected": True,
+            "portfolios": {
+                "CAD": {"direction": "BUY", "status": "ACTIVE"},
+                "USD": {"direction": "SELL", "status": "ACTIVE"},
+            },
+        }
+
+    def _full_basket(self, pair):
+        return {"success": True, "opened_count": 7, "total_pairs": 7,
+                "results": [{"pair": pair, "lot": 0.01}]}
+
+    def test_no_thread_is_spawned_while_baskets_are_opening(self):
+        """A invariante é ausência de SOBREPOSIÇÃO, não ausência de thread:
+        nada pode nascer ENTRE o primeiro e o último order_send. Um
+        assert_not_called() na fase inteira mediria demais e vetaria o desenho
+        correto, que dispara UMA thread depois do laço para não deixar o
+        relógio do daemon refém de uma medição travada."""
+        import scripts.scheduler_daemon as daemon
+        payload = self._signals()
+        threads_vivas_ao_abrir = []
+
+        with patch.object(daemon, "SIGNALS_FILE", "/dev/null"), \
+             patch("builtins.open", mock_open(read_data=json.dumps(payload))), \
+             patch.object(daemon, "measure_and_log_basket_cost"), \
+             patch.object(daemon.threading, "Thread") as mock_thread:
+
+            def fake_open(ccy, direction):
+                # Quantas threads já haviam nascido quando ESTA abertura
+                # começou. Com a medição de volta pra dentro do laço, a
+                # segunda abertura veria 1.
+                threads_vivas_ao_abrir.append(mock_thread.call_count)
+                return self._full_basket("EURCAD" if ccy == "CAD" else "EURUSD")
+
+            with patch.object(daemon, "open_portfolio_basket", side_effect=fake_open):
+                daemon.execute_phase_2105()
+
+        self.assertEqual(threads_vivas_ao_abrir, [0, 0],
+                         "nasceu thread no meio do laço de aberturas")
+        self.assertEqual(mock_thread.call_count, 1,
+                         "as medições devem rodar numa thread só, criada após o laço")
+        # daemon=True é parte contratual da correção, não detalhe: sem ele o
+        # processo não encerra se a medição travar (ver test_phase_returns_...
+        # e o comentário em portfolio_executor.py sobre "processo que não
+        # encerra"). Sem esta asserção, trocar pra daemon=False passa nos três
+        # testes desta classe e reintroduz exatamente esse risco.
+        self.assertIs(mock_thread.call_args.kwargs.get("daemon"), True,
+                      "a thread de medição precisa ser daemon=True")
+        print("[✓] Nenhuma thread nasce durante as aberturas; a medição usa uma só, depois, daemon=True")
+
+    def test_every_basket_opens_before_any_cost_is_measured(self):
+        """Ordem observável: todas as aberturas primeiro, todas as medições
+        depois. A Thread falsa executa o alvo no próprio .start(), no ponto
+        exato onde a real seria criada — o que torna a asserção determinística
+        em vez de correr contra uma thread de fundo. Se a criação voltar pra
+        dentro do laço, ("mede", "CAD") aparece antes de ("abre", "USD")."""
+        import scripts.scheduler_daemon as daemon
+        payload = self._signals()
+        eventos = []
+
+        class ThreadSincrona:
+            def __init__(self, target=None, args=(), **kwargs):
+                self._target, self._args = target, args
+
+            def start(self):
+                self._target(*self._args)
+
+        def fake_open(ccy, direction):
+            eventos.append(("abre", ccy))
+            return self._full_basket("EURCAD" if ccy == "CAD" else "EURUSD")
+
+        def fake_measure(ccy, *args):
+            eventos.append(("mede", ccy))
+
+        with patch.object(daemon, "SIGNALS_FILE", "/dev/null"), \
+             patch("builtins.open", mock_open(read_data=json.dumps(payload))), \
+             patch.object(daemon, "open_portfolio_basket", side_effect=fake_open), \
+             patch.object(daemon, "measure_and_log_basket_cost", side_effect=fake_measure), \
+             patch.object(daemon.threading, "Thread", ThreadSincrona):
+            daemon.execute_phase_2105()
+
+        self.assertEqual(eventos, [("abre", "CAD"), ("abre", "USD"),
+                                   ("mede", "CAD"), ("mede", "USD")])
+        print("[✓] Todas as cestas abrem antes de qualquer medição de custo")
+
+    def test_phase_returns_even_if_a_cost_measurement_hangs(self):
+        """O ponto da thread: uma medição presa (IPC do MT5 travado) não pode
+        impedir execute_phase_2105 de retornar. run_daemon_loop a chama direto
+        no seu while, então uma fase que não retorna nunca alcança o
+        encerramento compulsório das 08:00 nem a reconciliação das 08:10 —
+        perder o fechamento é pior que perder a medição.
+
+        A fase roda numa thread do próprio teste e o que se assere é que ELA
+        termina enquanto a medição segue presa. Esperar a medição destravar
+        sozinha não serviria: o desenho síncrono também "passaria", só que
+        depois de esperar o travamento inteiro."""
+        import scripts.scheduler_daemon as daemon
+        payload = {"date": self._signals()["date"], "mt5_connected": True,
+                   "portfolios": {"CAD": {"direction": "BUY", "status": "ACTIVE"}}}
+        travou = threading.Event()
+        liberar = threading.Event()
+        fase_retornou = threading.Event()
+
+        def measure_que_trava(*args):
+            travou.set()
+            liberar.wait(timeout=60)     # alto de propósito: se a fase for
+                                         # síncrona, ela fica presa aqui e a
+                                         # asserção abaixo estoura antes
+
+        with patch.object(daemon, "SIGNALS_FILE", "/dev/null"), \
+             patch("builtins.open", mock_open(read_data=json.dumps(payload))), \
+             patch.object(daemon, "open_portfolio_basket") as mock_open_basket, \
+             patch.object(daemon, "measure_and_log_basket_cost",
+                          side_effect=measure_que_trava):
+            mock_open_basket.side_effect = [self._full_basket("EURCAD")]
+
+            def roda_fase():
+                daemon.execute_phase_2105()
+                fase_retornou.set()
+
+            fase = threading.Thread(target=roda_fase, name="fase_2105", daemon=True)
+            fase.start()
+            try:
+                self.assertTrue(travou.wait(timeout=5),
+                                "a medição nem chegou a rodar")
+                self.assertTrue(
+                    fase_retornou.wait(timeout=3),
+                    "execute_phase_2105 ficou presa numa medição travada — o "
+                    "laço do daemon não alcançaria o fechamento das 08:00")
+            finally:
+                liberar.set()
+                fase.join(timeout=5)
+        print("[✓] A fase 21:05 retorna mesmo com uma medição de custo travada")
 
 
 class TestPhase2100Nonblocking(unittest.TestCase):

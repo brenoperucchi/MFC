@@ -25,10 +25,15 @@ Violação de qualquer item abaixo é achado P0 ou P1, mesmo que os testes passe
 2. **Ordem dos gates de execução.** `agents/portfolio_executor.py::open_portfolio_basket()`
    checa, nessa ordem: kill switch → identidade da conta
    (`CSS_MT5_EXPECTED_LOGIN`) → trava de demo (`CSS_LIVE_TRADING`) →
-   idempotência → colisão de símbolo em conta netting → tetos de exposição →
+   idempotência → tetos de exposição → colisão de símbolo em conta netting →
    preflight de símbolo/tick (tudo-ou-nada) → stop-loss catastrófico do lado
-   do broker. Reordenar, pular ou tornar um gate condicional é P0. Valor
-   ausente ou inválido em `.env` tem que falhar fechado.
+   do broker. Exposição e colisão netting são as duas exceções documentadas:
+   ambas são recusas puras sobre o mesmo snapshot de `open_magics`, sem
+   efeito colateral, então a ordem relativa ENTRE ESSAS DUAS não muda a
+   decisão de abrir/recusar — só qual mensagem de erro sai quando as duas
+   se aplicariam (ver `CLAUDE.md`, seção "Live MT5 execution"). Reordenar
+   qualquer OUTRO par de gates, pular um gate ou torná-lo condicional
+   continua P0. Valor ausente ou inválido em `.env` tem que falhar fechado.
 
 3. **Kill switch é assimétrico.** `data/CSS_KILL.flag` bloqueia abrir cesta
    nova. Nunca bloqueia fechamento — reduzir risco sempre prossegue. Qualquer

@@ -7,6 +7,7 @@ cache inteligente e orquestração dos motores de confluência e Tríade Analít
 import os
 import sys
 import json
+import tempfile
 import time
 from datetime import datetime
 import numpy as np
@@ -94,95 +95,464 @@ _SYMBOL_RESOLUTION_CACHE = {}
 # Sufixo descoberto sozinho no servidor (achado em revisão: CSS_MT5_SYMBOL_SUFFIX
 # exige alguém medir manualmente e configurar antes de qualquer ordem funcionar
 # — cada corretora nova, como a do Miquéias, repetiria esse trabalho). None =
-# ainda não tentou; string (mesmo vazia) = já tentou, resultado memorizado.
+# ainda não tentou OU tentou e falhou (ver _LAST_FAILED_FAMILY_DETECTION_AT
+# pra distinguir os dois — achado em revisão, Codex rodada 3: este comentário
+# só descrevia dois estados quando na verdade já existem três); string (mesmo
+# vazia) = já tentou, resultado VALIDADO e memorizado pro resto do processo.
 _AUTO_DETECTED_SUFFIX = None
 _SUFFIX_PROBE_PAIR = "EURUSD"  # existe em toda corretora forex, referência estável
 
+# Cooldown entre tentativas de detecção que FALHAM (achado em revisão:
+# mfc-rev-2, achado 1 rodada 2, medido). "Não memorizar falha" (pra não
+# travar num "nunca resolve" antes do MT5 acabar de conectar) tem um custo
+# que a versão anterior não pagava: to_broker_symbol() é chamado por
+# calculate_full_css() 28 vezes por timeframe — ~140 vezes por ciclo de
+# update_data(), que recalcula a cada 3s sob uso ativo do dashboard (ver
+# CLAUDE.md, "throttled to at most one recompute per 3s"). Numa corretora
+# onde a família nunca fecha, cada uma dessas 140 chamadas refaria o
+# symbols_get + a validação inteira (até 28 symbol_info por candidato) — a
+# mesma sonda que mediu isso encontrou ~3920 chamadas MT5 por ciclo,
+# repetindo a cada 3s, contra o MESMO IPC do terminal que envia ordem real.
+# O cooldown limita a NOVA tentativa a, no máximo, uma vez a cada intervalo
+# — preserva "não desiste pra sempre" sem virar tempestade de IPC.
+_LAST_FAILED_FAMILY_DETECTION_AT = None
+_FAMILY_DETECTION_COOLDOWN_SECONDS = 15
 
-def _detect_mt5_symbol_suffix():
-    """Descobre o sufixo de símbolo consultando o servidor diretamente
-    (mt5.symbols_get com padrão), em vez de depender só de
-    CSS_MT5_SYMBOL_SUFFIX configurado manualmente. Última linha de defesa
-    em to_broker_symbol() — só é chamada quando nem o sufixo configurado nem
-    o nome puro resolveram."""
-    global _AUTO_DETECTED_SUFFIX
+# Persistência da família entre PROCESSOS (achado em revisão: Codex, achado 1
+# rodada 3). O daemon (scripts/scheduler_daemon.py) e o web server
+# (web/server.py, que também expõe /api/portfolio-robots/open — ordem real,
+# não só leitura) são processos SEPARADOS, cada um com seu próprio
+# _AUTO_DETECTED_SUFFIX em memória. dict.fromkeys() garante que os DOIS
+# cheguem à mesma escolha SE o servidor devolver os candidatos na MESMA
+# ordem pros dois — mas isso é propriedade do servidor, não garantida pelo
+# código. Sem isso, um cenário raro mas real: corretora nova, sufixo ainda
+# não configurado, e o daemon abrindo às 21:05 enquanto alguém aciona a API
+# manual ao mesmo tempo — os dois podem validar famílias diferentes, cada
+# um internamente consistente, mas divergentes entre si.
+#
+# Resolvido pelo mesmo padrão que o resto do projeto já usa pra estado
+# compartilhado entre processos (CSS_KILL.flag, os vários JSON em data/):
+# um arquivo simples. O PRIMEIRO processo a validar uma família grava aqui;
+# qualquer processo (o mesmo ou outro) que ainda não tem uma família em
+# memória LÊ o arquivo antes de reconsultar o servidor do zero — mas
+# revalida contra os 28 pares antes de confiar (nunca herda cegamente um
+# arquivo de uma corretora antiga ou de uma versão de teste).
+_FAMILY_STATE_FILE = os.path.join(BASE_DIR, "data", "mt5_symbol_family.json")
+
+
+def _current_account_identity():
+    """(login, server) da conta MT5 atualmente conectada, ou (None, None) se
+    indisponível — nunca lança. Usado só pra rejeitar um arquivo de família
+    persistido por uma CONTA/CORRETORA diferente (ver _read_persisted_family);
+    não afeta nenhuma outra decisão.
+
+    Filtra pra (str, int, float, None): um dublê de teste mínimo sem
+    account_info configurado devolve um MagicMock encadeado — não é
+    serializável em JSON, e escrever isso quebraria _persist_family. O MT5
+    real nunca devolve outra coisa pra login/server."""
+    try:
+        acc = mt5.account_info()
+    except Exception:
+        return (None, None)
+    if acc is None:
+        return (None, None)
+    login = getattr(acc, "login", None)
+    server = getattr(acc, "server", None)
+    login = login if isinstance(login, (str, int, float)) else None
+    server = server if isinstance(server, (str, int, float)) else None
+    return (login, server)
+
+
+def _read_persisted_family():
+    """Lê o arquivo de família persistida (dict completo, ou None). None se
+    não existe, está corrompido, ou não tem o campo "suffix" — trata
+    qualquer coisa que não seja isso como se não houvesse persistência
+    nenhuma, nunca lança.
+
+    Achado em revisão (mfc-rev-2, rodada 4, medido): a versão anterior só
+    capturava (OSError, json.JSONDecodeError) — um arquivo com bytes que não
+    decodificam como UTF-8 (disco corrompido, escrita interrompida a meio
+    caractere) lança UnicodeDecodeError no open() ANTES do json.load, e isso
+    não é um JSONDecodeError (não herda dele). Reproduzido: derrubava
+    to_broker_symbol() inteiro, numa corretora saudável, só porque um
+    arquivo de CACHE entre processos tinha bytes ruins. Um otimização entre
+    processos não pode ter esse poder — captura tudo, deliberadamente."""
+    try:
+        with open(_FAMILY_STATE_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception:
+        return None
+    if not isinstance(data, dict) or not isinstance(data.get("suffix"), str):
+        return None
+    return data
+
+
+def _persisted_family_is_trustworthy(persisted):
+    """Um arquivo persistido só é adotado se (a) a família ainda for
+    consistente nos 28 pares AGORA (broker pode ter mudado) e (b) a conta
+    gravada bater com a conta ATUAL, quando as duas são conhecidas.
+
+    Achado em revisão (mfc-rev-2/Codex, rodada 4): validar só o nocional não
+    basta — se o mesmo `data/` for reaproveitado entre contas/corretoras
+    diferentes, e a família antiga por coincidência também for válida (mas
+    não a pretendida) na conta nova, ela passaria despercebida. Identidade
+    conhecida e DIFERENTE reprova na hora, sem gastar symbol_info nenhum.
+    Quando qualquer lado da identidade é desconhecido (conta ainda não
+    conectou, arquivo antigo sem esse campo) cai pra validação só de
+    nocional — permissivo de propósito: travar a otimização inteira porque
+    a identidade não pôde ser confirmada custaria mais do que vale, e o
+    cenário que isso deixa passar (mesmo checkout, conta trocada, família
+    coincidentemente válida na nova) é mais raro que "conta ainda
+    conectando"."""
+    login, server = _current_account_identity()
+    p_login, p_server = persisted.get("login"), persisted.get("server")
+    if login is not None and p_login is not None and login != p_login:
+        return False
+    if server is not None and p_server is not None and server != p_server:
+        return False
+    return _symbol_family_is_consistent(persisted["suffix"])
+
+
+def _persist_family(suffix):
+    """Grava a família validada pra outros processos lerem, junto com a
+    identidade da conta atual (ver _persisted_family_is_trustworthy).
+    Escrita atômica (tempfile no mesmo diretório + os.replace, mesmo padrão
+    de agents/portfolio_executor.py:_atomic_write_json) — um leitor
+    concorrente nunca vê o arquivo pela metade. Falha aqui NUNCA propaga:
+    persistir é otimização entre processos, não requisito pra este processo
+    continuar funcionando com a família que ele mesmo já validou em
+    memória."""
+    try:
+        login, server = _current_account_identity()
+        directory = os.path.dirname(_FAMILY_STATE_FILE)
+        os.makedirs(directory, exist_ok=True)
+        fd, tmp_path = tempfile.mkstemp(prefix=".tmp_", dir=directory)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump({"suffix": suffix, "probe_pair": _SUFFIX_PROBE_PAIR,
+                           "login": login, "server": server}, f)
+            os.replace(tmp_path, _FAMILY_STATE_FILE)
+        except Exception:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
+    except Exception as e:
+        print(f"[-] Falha ao persistir família de símbolos pra outros processos (não afeta "
+              f"este processo, que já validou '{suffix}' em memória): {e}")
+
+
+def _symbol_family_is_consistent(suffix):
+    """Um sufixo só vira a família adotada se TODOS os 28 pares existirem com
+    ele E tiverem o MESMO trade_contract_size entre si — nocional diferente
+    por perna é o defeito que este fail-closed existe pra evitar.
+
+    Achado em revisão (mfc-rev-2, achado 1 sobre o commit c24a44c): o sufixo
+    auto-detectado perdia pro nome puro par a par — cada to_broker_symbol()
+    decidia sozinho, olhando só AQUELE par, sem saber o que os outros 27
+    tinham decidido. Numa corretora que lista duas séries (ex.: EURUSD e
+    CADCHF de graça, sem sufixo, contrato padrão 100000; e EURUSDm, GBPUSDm
+    etc., só com sufixo, contrato micro 1000), cada par resolvia pra série
+    que existisse PRA ELE primeiro — a cesta de 7 pernas podia sair com
+    nocional 100x diferente entre pernas, todas FULL, todas com tick, o
+    preflight aprovando tudo. Corrigido não validando o sufixo sozinho, mas
+    testando se ele forma uma família INTEIRA e coerente antes de confiar
+    nele pra qualquer par.
+
+    DELIBERADAMENTE não checa trade_mode aqui (proposto em revisão,
+    mfc-rev-2 rodada 3, e revertido depois de medir a regressão — medição
+    confirmada de novo na rodada seguinte com order_send real: 6/8 cestas
+    abrem sem a checagem contra 0/8 com ela, no caso de família única). O
+    motivo de fundo (mfc-rev-2, rodada 3, argumento mais forte que o de
+    granularidade): trade_contract_size é uma propriedade ESTÁTICA do
+    contrato — não muda sem o broker redefinir o instrumento. trade_mode é
+    TRANSIENTE — muda por sessão, feriado, decisão pontual do broker. Esta
+    função memoriza a escolha pro resto do processo; usar um dado transiente
+    como veto de uma decisão permanente é incompatibilidade de tempo de
+    vida, não só granularidade errada. O preflight em portfolio_executor.py
+    já rejeita trade_mode restrito por perna, escopado à moeda certa — a
+    checagem aqui, na granularidade errada (família inteira, permanente),
+    trocaria uma falha pequena e correta por uma grande e desnecessária.
+    NÃO IMPLEMENTADO, considerado e descartado por ora (ambas as rodadas de
+    revisão concordam): preferir o candidato mais aberto SÓ quando existem
+    MÚLTIPLOS candidatos igualmente consistentes em nocional — nesse caso
+    específico (raro) o trade-off muda de sinal. Ficou de fora porque ainda
+    congelaria uma escolha baseada em trade_mode transiente (se o desempate
+    cair num feriado, o candidato errado memoriza pro resto do processo);
+    a alternativa mais conservadora seria só avisar quando há mais de um
+    candidato válido, sem mudar a escolha — decisão pendente com o
+    usuário."""
+    sizes = set()
+    for pair in ALL_28_PAIRS:
+        try:
+            info = mt5.symbol_info(pair + suffix)
+        except Exception:
+            return False
+        if info is None:
+            return False
+        size = getattr(info, "trade_contract_size", None)
+        # not size (não só "is None") pega também 0/negativo — achado em
+        # revisão (Codex rodada 3): um contrato zerado ou negativo é
+        # inválido, mas "todos zerados" passaria no teste de len(sizes)==1
+        # sem esta checagem.
+        if not size or size < 0:
+            return False
+        sizes.add(size)
+    return len(sizes) == 1
+
+
+def reset_family_detection_cooldown():
+    """Zera o cooldown de detecção de família, forçando a PRÓXIMA chamada a
+    tentar de novo mesmo que a última tentativa tenha falhado há pouco.
+
+    Existe pra um único chamador: o aquecimento em
+    agents/portfolio_executor.py, ANTES de abrir uma cesta. Achado em
+    revisão (mfc-rev-2, achado 1 rodada 3, medido): o cooldown de 15s
+    (pensado pro caminho quente do dashboard, que recalcula a cada 3s) é
+    LONGO DEMAIS pra fase de abertura — ela inteira (8 moedas × 7 pernas)
+    roda em segundos, bem dentro da janela do cooldown. Uma falha
+    transitória bem na primeira tentativa da noite (ex.: MT5 ainda
+    terminando de conectar às 21:05) condenava as 8 cestas daquela noite
+    inteira, porque nenhuma tentativa seguinte, na mesma execução, chegava a
+    reconsultar. Chamar isto antes do aquecimento custa no máximo 8
+    detecções extras por noite (uma por moeda que tentar abrir) — irrelevante
+    perto do que uma noite inteira sem cesta custaria."""
+    global _LAST_FAILED_FAMILY_DETECTION_AT
+    _LAST_FAILED_FAMILY_DETECTION_AT = None
+
+
+def _detect_mt5_symbol_family():
+    """Descobre e VALIDA um sufixo (possivelmente vazio, "família bare") que
+    cubra os 28 pares com trade_contract_size consistente — não só o
+    par-sonda. Só é chamada quando CSS_MT5_SYMBOL_SUFFIX não está
+    configurado (a configuração manual continua tendo precedência absoluta,
+    sem validação — é decisão explícita do operador).
+
+    Candidatos vêm de UMA consulta ao servidor (mt5.symbols_get com padrão
+    no par de referência); cada candidato é então validado contra os 28
+    pares em _symbol_family_is_consistent(). O primeiro que passar (mais
+    curto primeiro; empate desfeito pela ordem em que o SERVIDOR devolveu —
+    não alfabética, não aleatória DENTRO deste processo) vira a família
+    adotada, memorizada pro resto do processo E persistida em
+    _FAMILY_STATE_FILE pra outros processos lerem.
+
+    Coordenação entre processos (achado em revisão, Codex rodada 3, decisão
+    do usuário): o daemon e o web server (que também expõe
+    /api/portfolio-robots/open — ordem real, não só leitura) são processos
+    separados; sem coordenação, cada um podia validar uma família diferente
+    se o servidor devolvesse candidatos em ordens diferentes pra cada
+    conexão. Fechado por arquivo, não por lock: o primeiro processo a
+    validar grava (e relê depois de gravar — ver mais abaixo); qualquer
+    processo (o mesmo depois de reiniciar, ou outro) tenta ler o arquivo
+    ANTES de reconsultar o servidor do zero — mas revalida o que leu contra
+    os 28 pares E contra a identidade da conta atual (nunca herda cegamente;
+    ver _persisted_family_is_trustworthy).
+
+    Residual medido e aceito (mfc-rev-2, rodada 4, reproduzido com
+    subprocessos reais: 3 de 5 execuções divergiram sem esta mitigação):
+    dois processos que iniciam EXATAMENTE juntos, com o arquivo ainda
+    inexistente, podem cada um validar uma família diferente antes de
+    qualquer um persistir — não há lock, só arquivo. O reread-after-write
+    (mais abaixo) fecha a maioria das corridas reais (qualquer uma em que a
+    escrita de um processo aconteça antes da releitura do outro), mas não
+    a simultaneidade exata. Um processo que JÁ adotou uma família em
+    memória (_AUTO_DETECTED_SUFFIX não-None) nunca mais olha pro arquivo —
+    é o mesmo motivo pelo qual o cache normal não expira: a família é uma
+    verdade de sessão, não algo que deva mudar sob os pés do processo.
+    Fechar isso por completo exigiria um lock de verdade (com detecção de
+    dono morto) — desproporcional ao risco: exige corretora sem sufixo
+    configurado (produção atual tem) E arranque literalmente simultâneo de
+    dois processos.
+
+    Fail-closed: se NENHUM candidato cobrir os 28 pares com nocional
+    consistente, devolve None — mas com um COOLDOWN antes de tentar de novo
+    (ver _FAMILY_DETECTION_COOLDOWN_SECONDS), não sem memorizar nada.
+    Medido em revisão (mfc-rev-2, achado 1 rodada 2): sem o cooldown, cada
+    chamada de to_broker_symbol() com família indeterminada refazia a
+    consulta E a validação inteira do zero — e to_broker_symbol() é chamado
+    ~140 vezes por ciclo de update_data() (calculate_full_css, 28 pares ×
+    5 timeframes), que recalcula a cada 3s sob uso ativo do dashboard (ver
+    CLAUDE.md). Numa corretora onde a família nunca fecha, isso media ~3920
+    chamadas MT5 por ciclo, repetindo a cada 3s, contra o MESMO IPC do
+    terminal que também envia ordem real — tempestade, não fail-closed
+    barato. O cooldown limita a nova tentativa a uma vez por janela,
+    preservando "não desiste pra sempre" (ainda tenta de novo depois do
+    MT5 acabar de conectar) sem virar tempestade.
+
+    O CHECK DE COOLDOWN VEM ANTES DA LEITURA DO ARQUIVO PERSISTIDO — achado
+    em revisão (mfc-rev-2, rodada 4, medido): a versão anterior lia e
+    revalidava o arquivo ANTES do cooldown, então um arquivo presente mas
+    OBSOLETO reintroduzia a mesma tempestade que o cooldown existe pra
+    evitar — cada uma das ~140 chamadas por ciclo refazia a validação
+    inteira contra os 28 pares (medido: ~3948 chamadas MT5/ciclo, o mesmo
+    regime que motivou o cooldown na rodada 2). Corrigido: cooldown primeiro
+    (path mais barato, sem tocar disco nem MT5); se o arquivo existir mas
+    reprovar, ARMA o cooldown também — um arquivo ruim não pode custar mais
+    que uma detecção do zero que também falha."""
+    global _AUTO_DETECTED_SUFFIX, _LAST_FAILED_FAMILY_DETECTION_AT
     if _AUTO_DETECTED_SUFFIX is not None:
         return _AUTO_DETECTED_SUFFIX
     if not MT5_AVAILABLE or mt5 is None:
         return None
+    now = time.monotonic()
+    if (_LAST_FAILED_FAMILY_DETECTION_AT is not None
+            and now - _LAST_FAILED_FAMILY_DETECTION_AT < _FAMILY_DETECTION_COOLDOWN_SECONDS):
+        return None
+    # Outro processo já pode ter validado — tenta a leitura ANTES de gastar
+    # um symbols_get() + até 28×N symbol_info(). Revalida sempre (nocional E
+    # identidade de conta — ver _persisted_family_is_trustworthy); se
+    # reprovar, arma o cooldown igual a uma detecção do zero que falhou, e
+    # segue pro caminho normal de descoberta.
+    persisted = _read_persisted_family()
+    if persisted is not None:
+        if _persisted_family_is_trustworthy(persisted):
+            _AUTO_DETECTED_SUFFIX = persisted["suffix"]
+            _LAST_FAILED_FAMILY_DETECTION_AT = None
+            print(f"[+] Família de símbolos lida de outro processo e revalidada nos 28 pares "
+                  f"(sufixo {persisted['suffix']!r})")
+            return _AUTO_DETECTED_SUFFIX
+        _LAST_FAILED_FAMILY_DETECTION_AT = now
     try:
         matches = mt5.symbols_get(f"*{_SUFFIX_PROBE_PAIR}*")
     except Exception:
         matches = None
     if not matches:
+        _LAST_FAILED_FAMILY_DETECTION_AT = now
+        print(f"[-] Nenhum símbolo candidato encontrado pra {_SUFFIX_PROBE_PAIR!r} no servidor "
+              f"— família de símbolos indeterminada (retenta em até "
+              f"{_FAMILY_DETECTION_COOLDOWN_SECONDS}s). Verifique se o MT5 já conectou de "
+              f"verdade e se o par de referência existe nesta corretora.")
         return None
     # Nomes que começam com o par de referência, REALMENTE negociáveis nos
     # dois sentidos (trade_mode == FULL) — achado em revisão /dual-r: filtrar
     # só "!= DISABLED" (versão anterior) ainda deixava passar CLOSEONLY/
-    # LONGONLY/SHORTONLY como candidato a sufixo padrão — um desses pode
-    # rejeitar abertura de alguma perna só depois de outras já terem aberto
-    # (não é hipotético: symbols_get() devolve QUALQUER instrumento que bata
-    # o padrão, restrito ou não). E filtrar por "visible" era o filtro
-    # ERRADO: visible é só estado de UI (Market Watch, mutável por
-    # symbol_select), não direito de negociar — um símbolo FULL mas nunca
-    # aberto no Market Watch ainda é tradável (o resto do código já trata
-    # visible=False como corrigível via symbol_select(), nunca como
-    # descarte — ver o preflight em agents/portfolio_executor.py). Ausência
+    # LONGONLY/SHORTONLY como candidato a sufixo padrão. E filtrar por
+    # "visible" era o filtro ERRADO: visible é só estado de UI (Market
+    # Watch, mutável por symbol_select), não direito de negociar. Ausência
     # do campo trade_mode (só ocorre em dublês de teste mínimos, nunca no
-    # MT5 real) é tratada como "presumir FULL". Entre os que sobram, o mais
-    # CURTO ainda é o melhor desempate (evita pegar uma série alternativa
-    # tipo "EURUSD.pro"). Não memoriza se nada bateu — permite tentar de
-    # novo no próximo par (ex.: se o MT5 ainda não tinha conectado).
+    # MT5 real) é tratada como "presumir FULL". O nome puro (par-sonda sem
+    # sufixo) entra nesta mesma lista como candidato "" quando ele próprio
+    # aparecer no resultado — não é mais tratado à parte, o que ELIMINA a
+    # inversão de precedência do achado 1 (bare deixou de ter um caminho
+    # próprio que ignorava a validação de família).
     full_mode = getattr(mt5, "SYMBOL_TRADE_MODE_FULL", 4)
-    candidates = sorted(
-        (
-            s.name[len(_SUFFIX_PROBE_PAIR):]
-            for s in matches
-            if s.name.startswith(_SUFFIX_PROBE_PAIR)
-            and getattr(s, "trade_mode", full_mode) == full_mode
-        ),
-        key=len,
+    # dict.fromkeys(...) em vez de um set: deduplica candidatos preservando
+    # a ORDEM EM QUE O SERVIDOR OS DEVOLVEU. Um set aqui (achado em revisão,
+    # medido por mfc-rev-2 com 12 processos e PYTHONHASHSEED variando: "m"
+    # venceu em 4, "z" venceu em 8) faz o desempate entre candidatos do
+    # MESMO comprimento depender da ordem de iteração do set — aleatória por
+    # processo — em vez de qualquer coisa vinda do servidor. Dois processos
+    # do mesmo sistema (o daemon e o web server) podiam decidir famílias
+    # DIFERENTES a partir dos MESMOS dados, cada um determinístico consigo
+    # mesmo mas divergente do outro.
+    seen = dict.fromkeys(
+        s.name[len(_SUFFIX_PROBE_PAIR):]
+        for s in matches
+        if s.name.startswith(_SUFFIX_PROBE_PAIR)
+        and getattr(s, "trade_mode", full_mode) == full_mode
     )
-    if not candidates:
-        return None
-    _AUTO_DETECTED_SUFFIX = candidates[0]
-    print(f"[+] Sufixo de símbolo detectado automaticamente no servidor: {_AUTO_DETECTED_SUFFIX!r}")
-    return _AUTO_DETECTED_SUFFIX
+    candidates = sorted(seen, key=len)
+    for suffix in candidates:
+        if _symbol_family_is_consistent(suffix):
+            _persist_family(suffix)
+            # Relê IMEDIATAMENTE depois de escrever (achado em revisão,
+            # mfc-rev-2, rodada 4): estreita a janela de corrida entre
+            # processos que cold-startam juntos. Se outro processo escreveu
+            # por cima entre a nossa escrita e esta releitura, adotamos o
+            # dele — não o nosso — desde que ainda seja íntegro; assim os
+            # dois processos convergem pro MESMO valor sempre que suas
+            # janelas de escrita se sobrepõem, mesmo que a ordem de quem
+            # escreveu por último seja imprevisível. Não elimina a
+            # simultaneidade EXATA (ver docstring da função) — reduz.
+            winner = _read_persisted_family()
+            if (winner is not None and winner["suffix"] != suffix
+                    and _persisted_family_is_trustworthy(winner)):
+                suffix = winner["suffix"]
+            _AUTO_DETECTED_SUFFIX = suffix
+            _LAST_FAILED_FAMILY_DETECTION_AT = None
+            print(f"[+] Família de símbolos detectada e validada nos 28 pares "
+                  f"(sufixo {suffix!r}, trade_contract_size consistente)")
+            return _AUTO_DETECTED_SUFFIX
+    _LAST_FAILED_FAMILY_DETECTION_AT = now
+    # Achado em revisão (mfc-rev-2, achado 1 rodada 3): a versão anterior
+    # falhava em SILÊNCIO absoluto — o preflight recusava a cesta apontando
+    # pra "confira CSS_MT5_SYMBOL_SUFFIX", a variável ERRADA quando o
+    # problema é a auto-detecção (que só roda quando essa variável está
+    # justamente vazia). Numa corretora nova sem sufixo configurado — o caso
+    # de uso que a auto-detecção existe pra servir — essa seria a primeira
+    # falha que o operador veria, apontando pro lugar errado.
+    print(f"[-] {len(candidates)} candidato(s) encontrado(s) pro par-sonda "
+          f"({', '.join(repr(c) for c in candidates)}), mas nenhum cobre os 28 pares com "
+          f"trade_contract_size consistente — família de símbolos indeterminada (retenta em "
+          f"até {_FAMILY_DETECTION_COOLDOWN_SECONDS}s). Corretora provavelmente mistura séries "
+          f"(ex.: padrão e micro/cent) sem um sufixo único que resolva tudo — considere fixar "
+          f"CSS_MT5_SYMBOL_SUFFIX manualmente.")
+    return None
+
+
+# Devolvida por to_broker_symbol() quando a família ainda não está
+# determinada E o MT5 está disponível pra confirmar. Achado em revisão
+# (Codex, achado 1 rodada 2): devolver o nome PURO nesse caso era uma
+# proteção só de fachada — o preflight (agents/portfolio_executor.py) não
+# confia no cache desta função, ele revalida chamando mt5.symbol_info() por
+# conta própria. Se o nome puro devolvido aqui por FALTA de família
+# acontecesse de EXISTIR no servidor (ainda que numa série com nocional
+# diferente das outras pernas — o próprio cenário que este fail-closed
+# existe pra evitar), o preflight aceitava, porque pra ele "existe" já
+# bastava. O marcador abaixo é reservado por convenção, NÃO por garantia
+# formal do binding (achado em revisão, Codex rodada 3: "#" aparece em
+# nomes reais de CFD de ações tipo "#AAPL", e símbolos customizados também
+# permitem — a MetaQuotes não proíbe o caractere). A colisão exata com
+# "<PAR>#unresolved-family" continua praticamente impossível — nenhuma
+# corretora nomeia um instrumento assim — mas isto é convenção reservada,
+# não impossibilidade comprovada. Enquanto isso, mt5.symbol_info(<isto>)
+# devolve None — o preflight recusa a cesta inteira pelo caminho já testado
+# de "símbolo não resolvido", em vez de arriscar aceitar um nome bare por
+# coincidência.
+_UNRESOLVED_FAMILY_MARKER = "#unresolved-family"
 
 
 def to_broker_symbol(pair: str) -> str:
     """Nome lógico do par (ex.: 'EURUSD') -> nome no servidor da corretora
-    (ex.: 'EURUSDm'). Tenta o nome exato primeiro, depois com o sufixo
-    configurado; devolve o nome com sufixo mesmo sem MT5 disponível, pra que
-    a intenção fique explícita em log/erro em vez de falhar em silêncio."""
+    (ex.: 'EURUSDm'). TODO par usa a MESMA família — nunca uma decisão por
+    par (ver _symbol_family_is_consistent para o porquê). Sufixo configurado
+    (CSS_MT5_SYMBOL_SUFFIX) é aceito verbatim, sem validação de família —
+    decisão explícita do operador, e por isso também não cai pro nome puro
+    quando um par específico não existir com ele: cair mudaria de família
+    pra ESSE par só, reabrindo o mesmo defeito por outra porta.
+
+    Sem configuração, usa a família auto-detectada e validada nos 28 pares.
+    Enquanto ela não resolve: se o MT5 nem está disponível pra checar nada
+    (app ainda não conectou), devolve o nome puro só pra log ficar legível —
+    nenhuma ordem pode sair sem MT5 de qualquer jeito. Se o MT5 ESTÁ
+    disponível e a família genuinamente não validou, devolve um nome
+    marcado que NUNCA existe no servidor (ver _UNRESOLVED_FAMILY_MARKER) —
+    garante que quem revalidar este retorno (o preflight sempre revalida)
+    veja "não resolvido" de verdade, em vez de por acaso aceitar um nome
+    puro que existe numa família diferente da decidida."""
     if pair in _SYMBOL_RESOLUTION_CACHE:
         return _SYMBOL_RESOLUTION_CACHE[pair]
 
-    resolved = pair + MT5_SYMBOL_SUFFIX
-    confirmed = False
-    if MT5_AVAILABLE and mt5 is not None:
-        try:
-            # Sufixo configurado tem PRECEDÊNCIA sobre o nome puro: corretoras
-            # que listam as duas séries (padrão e micro/cent) fariam a cesta
-            # misturar contratos de nocional diferente por perna.
-            if MT5_SYMBOL_SUFFIX and mt5.symbol_info(pair + MT5_SYMBOL_SUFFIX) is not None:
-                resolved, confirmed = pair + MT5_SYMBOL_SUFFIX, True
-            elif mt5.symbol_info(pair) is not None:
-                resolved, confirmed = pair, True
-            else:
-                # Nem o sufixo configurado nem o nome puro resolveram — antes
-                # de desistir, descobre sozinho consultando o servidor.
-                auto = _detect_mt5_symbol_suffix()
-                if auto is not None and mt5.symbol_info(pair + auto) is not None:
-                    resolved, confirmed = pair + auto, True
-        except Exception:
-            pass
+    family = MT5_SYMBOL_SUFFIX if MT5_SYMBOL_SUFFIX else _detect_mt5_symbol_family()
+    mt5_ready = MT5_AVAILABLE and mt5 is not None
+    if family is None:
+        return pair if not mt5_ready else pair + _UNRESOLVED_FAMILY_MARKER
+    candidate = pair + family
+
+    if not mt5_ready:
+        return candidate
+
+    try:
+        confirmed = mt5.symbol_info(candidate) is not None
+    except Exception:
+        confirmed = False
     # Só memoriza resolução CONFIRMADA contra o servidor. Cachear o palpite
     # feito antes do MT5 conectar congelaria um nome possivelmente errado pelo
     # resto da vida do processo.
     if confirmed:
-        _SYMBOL_RESOLUTION_CACHE[pair] = resolved
-    return resolved
+        _SYMBOL_RESOLUTION_CACHE[pair] = candidate
+    return candidate
 
 
 def _stamp_provenance(payload, is_live: bool):
@@ -204,12 +574,15 @@ def from_broker_symbol(symbol: str) -> str:
     """Nome no servidor da corretora -> nome lógico do par. Usado pra comparar
     posições abertas (que vêm com o nome da corretora) contra as listas
     internas de pares — em especial a checagem de colisão de símbolo em conta
-    netting (agents/portfolio_executor.py), que compara nomes lógicos. Tenta o
-    sufixo configurado primeiro, depois o detectado automaticamente (mesma
-    ordem de precedência de to_broker_symbol); sem isso, uma posição com
-    sufixo só descoberto via auto-detecção nunca seria reconhecida na
-    comparação (a idempotência em si é por MAGIC NUMBER, não por símbolo —
-    essa função não afeta aquela checagem)."""
+    netting (agents/portfolio_executor.py), que compara nomes lógicos. Tenta
+    remover o sufixo configurado primeiro, depois o auto-detectado (achado em
+    revisão, Codex rodada 3: to_broker_symbol() já não tem "ordem de
+    precedência" nenhuma — usa família única, sem fallback — então a
+    referência antiga a essa ordem aqui ficou órfã; o comportamento em si
+    continua correto, só a explicação estava desatualizada); sem isso, uma
+    posição com sufixo só descoberto via auto-detecção nunca seria
+    reconhecida na comparação (a idempotência em si é por MAGIC NUMBER, não
+    por símbolo — essa função não afeta aquela checagem)."""
     for suf in (MT5_SYMBOL_SUFFIX, _AUTO_DETECTED_SUFFIX):
         if suf and symbol.endswith(suf):
             return symbol[: -len(suf)]
