@@ -77,8 +77,11 @@ Given this ships code that sends real orders to a live market, treat review
 as load-bearing, not optional: when you finish a reviewable unit of work, use
 the `herdr-review` skill to dispatch a blind, parallel review round to both
 and resolve their findings (CONFIRMED/UNIQUE/CONFLICT) before considering the
-work done. Requires `HERDR_ENV=1`; if that's unset, you're not in a
-Herdr-managed pane and none of this applies.
+work done. The same pair can also weigh in on an open design question
+*before* you build something — given the safety stakes here, prefer asking
+first over reviewing after; see the `herdr-ask` skill for that case.
+Requires `HERDR_ENV=1`; if that's unset, you're not in a Herdr-managed pane
+and none of this applies.
 
 ## Live MT5 execution (branch `fase-1-hibrido`)
 
