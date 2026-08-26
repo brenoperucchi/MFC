@@ -31,3 +31,8 @@ ENV/
 # Estado/histórico do reconciliador das 08:10 (runtime, não versionar)
 data/RECONCILE_ALERT.json
 data/reconcile_alerts.log
+
+# herdr review-cycle: estado efemero (rodadas de review/ask, handoffs) -
+# reviewer.md fica versionado
+.herdr/*
+!.herdr/reviewer.md
