@@ -68,6 +68,18 @@ python -m pytest tests/test_portfolio_safety.py -q   # execution safety gates
 compare its computed scores against the live dashboard engine), but patches the file-write
 step so it never touches `data/portfolio_signals_live.json` on disk.
 
+## Reviewer colleagues
+
+If you're running as `mfc-exec` inside a Herdr workspace, `mfc-rev` (Codex)
+and `mfc-rev-2` (Claude Opus) are two independent reviewers alive in sibling
+panes of the same workspace right now — not hypothetical, nothing to set up.
+Given this ships code that sends real orders to a live market, treat review
+as load-bearing, not optional: when you finish a reviewable unit of work, use
+the `herdr-review` skill to dispatch a blind, parallel review round to both
+and resolve their findings (CONFIRMED/UNIQUE/CONFLICT) before considering the
+work done. Requires `HERDR_ENV=1`; if that's unset, you're not in a
+Herdr-managed pane and none of this applies.
+
 ## Live MT5 execution (branch `fase-1-hibrido`)
 
 Real order sending lives in `agents/portfolio_executor.py`. Python decides and opens
