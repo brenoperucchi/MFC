@@ -88,3 +88,24 @@ Violação de qualquer item abaixo é achado P0 ou P1, mesmo que os testes passe
   hoje **importa** as três de `web.css_service`. Não aponte isso como
   divergência; se notar, é o `CLAUDE.md` que precisa de correção, não o
   código.
+
+- **F-02 (marcador `_UNRESOLVED_FAMILY_MARKER` teoricamente colidir com um
+  símbolo real do broker) — decisão do usuário, 2026-08-27: manter como
+  está.** Consertar de verdade (`to_broker_symbol()` devolver `None` em vez
+  de string) tocaria 10+ pontos de chamada em 4 arquivos, a maioria fora do
+  caminho crítico de execução. Caminho dormant na instalação atual
+  (`CSS_MT5_SYMBOL_SUFFIX` já configurado explicitamente). Ver comentário em
+  `web/css_service.py`, acima de `_UNRESOLVED_FAMILY_MARKER`. Não reabra sem
+  evidência nova (uma corretora real com um símbolo colidindo de verdade).
+
+- **F-03 (escolha heurística entre múltiplas famílias de símbolo válidas,
+  ex.: `m` e `pro`) — decisão do usuário, 2026-08-27: manter a heurística
+  atual (sufixo mais curto).** Mesma situação do F-02: caminho automático
+  dormant nesta instalação. Ver comentário em
+  `_symbol_family_is_consistent()` em `web/css_service.py`. Não reabra sem
+  evidência nova.
+
+- **F-04 (corrida residual entre processos na detecção de família de
+  símbolo, cold start simultâneo sem lock de arquivo) — risco medido e
+  aceito desde a rodada 3 do achado 1**, não decisão desta rodada. Ver
+  comentário em `_detect_mt5_symbol_family()` em `web/css_service.py`.

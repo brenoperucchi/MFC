@@ -274,15 +274,17 @@ def _symbol_family_is_consistent(suffix):
     já rejeita trade_mode restrito por perna, escopado à moeda certa — a
     checagem aqui, na granularidade errada (família inteira, permanente),
     trocaria uma falha pequena e correta por uma grande e desnecessária.
-    NÃO IMPLEMENTADO, considerado e descartado por ora (ambas as rodadas de
-    revisão concordam): preferir o candidato mais aberto SÓ quando existem
-    MÚLTIPLOS candidatos igualmente consistentes em nocional — nesse caso
-    específico (raro) o trade-off muda de sinal. Ficou de fora porque ainda
-    congelaria uma escolha baseada em trade_mode transiente (se o desempate
-    cair num feriado, o candidato errado memoriza pro resto do processo);
-    a alternativa mais conservadora seria só avisar quando há mais de um
-    candidato válido, sem mudar a escolha — decisão pendente com o
-    usuário."""
+    NÃO IMPLEMENTADO, considerado e descartado (achado reaberto sem evidência
+    nova: Codex, F-03, herdr-review rodada 6; decisão final do usuário,
+    2026-08-27): preferir o candidato mais aberto SÓ quando existem MÚLTIPLOS
+    candidatos igualmente consistentes em nocional, ou recusar em vez de
+    escolher nesse caso — nenhuma das duas foi adotada. Mantida a heurística
+    atual (sufixo mais curto, desempate pela ordem do servidor): o caminho
+    automático só roda quando CSS_MT5_SYMBOL_SUFFIX não está configurado, e a
+    orientação operacional deste projeto é configurar essa variável
+    explicitamente em qualquer instalação real — o cenário de ambiguidade é
+    dormant na prática, não vale a complexidade extra de recusar-quando-
+    ambíguo agora."""
     sizes = set()
     for pair in ALL_28_PAIRS:
         try:
@@ -510,6 +512,16 @@ def _detect_mt5_symbol_family():
 # devolve None — o preflight recusa a cesta inteira pelo caminho já testado
 # de "símbolo não resolvido", em vez de arriscar aceitar um nome bare por
 # coincidência.
+#
+# Achado reaberto sem evidência nova (Codex, F-02, herdr-review rodada 6);
+# decisão final do usuário (2026-08-27): manter como está. Tornar a colisão
+# PROVADAMENTE impossível (ex.: to_broker_symbol() devolver None em vez de
+# string) exigiria atualizar 10+ pontos de chamada em 4 arquivos, a maioria
+# fora do caminho crítico de execução (telemetria/backtest/auditoria) — mais
+# superfície de regressão do que o risco teórico que resolve. Também é um
+# caminho dormant na instalação atual: CSS_MT5_SYMBOL_SUFFIX já é configurado
+# explicitamente, então _detect_mt5_symbol_family() (única chamadora deste
+# marcador) nunca roda.
 _UNRESOLVED_FAMILY_MARKER = "#unresolved-family"
 
 
