@@ -91,10 +91,32 @@ the basket (21:05 BRT, via `scripts/scheduler_daemon.py`); the MQL5 EA
 reverts to the EA doing both, without recompiling.
 
 Every safety gate is checked inside `open_portfolio_basket()`, in order: kill switch →
-account identity (`CSS_MT5_EXPECTED_LOGIN`) → demo lock (`CSS_LIVE_TRADING`) →
-idempotency → exposure caps → netting symbol collision → symbol/tick preflight
-(all-or-nothing) → broker-side catastrophic stop-loss. All configured via `.env`
-(see `.env.example`); a missing/invalid value fails closed, never open. Exposure caps
+execution config validity (`check_execution_config()` — `CSS_MAX_LOT`,
+`CSS_MAX_CONCURRENT_BASKETS`, `CSS_CATASTROPHIC_SL_PIPS`, the two
+`CSS_AMBIGUOUS_CONFIRM_*`) → account identity (`CSS_MT5_EXPECTED_LOGIN`) → demo lock
+(`CSS_LIVE_TRADING`) → idempotency → exposure caps → netting symbol collision →
+symbol/tick preflight (all-or-nothing) → broker-side catastrophic stop-loss. All
+configured via `.env` (see `.env.example`); a missing/invalid value fails closed,
+never open — an explicitly-set-but-invalid value (bad cast, out-of-range, or a value
+that would be silently clamped) refuses to open rather than substituting a default
+that may be more permissive than what the operator intended (reviewed 2026-08-27,
+achado F-06). `_env_number()`/`_clamp()` themselves stay non-fatal at import time
+(a bad `.env` value must never crash the whole web server or scheduler daemon
+process, only refuse the specific open attempt) — `check_execution_config()`
+re-validates the raw env values at the point of use instead of trusting the
+already-substituted module constants. "Missing" means two different things by
+design (raised as achado F06-2, decided by user 2026-08-27; refined 2026-08-27
+after achado P3-1 caught an overly-broad first wording): identity/permission gates
+(`CSS_MT5_EXPECTED_LOGIN`, `CSS_LIVE_TRADING`) have no safe default — missing is
+genuinely ambiguous and must refuse. `CSS_MT5_SYMBOL_SUFFIX` is a different case:
+missing is the *designed* normal path (`.env.example` ships it empty; that's what
+drives the auto-detection in `web/css_service.py`) and opens normally — what must
+refuse is *resolution failing* (the `#unresolved-family` marker reaching the
+preflight), not the variable being absent. The five `check_execution_config()`
+variables are tunable safety margins with documented, conservative defaults
+(150 pips, 0.01 lot, 8 baskets, 3 attempts, 1.0s) — missing there means "use the
+documented default" and is allowed to open, exactly like it always has. Only an
+explicitly-provided-and-invalid value among those five refuses. Exposure caps
 and netting symbol collision are both pure refusal checks reading the same
 `open_magics` snapshot with no side effects, so their relative order doesn't change
 the open/refuse decision — only which error/message comes back when both would have

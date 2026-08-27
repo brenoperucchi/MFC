@@ -235,9 +235,11 @@ async def get_portfolio_robots_telemetry():
 @app.post("/api/portfolio-robots/open")
 async def open_portfolio_robot(payload: PortfolioOpenPayload, x_css_api_key: str = Header(default=None)):
     """Abre a cesta de 7 pares de uma moeda no MT5 com seu Magic Number exclusivo.
-    Exige X-Css-Api-Key. As travas de segurança de verdade (kill switch, conta
-    demo, idempotência, colisão de símbolo) ficam em agents/portfolio_executor.py —
-    essa chave é só a porta de entrada, não substitui aquelas checagens."""
+    Exige X-Css-Api-Key. As travas de segurança de verdade (kill switch,
+    validade da configuração de execução, conta demo, idempotência, tetos
+    de exposição, colisão de símbolo — ordem completa em CLAUDE.md, seção
+    "Live MT5 execution") ficam em agents/portfolio_executor.py — essa
+    chave é só a porta de entrada, não substitui aquelas checagens."""
     _require_portfolio_api_key(x_css_api_key)
     from agents.portfolio_executor import open_portfolio_basket
     res = open_portfolio_basket(payload.currency, payload.bias, payload.lot)

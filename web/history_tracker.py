@@ -33,7 +33,28 @@ HISTORY_FILE = os.path.join(DATA_DIR, "simulated_trades_history.json")
 # "hora do servidor == 3" assumindo servidor = UTC+3 (offset implícito +6 na
 # rotulagem de data) — nesta conta isso aponta pra meia-noite BRT, não 21h.
 # Reconfira se a corretora/conta mudar.
-GMT_OFFSET = int(os.environ.get("CSS_MT5_GMT_OFFSET", "-3"))
+def _env_int_safe(name, default):
+    """Mesmo padrão de agents/portfolio_executor.py::_env_number() — nunca
+    derruba o IMPORT deste módulo se vier lixo. Achado em revisão (mfc-rev-2,
+    herdr-review rodada 7, P2-1): GMT_OFFSET usava `int()` cru, sem
+    try/except — um typo em CSS_MT5_GMT_OFFSET derrubava o import deste
+    arquivo e, por tabela, o de agents/portfolio_executor.py (que importa
+    daqui), ou seja, servidor web E daemon inteiros — exatamente o problema
+    que `_env_number()` foi criado pra evitar, sobrevivendo numa variável
+    fora do escopo original do F-06 por este módulo não reusar aquela
+    função (evitar import circular: agents/portfolio_executor.py importa
+    deste módulo, não o contrário)."""
+    raw = os.environ.get(name)
+    if raw is None or raw.strip() == "":
+        return default
+    try:
+        return int(raw.strip())
+    except (TypeError, ValueError):
+        print(f"[!] {name}={raw!r} inválido — usando o padrão {default}.")
+        return default
+
+
+GMT_OFFSET = _env_int_safe("CSS_MT5_GMT_OFFSET", -3)
 ENTRY_SERVER_HOUR = (21 - GMT_OFFSET) % 24
 
 

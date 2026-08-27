@@ -16,6 +16,7 @@ do terminal rodando.
 
 import os
 import sys
+import subprocess
 import json
 import tempfile
 import threading
@@ -417,6 +418,292 @@ class TestAccountGate(unittest.TestCase):
         self.assertTrue(fake_mt5.order_send.called)
         self.assertEqual(result["opened_count"], 7)
         print("[✓] Conta real só é aceita com CSS_LIVE_TRADING=true E login esperado batendo")
+
+
+class TestExecutionConfigGate(unittest.TestCase):
+    """check_execution_config(): achado em revisão (Codex, herdr-review
+    rodada 6, F-06; design consultado via herdr-ask, mfc-rev + mfc-rev-2,
+    2026-08-27). _env_number() nunca derruba o import (deliberado), mas
+    isso deixava "valor explicitamente fornecido e inválido" abrir cesta
+    com um default que pode ser o OPOSTO da intenção do operador. Este
+    gate roda no MOMENTO DO USO, logo depois do kill switch, e recusa a
+    abertura (não o processo) quando qualquer uma das variáveis de
+    segurança está presente mas inválida."""
+
+    def test_open_refused_when_max_lot_is_not_a_number(self):
+        fake_mt5 = make_fake_mt5()
+        with patch.dict(os.environ, {**DEMO_GATE_ENV, "CSS_MAX_LOT": "o.01"}), \
+             patch.object(pe, "MT5_AVAILABLE", True), patch.object(pe, "mt5", fake_mt5):
+            result = pe.open_portfolio_basket("CAD", "BUY")
+        self.assertFalse(result["success"])
+        self.assertEqual(result["error"], "invalid_execution_config")
+        self.assertIn("CSS_MAX_LOT", result["message"])
+        fake_mt5.order_send.assert_not_called()
+        fake_mt5.account_info.assert_not_called()
+        print("[✓] CSS_MAX_LOT com typo recusa a abertura, não cai silenciosamente no "
+              "default — e nem chega a consultar a conta MT5")
+
+    def test_open_refused_when_catastrophic_sl_is_zero(self):
+        """A REGRESSÃO CENTRAL do achado (mfc-rev-2, herdr-ask): SL <= 0
+        CASTA sem erro nenhum (_env_number nem imprime aviso) e
+        _compute_catastrophic_sl() devolve sl=0.0 — a rede de segurança
+        desarmada em silêncio, sem nenhum sinal de que algo está errado.
+        Um "0" copiado sem querer de um .env de teste não pode abrir cesta
+        real sem stop nenhum."""
+        fake_mt5 = make_fake_mt5()
+        with patch.dict(os.environ, {**DEMO_GATE_ENV, "CSS_CATASTROPHIC_SL_PIPS": "0"}), \
+             patch.object(pe, "MT5_AVAILABLE", True), patch.object(pe, "mt5", fake_mt5):
+            result = pe.open_portfolio_basket("CAD", "BUY")
+        self.assertFalse(result["success"])
+        self.assertEqual(result["error"], "invalid_execution_config")
+        self.assertIn("CSS_CATASTROPHIC_SL_PIPS", result["message"])
+        fake_mt5.order_send.assert_not_called()
+        print("[✓] CSS_CATASTROPHIC_SL_PIPS=0 recusa a abertura em vez de abrir sem stop")
+
+    def test_open_refused_when_catastrophic_sl_is_negative(self):
+        fake_mt5 = make_fake_mt5()
+        with patch.dict(os.environ, {**DEMO_GATE_ENV, "CSS_CATASTROPHIC_SL_PIPS": "-50"}), \
+             patch.object(pe, "MT5_AVAILABLE", True), patch.object(pe, "mt5", fake_mt5):
+            result = pe.open_portfolio_basket("CAD", "BUY")
+        self.assertFalse(result["success"])
+        self.assertEqual(result["error"], "invalid_execution_config")
+        fake_mt5.order_send.assert_not_called()
+        print("[✓] CSS_CATASTROPHIC_SL_PIPS negativo também recusa, não só zero")
+
+    def test_open_refused_when_catastrophic_sl_is_nan_or_infinite(self):
+        for raw in ("nan", "inf"):
+            with self.subTest(raw=raw):
+                fake_mt5 = make_fake_mt5()
+                with patch.dict(os.environ, {**DEMO_GATE_ENV, "CSS_CATASTROPHIC_SL_PIPS": raw}), \
+                     patch.object(pe, "MT5_AVAILABLE", True), patch.object(pe, "mt5", fake_mt5):
+                    result = pe.open_portfolio_basket("CAD", "BUY")
+                self.assertFalse(result["success"])
+                self.assertEqual(result["error"], "invalid_execution_config")
+                fake_mt5.order_send.assert_not_called()
+        print("[✓] CSS_CATASTROPHIC_SL_PIPS=nan/inf recusa — o cast real é int() "
+              "(_EXECUTION_CONFIG_SPEC), que já rejeita as duas strings por "
+              "ValueError direto, sem precisar de math.isfinite() aqui")
+
+    def test_open_refused_when_max_concurrent_baskets_is_negative(self):
+        fake_mt5 = make_fake_mt5()
+        with patch.dict(os.environ, {**DEMO_GATE_ENV, "CSS_MAX_CONCURRENT_BASKETS": "-1"}), \
+             patch.object(pe, "MT5_AVAILABLE", True), patch.object(pe, "mt5", fake_mt5):
+            result = pe.open_portfolio_basket("CAD", "BUY")
+        self.assertFalse(result["success"])
+        self.assertEqual(result["error"], "invalid_execution_config")
+        fake_mt5.order_send.assert_not_called()
+        print("[✓] CSS_MAX_CONCURRENT_BASKETS negativo recusa a abertura")
+
+    def test_open_refused_when_ambiguous_confirm_attempts_is_out_of_range(self):
+        """CSS_AMBIGUOUS_CONFIRM_ATTEMPTS já era silenciosamente CLAMPADO
+        pra [1, 10] sem nenhum aviso (_clamp não imprime nada, ao contrário
+        de _env_number) — o comentário do próprio arquivo reconhece isso
+        como o mesmo problema do F-06 com um canal pior."""
+        fake_mt5 = make_fake_mt5()
+        with patch.dict(os.environ, {**DEMO_GATE_ENV, "CSS_AMBIGUOUS_CONFIRM_ATTEMPTS": "300000"}), \
+             patch.object(pe, "MT5_AVAILABLE", True), patch.object(pe, "mt5", fake_mt5):
+            result = pe.open_portfolio_basket("CAD", "BUY")
+        self.assertFalse(result["success"])
+        self.assertEqual(result["error"], "invalid_execution_config")
+        self.assertIn("CSS_AMBIGUOUS_CONFIRM_ATTEMPTS", result["message"])
+        fake_mt5.order_send.assert_not_called()
+        print("[✓] CSS_AMBIGUOUS_CONFIRM_ATTEMPTS fora da faixa clampada recusa a "
+              "abertura em vez de ser silenciosamente reescrito pra 10")
+
+    def test_open_reports_multiple_invalid_vars_in_one_message(self):
+        fake_mt5 = make_fake_mt5()
+        with patch.dict(os.environ, {**DEMO_GATE_ENV, "CSS_MAX_LOT": "xyz",
+                                      "CSS_CATASTROPHIC_SL_PIPS": "0"}), \
+             patch.object(pe, "MT5_AVAILABLE", True), patch.object(pe, "mt5", fake_mt5):
+            result = pe.open_portfolio_basket("CAD", "BUY")
+        self.assertFalse(result["success"])
+        self.assertIn("CSS_MAX_LOT", result["message"])
+        self.assertIn("CSS_CATASTROPHIC_SL_PIPS", result["message"])
+        fake_mt5.order_send.assert_not_called()
+        print("[✓] Duas variáveis inválidas ao mesmo tempo saem juntas na mesma mensagem, "
+              "nenhuma mascara a outra, e nenhuma ordem sai")
+
+    def test_open_refused_when_ambiguous_confirm_delay_is_out_of_range(self):
+        fake_mt5 = make_fake_mt5()
+        with patch.dict(os.environ, {**DEMO_GATE_ENV, "CSS_AMBIGUOUS_CONFIRM_DELAY_SEC": "50"}), \
+             patch.object(pe, "MT5_AVAILABLE", True), patch.object(pe, "mt5", fake_mt5):
+            result = pe.open_portfolio_basket("CAD", "BUY")
+        self.assertFalse(result["success"])
+        self.assertEqual(result["error"], "invalid_execution_config")
+        self.assertIn("CSS_AMBIGUOUS_CONFIRM_DELAY_SEC", result["message"])
+        fake_mt5.order_send.assert_not_called()
+        print("[✓] CSS_AMBIGUOUS_CONFIRM_DELAY_SEC fora da faixa clampada também recusa "
+              "a abertura")
+
+    def test_open_refused_when_catastrophic_sl_is_a_decimal_string(self):
+        """A REGRESSÃO CENTRAL do F06-1 (mfc-rev-2 + mfc-rev, herdr-review
+        rodada 7, confirmado pelos dois independentemente): a primeira
+        versão de check_execution_config() validava CSS_CATASTROPHIC_SL_PIPS
+        com float(), mas o cast REAL (_env_number) usa int(). "50.0" passava
+        no gate antigo (float aceita) e o cast real falhava, caindo em
+        silêncio no default 150 — o operador reduz o SL de 150 pra 50 depois
+        de um incidente, escreve "50.0" (hábito natural num .env onde
+        CSS_MAX_LOT já usa decimal), e a cesta abre com SL de 150 mesmo
+        assim. Isso não pode mais passar: agora o gate usa o MESMO cast
+        (int) que o valor real, via _EXECUTION_CONFIG_SPEC."""
+        fake_mt5 = make_fake_mt5()
+        with patch.dict(os.environ, {**DEMO_GATE_ENV, "CSS_CATASTROPHIC_SL_PIPS": "50.0"}), \
+             patch.object(pe, "MT5_AVAILABLE", True), patch.object(pe, "mt5", fake_mt5):
+            result = pe.open_portfolio_basket("CAD", "BUY")
+        self.assertFalse(result["success"],
+                         "CSS_CATASTROPHIC_SL_PIPS='50.0' precisa ser recusado pelo gate, "
+                         "não cair silenciosamente no default 150 no cast real")
+        self.assertEqual(result["error"], "invalid_execution_config")
+        fake_mt5.order_send.assert_not_called()
+        print("[✓] CSS_CATASTROPHIC_SL_PIPS='50.0' recusa a abertura — o gate usa o "
+              "mesmo cast (int) que o valor realmente usado, não mais float()")
+
+    def test_open_refused_when_ambiguous_confirm_attempts_is_a_decimal_string(self):
+        """Mesma classe do teste acima, pra CSS_AMBIGUOUS_CONFIRM_ATTEMPTS
+        (também castado com int() de verdade, validado com float() na
+        primeira versão do gate)."""
+        fake_mt5 = make_fake_mt5()
+        with patch.dict(os.environ, {**DEMO_GATE_ENV, "CSS_AMBIGUOUS_CONFIRM_ATTEMPTS": "5.0"}), \
+             patch.object(pe, "MT5_AVAILABLE", True), patch.object(pe, "mt5", fake_mt5):
+            result = pe.open_portfolio_basket("CAD", "BUY")
+        self.assertFalse(result["success"])
+        self.assertEqual(result["error"], "invalid_execution_config")
+        fake_mt5.order_send.assert_not_called()
+        print("[✓] CSS_AMBIGUOUS_CONFIRM_ATTEMPTS='5.0' também recusa — mesmo cast do "
+              "valor real (int), não float()")
+
+    def test_kill_switch_takes_priority_over_invalid_execution_config(self):
+        """Achado em revisão (mfc-rev-2, herdr-review rodada 7, P3-1): a
+        ordem kill switch → config gate não tinha teste nenhum fixando ela.
+        Com os dois motivos de recusa presentes ao mesmo tempo, o kill
+        switch tem que aparecer na mensagem — senão um operador com o kill
+        switch armado E o .env quebrado vê "config inválida", "conserta" o
+        .env, e não percebe que a própria alavanca de emergência continua
+        puxada."""
+        fake_mt5 = make_fake_mt5()
+        tmp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp_dir.cleanup)
+        flag_path = os.path.join(tmp_dir.name, "CSS_KILL.flag")
+        with open(flag_path, "w") as f:
+            f.write("")
+        with patch.dict(os.environ, {**DEMO_GATE_ENV, "CSS_MAX_LOT": "xyz"}), \
+             patch.object(pe, "KILL_SWITCH_FILE", flag_path), \
+             patch.object(pe, "MT5_AVAILABLE", True), patch.object(pe, "mt5", fake_mt5):
+            result = pe.open_portfolio_basket("CAD", "BUY")
+        self.assertFalse(result["success"])
+        self.assertEqual(result["error"], "kill_switch_active",
+                         "kill switch precisa vencer a checagem de config — senão um "
+                         "operador pode 'consertar' o .env sem perceber que o kill "
+                         "switch continua armado")
+        fake_mt5.order_send.assert_not_called()
+        print("[✓] Kill switch tem prioridade sobre config inválida — a ordem "
+              "documentada no CLAUDE.md está fixada por teste")
+
+    def test_open_proceeds_normally_with_explicit_valid_execution_config(self):
+        """Controle negativo: valores EXPLICITAMENTE fornecidos mas válidos
+        não podem disparar o gate — prova que os testes acima não passam só
+        porque qualquer env var setada recusa."""
+        fake_mt5 = make_fake_mt5()
+        fake_mt5.account_info.return_value = SimpleNamespace(
+            login=999, server="Broker-Demo", trade_mode="DEMO",
+            trade_allowed=True, margin_mode="HEDGING")
+        fake_mt5.symbol_info.return_value = SimpleNamespace(visible=True, trade_mode="FULL")
+        fake_mt5.symbol_info_tick.return_value = SimpleNamespace(ask=1.1000, bid=1.0998)
+        fake_mt5.order_send.return_value = SimpleNamespace(
+            retcode=fake_mt5.TRADE_RETCODE_DONE, order=1, price=1.1000, comment="ok")
+        with patch.dict(os.environ, {**DEMO_GATE_ENV, "CSS_MAX_LOT": "0.05",
+                                      "CSS_MAX_CONCURRENT_BASKETS": "4",
+                                      "CSS_CATASTROPHIC_SL_PIPS": "80"}), \
+             patch.object(pe, "MT5_AVAILABLE", True), patch.object(pe, "mt5", fake_mt5):
+            # MAX_LOT (a constante já lida no import) não muda por setar a
+            # env var aqui — só o gate revalida o valor bruto. lot=0.01
+            # bate com o default de MAX_LOT, então a checagem de teto
+            # antiga (independente desta correção) não interfere.
+            result = pe.open_portfolio_basket("CAD", "BUY", lot=0.01)
+        self.assertTrue(fake_mt5.order_send.called)
+        self.assertEqual(result["opened_count"], 7)
+        print("[✓] Configuração explícita e válida abre normalmente — o gate não é "
+              "falso positivo pra qualquer env var setada")
+
+    def test_close_portfolio_basket_ignores_invalid_execution_config(self):
+        """Assimetria deliberada (mesmo padrão do kill switch): reduzir
+        risco nunca pode ser bloqueado por config de ABERTURA quebrada."""
+        fake_mt5 = make_fake_mt5()
+        fake_mt5.account_info.return_value = SimpleNamespace(
+            login=999, server="Broker-Demo", trade_mode="DEMO",
+            trade_allowed=True, margin_mode="HEDGING")
+        fake_mt5.positions_get.return_value = [
+            SimpleNamespace(ticket=1, symbol="USDCAD", volume=0.01,
+                            type=fake_mt5.ORDER_TYPE_SELL, magic=pe.PORTFOLIO_MAGICS["CAD"],
+                            price_open=1.35, price_current=1.36, profit=1.0)
+        ]
+        fake_mt5.symbol_info_tick.return_value = SimpleNamespace(ask=1.3600, bid=1.3598)
+        fake_mt5.order_send.return_value = SimpleNamespace(
+            retcode=fake_mt5.TRADE_RETCODE_DONE, order=2, price=1.3598, comment="ok")
+        with patch.dict(os.environ, {"CSS_MT5_EXPECTED_LOGIN": "999",
+                                      "CSS_CATASTROPHIC_SL_PIPS": "0"}), \
+             patch.object(pe, "MT5_AVAILABLE", True), patch.object(pe, "mt5", fake_mt5):
+            result = pe.close_portfolio_basket("CAD")
+        self.assertTrue(result["success"])
+        fake_mt5.order_send.assert_called()
+        print("[✓] Fechamento continua liberado mesmo com config de execução inválida — "
+              "só a ABERTURA é bloqueada")
+
+
+class TestGmtOffsetEnvSafety(unittest.TestCase):
+    """Achado em revisão (mfc-rev-2, herdr-review rodada 7, P2-1): GMT_OFFSET
+    em web/history_tracker.py usava int() cru, sem try/except — um typo em
+    CSS_MT5_GMT_OFFSET derrubava o IMPORT deste módulo e, por tabela, o de
+    agents/portfolio_executor.py (que importa daqui) — servidor web E daemon
+    inteiros, exatamente o problema que _env_number() existe pra evitar."""
+
+    def test_env_int_safe_never_raises_on_garbage(self):
+        for raw in ("abc", "3.5", "", "  ", "inf", "nan"):
+            with self.subTest(raw=raw):
+                with patch.dict(os.environ, {"CSS_MT5_GMT_OFFSET_TESTE": raw}):
+                    valor = ht._env_int_safe("CSS_MT5_GMT_OFFSET_TESTE", -3)
+                self.assertEqual(valor, -3)
+        print("[✓] _env_int_safe() nunca levanta exceção — qualquer lixo cai no default, "
+              "sem derrubar o import do módulo")
+
+    def test_env_int_safe_accepts_valid_int_string(self):
+        with patch.dict(os.environ, {"CSS_MT5_GMT_OFFSET_TESTE": "0"}):
+            valor = ht._env_int_safe("CSS_MT5_GMT_OFFSET_TESTE", -3)
+        self.assertEqual(valor, 0)
+        print("[✓] _env_int_safe() aceita um inteiro válido normalmente")
+
+    def test_env_int_safe_falls_back_when_absent(self):
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("CSS_MT5_GMT_OFFSET_TESTE", None)
+            valor = ht._env_int_safe("CSS_MT5_GMT_OFFSET_TESTE", -3)
+        self.assertEqual(valor, -3)
+        print("[✓] Variável ausente usa o default, sem erro")
+
+    def test_gmt_offset_import_survives_poisoned_env_var(self):
+        """A REGRESSÃO CENTRAL do P2-1 (mfc-rev-2, herdr-review rodada 8) e
+        F08-03 (Codex): os três testes acima chamam _env_int_safe() direto —
+        provam a FUNÇÃO, não a LIGAÇÃO `GMT_OFFSET = _env_int_safe(...)`, que
+        é onde o bug original morava. Revertendo só essa linha pro int() cru,
+        a suíte inteira continuava verde (185 passed) porque nenhum teste
+        importava o módulo de verdade com a env var envenenada. Um
+        subprocesso, sem mock nenhum, prova a ligação real: import de
+        web.history_tracker com CSS_MT5_GMT_OFFSET='abc' não pode derrubar o
+        processo — mesmo padrão de bug que já voltou duas vezes neste
+        trabalho (backtest rodada 3→4, _tick_valido rodada 6→7): função
+        extraída ganha teste, ligação não."""
+        env = dict(os.environ)
+        env["CSS_MT5_GMT_OFFSET"] = "abc"
+        result = subprocess.run(
+            [sys.executable, "-c", "import web.history_tracker as ht; "
+                                    "print(ht.GMT_OFFSET, ht.ENTRY_SERVER_HOUR)"],
+            cwd=pe.BASE_DIR, env=env, capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0,
+                         f"import de web.history_tracker não pode falhar com "
+                         f"CSS_MT5_GMT_OFFSET inválido — stderr: {result.stderr}")
+        self.assertIn("-3 0", result.stdout,
+                      "GMT_OFFSET precisa cair no default (-3) quando o valor é inválido")
+        print("[✓] Import real de web.history_tracker sobrevive a CSS_MT5_GMT_OFFSET "
+              "envenenado — a ligação está protegida, não só a função")
 
 
 class TestDotenvLoader(unittest.TestCase):

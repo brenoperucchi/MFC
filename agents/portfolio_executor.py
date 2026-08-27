@@ -78,14 +78,58 @@ def _env_number(name, default, cast=int):
         return default
 
 
-CATASTROPHIC_SL_PIPS = _env_number("CSS_CATASTROPHIC_SL_PIPS", 150, int)
+# Fonte única de (nome, default, cast, validador, descrição de domínio) pras
+# cinco variáveis de segurança tunáveis — achado em revisão (mfc-rev-2,
+# herdr-review rodada 7, P1-1, confiança alta, confirmado por mfc-rev
+# independentemente): a primeira versão de check_execution_config() (mais
+# abaixo) validava CSS_CATASTROPHIC_SL_PIPS e CSS_AMBIGUOUS_CONFIRM_ATTEMPTS
+# com float(), mas o cast REAL que produz o valor usado é int() — um
+# "50.0" passava no gate (float aceita) e falhava no cast real (a linha
+# abaixo cai no default 150/3 em silêncio, exatamente o fail-open que o
+# gate existe pra fechar). Medido: CSS_CATASTROPHIC_SL_PIPS="50.0" abria a
+# cesta com SL de 150 pips, não os 50 que o operador escreveu. Uma tabela
+# só, usada tanto pra calcular a constante quanto pra validar no gate, torna
+# essa divergência de cast estruturalmente impossível — as duas usam o
+# mesmo cast por construção, não por disciplina de manter dois lugares
+# sincronizados (que já falhou uma vez).
+_EXECUTION_CONFIG_SPEC = (
+    # (env_name, default, cast, validador_do_valor_já_castado, descrição_do_domínio)
+    ("CSS_MAX_LOT", 0.01, float,
+     lambda v: math.isfinite(v) and v > 0,
+     "precisa ser um número finito > 0"),
+    ("CSS_MAX_CONCURRENT_BASKETS", 8, int,
+     lambda v: v >= 0,
+     "não pode ser negativo"),
+    ("CSS_CATASTROPHIC_SL_PIPS", 150, int,
+     lambda v: v > 0,
+     "precisa ser um inteiro > 0 — a rede de segurança não pode ser desligada implicitamente"),
+    ("CSS_AMBIGUOUS_CONFIRM_ATTEMPTS", 3, int,
+     lambda v: 1 <= v <= 10,
+     "precisa ser um inteiro entre 1 e 10"),
+    ("CSS_AMBIGUOUS_CONFIRM_DELAY_SEC", 1.0, float,
+     lambda v: math.isfinite(v) and 0.0 <= v <= 10.0,
+     "precisa ser um número finito entre 0.0 e 10.0"),
+)
+
+
+def _spec_env_number(name):
+    """_env_number() castando pelo tipo declarado em _EXECUTION_CONFIG_SPEC —
+    nunca um cast solto duplicado à mão, pra check_execution_config() não
+    poder divergir de qual tipo é realmente usado."""
+    for env_name, default, cast, _validador, _descricao in _EXECUTION_CONFIG_SPEC:
+        if env_name == name:
+            return _env_number(env_name, default, cast)
+    raise KeyError(f"{name} não está em _EXECUTION_CONFIG_SPEC")
+
+
+CATASTROPHIC_SL_PIPS = _spec_env_number("CSS_CATASTROPHIC_SL_PIPS")
 
 # Tetos de exposição. Nenhum deles altera a estratégia nos valores padrão
 # (lote fixo 0.01, até 8 cestas — uma por moeda): existem pra impedir que um
 # erro de chamada, um payload de API malformado ou uma mudança acidental de
 # parâmetro vire uma posição muito maior que a pretendida.
-MAX_LOT = _env_number("CSS_MAX_LOT", 0.01, float)
-MAX_CONCURRENT_BASKETS = _env_number("CSS_MAX_CONCURRENT_BASKETS", 8, int)
+MAX_LOT = _spec_env_number("CSS_MAX_LOT")
+MAX_CONCURRENT_BASKETS = _spec_env_number("CSS_MAX_CONCURRENT_BASKETS")
 
 # Contas em modo netting não têm posição isolada por magic number — duas
 # cestas que compartilham um par (ex.: USD e EUR podem operar EURUSD) se
@@ -161,6 +205,65 @@ def check_account_gate(safety: dict) -> dict:
                        f"CSS_LIVE_TRADING não está ligado — abertura recusada.",
         }
 
+    return {"allowed": True, "error": None, "message": None}
+
+
+def check_execution_config() -> dict:
+    """Valida, no momento do USO (não no import), que os limites de segurança
+    configurados via `.env` valem o que o operador de fato escreveu — não um
+    default silencioso. Achado em revisão (Codex, herdr-review rodada 6,
+    F-06; design consultado via herdr-ask, mfc-rev + mfc-rev-2, 2026-08-27):
+    `_env_number()` nunca derruba o IMPORT (deliberado — um valor inválido
+    crashava servidor E daemon inteiros sob o Task Scheduler antes desta
+    função existir, ver comentário de `_env_number` acima), mas isso também
+    deixava "valor explicitamente fornecido e inválido" abrir cesta com um
+    default que pode ser o OPOSTO da intenção do operador — ex.: reduzir
+    CSS_MAX_CONCURRENT_BASKETS depois de um incidente, e um typo silenciosamente
+    volta pro 8 de sempre.
+
+    Validado aqui, em separado do import, e não num registro global paralelo
+    (mesmo padrão de `check_account_identity`): `os.environ` não muda durante
+    a vida do processo — o `.env` é lido uma vez em `web/css_service.py` — então
+    validar no uso pega exatamente os mesmos casos que um registro no import
+    pegaria, sem precisar manter um segundo mecanismo em sincronia (e sem o
+    risco de alguém adicionar uma variável nova esquecendo de populá-lo — foi
+    assim que CSS_AMBIGUOUS_CONFIRM_ATTEMPTS/_DELAY_SEC abaixo escapavam de
+    qualquer validação até esta função existir).
+
+    Cobre as três formas de "valor usado ≠ valor escrito" que já existem no
+    arquivo: cast que falha (`_env_number` cai no default), clamp que altera
+    sem avisar (`_clamp` nos dois CSS_AMBIGUOUS_CONFIRM_*), e faixa proibida
+    que CASTA mas não devia passar — `CSS_CATASTROPHIC_SL_PIPS <= 0` desarma
+    a rede de segurança (`_compute_catastrophic_sl` devolve sl=0.0) sem erro
+    de cast nenhum, então `_env_number` nem chega a imprimir aviso.
+
+    Percorre `_EXECUTION_CONFIG_SPEC` — a MESMA tabela que define o cast das
+    constantes de módulo (achado em revisão: mfc-rev-2, herdr-review rodada
+    7, P1-1) — em vez de repetir `float`/`int` soltos aqui: a primeira versão
+    desta função validava CSS_CATASTROPHIC_SL_PIPS e
+    CSS_AMBIGUOUS_CONFIRM_ATTEMPTS com `float()`, mas o cast real dessas duas
+    é `int()` — um "50.0" passava aqui e caía no default 150/3 em silêncio no
+    cast real, o fail-open exato que este gate existe pra fechar."""
+    erros = []
+    for name, _default, cast, validador, descricao in _EXECUTION_CONFIG_SPEC:
+        raw = os.environ.get(name, "").strip()
+        if not raw:
+            continue
+        try:
+            valor = cast(raw)
+        except (TypeError, ValueError):
+            erros.append(f"{name}={raw!r} não é um valor válido ({descricao})")
+            continue
+        if not validador(valor):
+            erros.append(f"{name}={raw!r} {descricao}")
+
+    if erros:
+        return {
+            "allowed": False,
+            "error": "invalid_execution_config",
+            "message": "Configuração de execução inválida no .env, abertura recusada: "
+                       + "; ".join(erros),
+        }
     return {"allowed": True, "error": None, "message": None}
 
 
@@ -261,8 +364,12 @@ def _pip_size(symbol: str) -> float:
 
 def _compute_catastrophic_sl(symbol: str, order_type_is_buy: bool, entry_price: float):
     """SL amplo em pips fixos — rede de segurança, não parâmetro de estratégia.
-    Retorna 0.0 (sem SL) se CATASTROPHIC_SL_PIPS <= 0, permitindo desligar via env
-    var só em ambiente de teste; em produção deve ficar sempre > 0."""
+    Retorna 0.0 (sem SL) se CATASTROPHIC_SL_PIPS <= 0 — usado só em teste
+    unitário desta função isolada (`patch.object(pe, "CATASTROPHIC_SL_PIPS", 0)`).
+    Em qualquer abertura REAL via `open_portfolio_basket()`, `<= 0`
+    explicitamente configurado no `.env` já é recusado antes de chegar aqui
+    por `check_execution_config()` (achado F-06/F06-1) — esta função nunca
+    vê CATASTROPHIC_SL_PIPS <= 0 vindo de uma abertura de verdade."""
     if CATASTROPHIC_SL_PIPS <= 0:
         return 0.0
     distance = CATASTROPHIC_SL_PIPS * _pip_size(symbol)
@@ -329,8 +436,8 @@ def _clamp(value, lo, hi):
     return max(lo, min(hi, value))
 
 
-_AMBIGUOUS_CONFIRM_ATTEMPTS = _clamp(_env_number("CSS_AMBIGUOUS_CONFIRM_ATTEMPTS", 3, int), 1, 10)
-_AMBIGUOUS_CONFIRM_DELAY_SEC = _clamp(_env_number("CSS_AMBIGUOUS_CONFIRM_DELAY_SEC", 1.0, float), 0.0, 10.0)
+_AMBIGUOUS_CONFIRM_ATTEMPTS = _clamp(_spec_env_number("CSS_AMBIGUOUS_CONFIRM_ATTEMPTS"), 1, 10)
+_AMBIGUOUS_CONFIRM_DELAY_SEC = _clamp(_spec_env_number("CSS_AMBIGUOUS_CONFIRM_DELAY_SEC"), 0.0, 10.0)
 
 
 def _confirm_position_after_ambiguous_retcode(broker_symbol: str, magic: int):
@@ -884,9 +991,12 @@ def open_portfolio_basket(currency: str, bias: str, lot: float = 0.01, deviation
     Envia ordens a mercado no MT5 para os 7 pares do portfólio especificado
     com o Magic Number exclusivo da moeda.
 
-    Antes de qualquer ordem, checa (nessa ordem): kill switch, identidade e
-    permissão da conta (check_account_gate — CSS_MT5_EXPECTED_LOGIN e
-    CSS_LIVE_TRADING), idempotência (cesta desse magic já aberta hoje?) e
+    Antes de qualquer ordem, checa (nessa ordem): kill switch, validade da
+    configuração de execução (check_execution_config — CSS_MAX_LOT,
+    CSS_MAX_CONCURRENT_BASKETS, CSS_CATASTROPHIC_SL_PIPS e os dois
+    CSS_AMBIGUOUS_CONFIRM_*), identidade e permissão da conta
+    (check_account_gate — CSS_MT5_EXPECTED_LOGIN e CSS_LIVE_TRADING),
+    idempotência (cesta desse magic já aberta hoje?), tetos de exposição e
     colisão de símbolo com outra cesta já aberta em conta netting. Qualquer
     uma dessas recusa a abertura inteira sem enviar nenhuma ordem.
     """
@@ -894,6 +1004,16 @@ def open_portfolio_basket(currency: str, bias: str, lot: float = 0.01, deviation
         msg = f"Kill switch ativo ({KILL_SWITCH_FILE}) — nenhuma cesta nova será aberta."
         print(f"[PORTFOLIO ROBOT] {msg}")
         return {"success": False, "error": "kill_switch_active", "message": msg}
+
+    # Logo depois do kill switch, antes de qualquer coisa que consuma os
+    # limites de segurança (inclusive o teto de lote logo abaixo, que já lê
+    # MAX_LOT): config inválida invalida todo gate que vier depois dela, e
+    # não custa MT5 nenhum (achado em revisão: Codex, F-06 rodada 6; design
+    # via herdr-ask — ver check_execution_config()).
+    config_gate = check_execution_config()
+    if not config_gate["allowed"]:
+        print(f"[PORTFOLIO ROBOT] {config_gate['message']}")
+        return {"success": False, "error": config_gate["error"], "message": config_gate["message"]}
 
     if not ensure_mt5():
         return {"success": False, "error": "MT5 não inicializado"}

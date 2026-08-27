@@ -23,8 +23,10 @@ Violação de qualquer item abaixo é achado P0 ou P1, mesmo que os testes passe
    em `docs/MATHEMATICAL_MODELS.md` §1.
 
 2. **Ordem dos gates de execução.** `agents/portfolio_executor.py::open_portfolio_basket()`
-   checa, nessa ordem: kill switch → identidade da conta
-   (`CSS_MT5_EXPECTED_LOGIN`) → trava de demo (`CSS_LIVE_TRADING`) →
+   checa, nessa ordem: kill switch → validade da configuração de execução
+   (`check_execution_config()` — CSS_MAX_LOT, CSS_MAX_CONCURRENT_BASKETS,
+   CSS_CATASTROPHIC_SL_PIPS, os dois CSS_AMBIGUOUS_CONFIRM_*) → identidade da
+   conta (`CSS_MT5_EXPECTED_LOGIN`) → trava de demo (`CSS_LIVE_TRADING`) →
    idempotência → tetos de exposição → colisão de símbolo em conta netting →
    preflight de símbolo/tick (tudo-ou-nada) → stop-loss catastrófico do lado
    do broker. Exposição e colisão netting são as duas exceções documentadas:
@@ -33,7 +35,16 @@ Violação de qualquer item abaixo é achado P0 ou P1, mesmo que os testes passe
    decisão de abrir/recusar — só qual mensagem de erro sai quando as duas
    se aplicariam (ver `CLAUDE.md`, seção "Live MT5 execution"). Reordenar
    qualquer OUTRO par de gates, pular um gate ou torná-lo condicional
-   continua P0. Valor ausente ou inválido em `.env` tem que falhar fechado.
+   continua P0. "Ausente" e "inválido" em `.env` NÃO são o mesmo caso
+   (decisão do usuário, F06-2, 2026-08-27 — ver `CLAUDE.md`, seção "Live
+   MT5 execution", pra não reabrir isto): gates de identidade/permissão
+   (`CSS_MT5_EXPECTED_LOGIN`, `CSS_LIVE_TRADING`) não têm default seguro —
+   ausência é ambígua e tem que recusar. As cinco variáveis de
+   `check_execution_config()` são margens de segurança tunáveis com default
+   documentado e seguro (150 pips, 0.01 lote, 8 cestas, 3 tentativas, 1.0s)
+   — ausência usa o default e ABRE normalmente; só um valor EXPLICITAMENTE
+   fornecido e inválido recusa. Isso não é fail-open: é a mesma regra
+   "usado ≠ escrito" aplicada só a quem escreveu algo.
 
 3. **Kill switch é assimétrico.** `data/CSS_KILL.flag` bloqueia abrir cesta
    nova. Nunca bloqueia fechamento — reduzir risco sempre prossegue. Qualquer

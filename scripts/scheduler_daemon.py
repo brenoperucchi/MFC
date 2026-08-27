@@ -114,9 +114,11 @@ def execute_phase_2105():
     gravado às 21:02 (arquitetura recomendada pela revisão de 23/08: Python
     decide e abre, o EA vira guardião do fechamento — ver
     whatsapp-tools/PLANO_IMPLEMENTACAO_MFC.md, Seção 1). Todas as travas de
-    segurança (kill switch, conta demo, idempotência, colisão de símbolo em
-    conta netting, stop-loss catastrófico) vivem dentro de
-    open_portfolio_basket() e são checadas por cesta, individualmente."""
+    segurança (kill switch, validade da configuração de execução, conta
+    demo, idempotência, tetos de exposição, colisão de símbolo em conta
+    netting, stop-loss catastrófico — ordem completa em CLAUDE.md, seção
+    "Live MT5 execution") vivem dentro de open_portfolio_basket() e são
+    checadas por cesta, individualmente."""
     print("\n" + "="*70)
     print(f"  [ROUTINE 21:05 BRT] ABERTURA DAS CESTAS DE PORTFÓLIO (PYTHON)")
     print("="*70)
