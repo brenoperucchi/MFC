@@ -439,6 +439,72 @@ def _clamp(value, lo, hi):
 _AMBIGUOUS_CONFIRM_ATTEMPTS = _clamp(_spec_env_number("CSS_AMBIGUOUS_CONFIRM_ATTEMPTS"), 1, 10)
 _AMBIGUOUS_CONFIRM_DELAY_SEC = _clamp(_spec_env_number("CSS_AMBIGUOUS_CONFIRM_DELAY_SEC"), 0.0, 10.0)
 
+# Deadline do watchdog de FECHAMENTO — achado em revisão (mfc-rev + mfc-rev-2,
+# herdr-review rodada 10, P2-1/F10-3, confirmado pelos dois independentemente):
+# a primeira versão do watchdog de close_all_portfolios() reusava
+# CSS_AMBIGUOUS_CONFIRM_ATTEMPTS/_DELAY_SEC — pensados pra confirmar um
+# order_send AMBÍGUO na abertura (milissegundos, sem prazo externo) — pro
+# fechamento, que tem um prazo externo rígido de verdade: a janela 08:00-08:04
+# do scheduler (240s, scripts/scheduler_daemon.py). Medido (mfc-rev-2): o
+# valor MÁXIMO válido das duas (10 tentativas × 10s de espera) combinado com
+# latência real de broker (7 ordens × N moedas, não uma consulta só) projeta
+# até ~426s — estoura a janela, e um operador que aumente essas duas variáveis
+# por um motivo isolado do lado da ABERTURA (broker lento pra confirmar ordem
+# ambígua) muda, sem saber, o orçamento de tempo do FECHAMENTO também.
+# Deadline PRÓPRIO, medido em tempo DECORRIDO (não contagem de tentativas) —
+# imune a qualquer combinação de CSS_AMBIGUOUS_CONFIRM_*, porque o teto é
+# sobre o relógio, não sobre quantas rodadas cabem nele. Ressalva medida
+# (mfc-rev-2, rodada 11, P3-3): o deadline é conferido ENTRE rodadas, nunca
+# interrompe um order_send em voo (interromper seria pior — posição
+# parcialmente fechada sem confirmação) — o teto REAL de uma chamada é
+# "deadline + a duração da última rodada iniciada antes dele expirar", não o
+# deadline sozinho. Por isso o teto da faixa abaixo é 120s, não mais: mesmo
+# com uma rodada patológica (8 cestas × 7 pernas a ~2s/ordem ≈ 112s), o pior
+# caso projetado fica dentro dos 240s da janela 08:00-08:04. Limitação
+# estrutural que ISTO NÃO RESOLVE (Codex, F11-1): nenhuma chamada MT5
+# individual (positions_get/order_send/symbol_info_tick/account_info) tem
+# timeout ou cancelamento — se uma travar de verdade (sem devolver erro nem
+# sucesso), nenhum deadline em Python consegue interromper, porque a checagem
+# só roda ENTRE chamadas, nunca durante uma. Isso é uma propriedade do
+# binding MT5 usada em TODO o arquivo, não algo introduzido por este
+# watchdog — corrigir isso de verdade exigiria timeout/cancelamento real
+# (ex.: rodar a chamada bloqueável numa thread separada e desistir dela sem
+# esperar), o que a própria Sol já observou não poder assumir thread-safety
+# do binding sem medir — fora do escopo desta correção pontual.
+# Nunca pode BLOQUEAR o fechamento (fechar é redutor de risco, nunca é
+# gate-ado como abrir é): por isso não passa por
+# _EXECUTION_CONFIG_SPEC/check_execution_config() — que só guarda a ABERTURA —
+# um valor explícito inválido aqui cai no default via _env_number(), como
+# CATASTROPHIC_SL_PIPS caía antes do achado F-06, mas sem nunca recusar fechar.
+# Documentada em .env.example e na invariante 2 de .herdr/reviewer.md — ela é
+# a SEXTA variável tunável do sistema, deliberadamente FORA das cinco
+# gate-adas por check_execution_config() (achado P3-2, mfc-rev-2, rodada 11).
+#
+# Segunda limitação estrutural, reconhecida e deliberadamente NÃO resolvida
+# aqui (Codex, F13-1, rodada 13): este deadline é POR CHAMADA de
+# close_all_portfolios(), não um orçamento absoluto da janela 08:00-08:04 do
+# scheduler como um todo. scripts/scheduler_daemon.py chama
+# execute_phase_0800() de novo a cada ciclo enquanto `cur_min < 5` e a
+# tentativa anterior não confirmou fechamento total — cada nova chamada
+# ganha um deadline FRESCO de até 120s, então, em tese, uma sequência de
+# chamadas mal-sucedidas em cadeia pode consumir mais que os 240s nominais
+# da janela antes que o scheduler pare de tentar. Isso NÃO quebra a garantia
+# de segurança real: a reconciliação das 08:10 (`execute_phase_0810`) é o
+# backstop deliberadamente incondicional pra exatamente este cenário — ela
+# dispara quando `cur_min >= 10` independente de quantas tentativas
+# aconteceram antes, reconsulta o broker do zero, e alerta alto (3 canais)
+# se ainda houver posição órfã. Construir um orçamento ancorado
+# entre-chamadas (ex.: um timestamp de início de janela persistido no
+# scheduler) fecharia a janela NOMINAL de 4 minutos com mais precisão, mas
+# não muda o resultado final garantido pelo 08:10 — considerado fora de
+# escopo desta correção pontual do watchdog em si.
+_CLOSE_WATCHDOG_DEADLINE_SEC = _clamp(_env_number("CSS_CLOSE_WATCHDOG_DEADLINE_SEC", 90.0, float), 10.0, 120.0)
+# Granularidade fixa entre reconsultas — não é tunável via .env de propósito:
+# o que protege o orçamento de tempo é o deadline acima, não o intervalo de
+# poll. Curto o bastante pra não desperdiçar o deadline em espera ociosa,
+# longo o bastante pra não martelar o broker.
+_CLOSE_WATCHDOG_POLL_INTERVAL_SEC = 2.0
+
 
 def _confirm_position_after_ambiguous_retcode(broker_symbol: str, magic: int):
     """Confirma se a perna abriu depois de uma resposta ambígua, tentando
@@ -1525,6 +1591,49 @@ def close_portfolio_basket(currency: str, deviation: int = 15):
 def close_all_portfolios(deviation: int = 15):
     """
     Encerra todos os portfólios gerenciados (Magic Numbers de 801001 a 801008) pontualmente às 08:00 BRT.
+
+    Watchdog de confirmação (achado em revisão: consulta de design via
+    herdr-ask, plano de reconciliação 27/08, mfc-rev + mfc-rev-2 — "watchdog
+    de fechamento"): o upstream (Miquéias) tem uma ideia parecida
+    (`d2eb1d3`, até 3 tentativas com espera), mas com dois furos fail-open —
+    `positions_get() is None` vira lista vazia (declara zero posições sem
+    ter confirmado nada) e `close_all_portfolios()` dele pode terminar
+    declarando sucesso mesmo com posições reais sobrando depois das
+    tentativas. Esta versão NÃO confia só no `closed_count` que cada
+    `close_portfolio_basket()` reporta (que já é fail-closed por si só, mas
+    é medido no MOMENTO do order_send, não depois) — reconsulta o broker via
+    `get_open_magics_and_symbols()` (que já levanta `MT5QueryError` fail-closed
+    em vez de confundir erro de consulta com "nada aberto") pra CONFIRMAR de
+    verdade que zerou, e só retenta fechar as moedas que a consulta fresca
+    ainda mostra abertas — nunca declara "flat" sem essa leitura confirmando.
+
+    O orçamento de tempo é um DEADLINE (`_CLOSE_WATCHDOG_DEADLINE_SEC`,
+    tempo decorrido via `time.monotonic()`, checado no TOPO do loop antes de
+    iniciar qualquer rodada nova), não contagem de tentativas — achado em
+    revisão (mfc-rev + mfc-rev-2, rodada 10, P2-1/F10-3): a primeira versão
+    reusava CSS_AMBIGUOUS_CONFIRM_ATTEMPTS/_DELAY_SEC (do lado da abertura,
+    sem prazo externo), e a combinação MÁXIMA válida dessas duas projetava
+    até ~426s de espera — estourando a janela 08:00-08:04 real do scheduler
+    (240s). Deadline próprio garante o teto independente de qualquer config
+    de OUTRA parte do sistema — não é imune à latência do próprio broker
+    (ver ressalvas medidas na definição de `_CLOSE_WATCHDOG_DEADLINE_SEC`
+    acima: o teto real é "deadline + a rodada em andamento quando ele
+    expira", e nenhuma chamada MT5 individual tem timeout próprio).
+
+    A cada rodada, `pendentes` é recalculado do zero contra TODOS os 8
+    magics (não só interseção com a lista anterior) — achado F10-2 (Codex,
+    confiança média): uma cesta aberta por um caminho concorrente (endpoint
+    HTTP manual, por exemplo) enquanto o fechamento está em andamento
+    também entra no watchdog, não só as que já estavam na lista inicial.
+    Resíduo aceito e não coberto por isto (F11-2, Codex, rodada 11): entre a
+    ÚLTIMA consulta de confirmação e o retorno da função ainda existe uma
+    janela sem lock — uma abertura concorrente bem nesse intervalo pode não
+    ser vista. Não há mecanismo de exclusão mútua entre abrir e fechar neste
+    código; fechar sempre confia na consulta mais recente que conseguiu
+    fazer. A rede de segurança pra ambos os resíduos (consulta inicial vazia
+    E esta última janela) é a reconciliação das 08:10
+    (`execute_phase_0810`), que reconsulta de forma totalmente independente,
+    minutos depois.
     """
     if not ensure_mt5():
         return {"success": False, "error": "MT5 não conectado"}
@@ -1548,42 +1657,168 @@ def close_all_portfolios(deviation: int = 15):
         print(f"[PORTFOLIO ROBOT] {msg}")
         return {"success": False, "error": "position_query_failed", "message": msg}
 
-    total_closed = 0
-    summary_by_ccy = {}
-    failures = []
-
     # Só itera as moedas que REALMENTE têm posição: antes chamava
     # close_portfolio_basket pras 8 sempre, cada uma refazendo positions_get.
     magics_abertos = {p.magic for p in positions}
-    moedas_com_posicao = [c for c, m in PORTFOLIO_MAGICS.items() if m in magics_abertos]
-    if not moedas_com_posicao:
+    pendentes = [c for c, m in PORTFOLIO_MAGICS.items() if m in magics_abertos]
+    if not pendentes:
         print("[ENCERRAMENTO 08:00 BRT] Nenhuma posição dos portfólios aberta.")
         return {"success": True, "total_closed": 0, "currencies_closed": {},
                 "failures": [], "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
 
-    for ccy in moedas_com_posicao:
-        # Isolamento por moeda: uma falha não pode impedir o fechamento das
-        # outras cestas — fechar é redutor de risco, sempre segue adiante.
+    total_closed = 0
+    # {ccy: {"closed_count": N, "currency": ccy}} — só o total acumulado por
+    # moeda, deliberadamente sem `target_count`/`results` de uma rodada
+    # específica (achado F11-4, Codex, rodada 11): guardar o `target_count`
+    # da ÚLTIMA rodada ao lado de um `closed_count` ACUMULADO de várias
+    # rodadas produzia um resumo internamente incoerente (ex.: closed_count=7
+    # ao lado de target_count=1, porque a última rodada só tinha 1 perna
+    # pendente). Cada rodada é isolada por natureza; só o total faz sentido
+    # agregado.
+    summary_by_ccy = {}
+    # Contagem por (moeda, erro, estágio) em vez de uma entrada por rodada —
+    # achado P2-1 (mfc-rev-2, rodada 11, medido em produção sintética): um
+    # broker que rejeita sistematicamente gerava uma entrada IDÊNTICA por
+    # rodada (2024 entradas medidas com deadline curto, ~16 MB projetado pro
+    # deadline máximo, despejadas inteiras num único print) — o operador
+    # precisa saber "quais erros apareceram antes de ceder", não uma cópia
+    # por rodada do mesmo erro. Bounded por natureza: no máximo (moedas ×
+    # tipos de erro distintos) chaves, nunca por número de rodadas.
+    transient_counts = {}
+    deadline = time.monotonic() + _CLOSE_WATCHDOG_DEADLINE_SEC
+    # None enquanto a última consulta de confirmação tentada deu certo (ou
+    # nenhuma rodou ainda); vira a mensagem de erro assim que uma falhar, e
+    # só volta a None quando uma consulta seguinte tiver sucesso. Existe pra
+    # um único motivo: com a checagem de deadline agora no TOPO do loop
+    # (ver abaixo), o loop pode sair sem NUNCA chegar a tentar uma nova
+    # confirmação na última iteração — sem isto, esse caso perderia a
+    # distinção entre "confirmamos que ainda tem posição aberta" e "não
+    # conseguimos nem confirmar", colapsando os dois no mesmo
+    # "still_open_after_deadline" e escondendo que o broker parou de
+    # responder, não que as posições resistiram.
+    ultimo_erro_confirmacao = None
+
+    while True:
+        # Checagem no TOPO do loop — achado F11-1 (Codex, rodada 11): a
+        # versão anterior só conferia o deadline DEPOIS de uma rodada
+        # inteira (fechamento de todas as pendentes + reconsulta), então
+        # podia iniciar mais uma rodada completa já fora do prazo depois de
+        # um sleep que consumisse o resto do orçamento. Checar aqui garante
+        # que nenhuma rodada NOVA começa após o deadline — o residual
+        # "deadline + duração da rodada já em andamento quando ele expira"
+        # continua existindo (não dá pra interromper um order_send em voo
+        # sem arriscar coisa pior), mas não se soma mais uma rodada inteira
+        # de propósito.
+        if time.monotonic() >= deadline:
+            break
+        for ccy in pendentes:
+            # Isolamento por moeda: uma falha não pode impedir o fechamento
+            # das outras cestas — fechar é redutor de risco, sempre segue
+            # adiante.
+            try:
+                res = close_portfolio_basket(ccy, deviation=deviation)
+            except Exception as e:
+                # Achado P3-2 (mfc-rev-2, rodada 13, medido pelos dois
+                # independentemente): str(e) completo pode conter
+                # ticket/retcode/timestamp — cada valor distinto vira uma
+                # chave nova, quebrando o bound "moedas × tipos de erro"
+                # que o dedup promete (medido: 8 chaves com mensagem
+                # estável, 2.376 chaves/213KB com mensagem variável). O
+                # ramo close_attempt já usa um código curto e fixo
+                # (res.get("error")); aqui, type(e).__name__ dá a mesma
+                # propriedade sem exigir que o binding MT5 real garanta
+                # mensagens estáveis.
+                key = (ccy, type(e).__name__, "exception")
+                transient_counts[key] = transient_counts.get(key, 0) + 1
+                print(f"[PORTFOLIO ROBOT {ccy}] Exceção ao fechar: {e}")
+                continue
+            closed_now = res.get("closed_count", 0)
+            if closed_now > 0:
+                total_closed += closed_now
+                prev = summary_by_ccy.get(ccy, {}).get("closed_count", 0)
+                summary_by_ccy[ccy] = {"currency": ccy, "closed_count": prev + closed_now}
+            elif not res.get("success", False) and res.get("error"):
+                key = (ccy, res.get("error"), "close_attempt")
+                transient_counts[key] = transient_counts.get(key, 0) + 1
+                summary_by_ccy.setdefault(ccy, {"currency": ccy, "closed_count": 0})
+
+        # Confirmação de verdade — não confia no closed_count reportado
+        # acima sozinho. get_open_magics_and_symbols() levanta MT5QueryError
+        # (nunca devolve "nada aberto" por engano) se a consulta falhar.
         try:
-            res = close_portfolio_basket(ccy, deviation=deviation)
-        except Exception as e:
-            failures.append({"currency": ccy, "error": str(e)})
-            print(f"[PORTFOLIO ROBOT {ccy}] Exceção ao fechar: {e}")
-            continue
-        if not res.get("success", False) and res.get("error"):
-            failures.append({"currency": ccy, "error": res.get("error"), "message": res.get("message")})
-        if res.get("closed_count", 0) > 0:
-            summary_by_ccy[ccy] = res
-            total_closed += res["closed_count"]
-            
+            ainda_abertos = get_open_magics_and_symbols()
+            ultimo_erro_confirmacao = None
+        except MT5QueryError as e:
+            ultimo_erro_confirmacao = str(e)
+            # Achado F13-2 (Codex, rodada 13): duas leituras de time.monotonic()
+            # pra decidir "ainda dá tempo?" e "quanto dormir?" tinham uma janela
+            # onde a 2ª leitura passava do deadline entre uma chamada e outra —
+            # time.sleep(negativo) levanta ValueError, que escapava desta função
+            # e virava "exceção no encerramento" sem relação com a causa real.
+            # Uma leitura só, comparada contra zero, fecha a janela.
+            tempo_restante = deadline - time.monotonic()
+            if tempo_restante > 0:
+                time.sleep(min(_CLOSE_WATCHDOG_POLL_INTERVAL_SEC, tempo_restante))
+                continue
+            break
+
+        # Recalcula do zero contra TODOS os magics — acha F10-2: uma cesta
+        # aberta por um caminho concorrente durante o fechamento também
+        # precisa entrar aqui, não só o que já estava em `pendentes`.
+        pendentes = [c for c, m in PORTFOLIO_MAGICS.items() if m in ainda_abertos]
+        if not pendentes:
+            break
+        tempo_restante = deadline - time.monotonic()
+        if tempo_restante <= 0:
+            break
+        time.sleep(min(_CLOSE_WATCHDOG_POLL_INTERVAL_SEC, tempo_restante))
+
+    transient_errors = [{"currency": c, "error": err, "stage": stage, "count": n}
+                        for (c, err, stage), n in transient_counts.items()]
+
+    # Saída única — acha F11-1 (Codex, rodada 11): mover a checagem de
+    # deadline pro topo do loop podia fazer o loop sair SEM nunca chegar a
+    # tentar confirmar de novo na última iteração, o que colapsava "não
+    # conseguimos confirmar" em "confirmamos que ainda tem posição aberta"
+    # se o retorno continuasse dividido entre um `return` no meio do loop e
+    # outro no final. `ultimo_erro_confirmacao` carrega esse estado através
+    # de qualquer jeito de sair do loop.
+    if ultimo_erro_confirmacao is not None:
+        msg = (f"Fechamento tentado, mas o resultado NÃO pôde ser confirmado "
+               f"(consulta ao broker falhou): {ultimo_erro_confirmacao}")
+        print(f"[ENCERRAMENTO 08:00 BRT] {msg}")
+        return {
+            "success": False,
+            "error": "position_query_failed",
+            "message": msg,
+            "total_closed": total_closed,
+            "currencies_closed": summary_by_ccy,
+            "failures": [{"currency": c, "error": "position_query_failed"} for c in pendentes],
+            "transient_errors": transient_errors,
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        }
+
+    # O que sobrar em `pendentes` aqui é o que uma consulta FRESCA ao broker
+    # ainda mostra aberto, depois do deadline — nunca "declarado" fechado
+    # sem essa confirmação.
+    failures = [
+        {"currency": c, "error": "still_open_after_deadline",
+         "message": f"{c} continua com posição aberta depois de "
+                    f"{_CLOSE_WATCHDOG_DEADLINE_SEC:.0f}s de tentativas de fechamento."}
+        for c in pendentes
+    ]
+
     print(f"\n[ENCERRAMENTO 08:00 BRT] Total de posições fechadas: {total_closed}")
     if failures:
         print(f"[ENCERRAMENTO 08:00 BRT] ATENÇÃO — falhas por moeda: {failures}")
+    if transient_errors:
+        print(f"[ENCERRAMENTO 08:00 BRT] Erros superados em rodadas anteriores (moeda/erro/vezes): {transient_errors}")
     return {
         "success": not failures,
         "total_closed": total_closed,
         "currencies_closed": summary_by_ccy,
         "failures": failures,
+        "transient_errors": transient_errors,
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     }
 

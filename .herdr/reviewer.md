@@ -44,7 +44,15 @@ Violação de qualquer item abaixo é achado P0 ou P1, mesmo que os testes passe
    documentado e seguro (150 pips, 0.01 lote, 8 cestas, 3 tentativas, 1.0s)
    — ausência usa o default e ABRE normalmente; só um valor EXPLICITAMENTE
    fornecido e inválido recusa. Isso não é fail-open: é a mesma regra
-   "usado ≠ escrito" aplicada só a quem escreveu algo.
+   "usado ≠ escrito" aplicada só a quem escreveu algo. Existe uma SEXTA
+   variável tunável, `CSS_CLOSE_WATCHDOG_DEADLINE_SEC` (orçamento de tempo
+   do watchdog de fechamento em `close_all_portfolios()`) —
+   DELIBERADAMENTE fora de `check_execution_config()`/das cinco acima: essa
+   variável só afeta FECHAMENTO, que nunca pode ser recusado por config
+   ruim (reduzir risco nunca é bloqueado), então um valor ausente ou
+   inválido aqui cai no default (90s) via `_env_number()`/`_clamp()`
+   comuns, sem passar pelo gate de abertura. Não é omissão nem achado
+   novo se um revisor encontrar essa variável fora da lista das cinco.
 
 3. **Kill switch é assimétrico.** `data/CSS_KILL.flag` bloqueia abrir cesta
    nova. Nunca bloqueia fechamento — reduzir risco sempre prossegue. Qualquer

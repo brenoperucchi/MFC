@@ -2404,11 +2404,14 @@ class TestCloseFailsClosed(unittest.TestCase):
         fake_mt5 = self._mt5_with_open_basket(order_ok=False)
         with patch.dict(os.environ, DEMO_GATE_ENV), \
              patch.object(pe, "MT5_AVAILABLE", True), patch.object(pe, "mt5", fake_mt5), \
-             patch.object(pe, "ensure_mt5", lambda: True):
+             patch.object(pe, "ensure_mt5", lambda: True), \
+             patch.object(pe, "_CLOSE_WATCHDOG_DEADLINE_SEC", 0.05), \
+             patch.object(pe, "_CLOSE_WATCHDOG_POLL_INTERVAL_SEC", 0.0):
             res = pe.close_all_portfolios()
         self.assertFalse(res["success"])
         self.assertTrue(res["failures"], "failures não pode ficar vazio com pernas vivas")
-        print("[✓] close_all_portfolios propaga a falha em vez de reportar sucesso")
+        print("[✓] close_all_portfolios propaga a falha em vez de reportar sucesso, "
+              "mesmo depois do watchdog retentar")
 
     def test_close_refuses_wrong_account(self):
         """Esta máquina roda 5 terminais MT5 em contas diferentes: fechar na
@@ -2425,6 +2428,369 @@ class TestCloseFailsClosed(unittest.TestCase):
         self.assertEqual(res["error"], "wrong_account")
         fake_mt5.order_send.assert_not_called()
         print("[✓] Fechamento recusa conta diferente da esperada (5 terminais na máquina)")
+
+    def test_close_all_watchdog_retries_and_confirms_via_fresh_query(self):
+        """A REGRESSÃO CENTRAL do watchdog de fechamento (plano de
+        reconciliação 27/08, herdr-ask, mfc-rev + mfc-rev-2): a versão
+        anterior de close_all_portfolios() chamava close_portfolio_basket()
+        UMA VEZ por moeda e confiava no resultado — uma perna que falhasse
+        na primeira tentativa ficava permanentemente em `failures`, mesmo
+        que uma segunda tentativa a fechasse de verdade. Simula: 6 das 7
+        pernas fecham na primeira tentativa; a 7ª rejeita na primeira
+        (inclusive no fallback interno de close_portfolio_basket) mas fecha
+        na segunda tentativa do watchdog. A posição list é MUTÁVEL — reflete
+        o estado real do broker conforme cada order_send bem-sucedido
+        remove a posição, como a MT5 real faria."""
+        fake_mt5 = make_fake_mt5()
+        fake_mt5.account_info.return_value = SimpleNamespace(
+            login=999, server="Broker-Demo", trade_mode="DEMO",
+            trade_allowed=True, margin_mode="HEDGING")
+        magic = pe.PORTFOLIO_MAGICS["CAD"]
+        TICKET_TEIMOSA = 1006
+        positions = [
+            SimpleNamespace(magic=magic, symbol=f"CAD{i}m", ticket=1000 + i,
+                            volume=0.01, type=0, profit=0.0)
+            for i in range(7)
+        ]
+
+        def fake_positions_get(*args, **kwargs):
+            return list(positions)
+
+        fake_mt5.positions_get.side_effect = fake_positions_get
+        fake_mt5.symbol_info_tick.return_value = SimpleNamespace(ask=1.1, bid=1.0998)
+
+        calls_teimosa = {"n": 0}
+
+        def fake_order_send(request):
+            ticket = request["position"]
+            if ticket == TICKET_TEIMOSA:
+                calls_teimosa["n"] += 1
+                # Rejeita nas duas primeiras chamadas (IOC + fallback RETURN
+                # dentro da PRIMEIRA close_portfolio_basket); só fecha na
+                # terceira (primeira order_send da SEGUNDA tentativa, já
+                # dentro do watchdog).
+                if calls_teimosa["n"] <= 2:
+                    return SimpleNamespace(retcode=10004, order=None, price=None,
+                                           comment="Requote")
+                positions[:] = [p for p in positions if p.ticket != ticket]
+                return SimpleNamespace(retcode=fake_mt5.TRADE_RETCODE_DONE, order=99,
+                                       price=1.1, comment="ok")
+            positions[:] = [p for p in positions if p.ticket != ticket]
+            return SimpleNamespace(retcode=fake_mt5.TRADE_RETCODE_DONE, order=1,
+                                   price=1.1, comment="ok")
+
+        fake_mt5.order_send.side_effect = fake_order_send
+
+        with patch.dict(os.environ, DEMO_GATE_ENV), \
+             patch.object(pe, "MT5_AVAILABLE", True), patch.object(pe, "mt5", fake_mt5), \
+             patch.object(pe, "ensure_mt5", lambda: True), \
+             patch.object(pe, "_CLOSE_WATCHDOG_POLL_INTERVAL_SEC", 0.0):
+            res = pe.close_all_portfolios()
+
+        self.assertTrue(res["success"],
+                        "watchdog tem que retentar e confirmar via nova consulta, "
+                        "não desistir na primeira tentativa parcial")
+        self.assertEqual(res["total_closed"], 7)
+        self.assertEqual(res["failures"], [])
+        self.assertEqual(positions, [], "todas as 7 pernas precisam ter sumido de verdade")
+        # Achado P3-1 (mfc-rev-2, herdr-review rodada 10/11): antes,
+        # summary_by_ccy sobrescrevia o resultado por moeda a cada rodada —
+        # este cenário (6 na 1ª rodada, 1 na 2ª) escondia o "6" atrás de só
+        # "1". Agora closed_count ACUMULA entre rodadas.
+        self.assertEqual(res["currencies_closed"]["CAD"]["closed_count"], 7,
+                         "closed_count por moeda tem que acumular as duas rodadas (6+1), "
+                         "não mostrar só o resultado da última")
+        print("[✓] close_all_portfolios() retenta e confirma via consulta fresca ao "
+              "broker — uma perna que falha na 1ª tentativa mas fecha na 2ª não fica "
+              "permanentemente em failures, e closed_count por moeda acumula certo")
+
+    def test_close_all_picks_up_currency_that_opens_during_close(self):
+        """Achado F10-2 (Codex, herdr-review rodada 10, confiança média):
+        antes, `pendentes` só era filtrado por interseção com a lista
+        INICIAL de moedas abertas — uma cesta aberta por um caminho
+        concorrente (ex.: endpoint HTTP manual) enquanto o fechamento das
+        08:00 está em andamento nunca entrava no watchdog, mesmo que a
+        consulta de confirmação já mostrasse ela aberta. Agora `pendentes`
+        é recalculado do ZERO contra todos os 8 magics a cada rodada.
+        Simula: só CAD está aberta no início; USD "abre" (aparece na lista
+        mutável de posições) bem quando a última perna de CAD fecha."""
+        fake_mt5 = make_fake_mt5()
+        fake_mt5.account_info.return_value = SimpleNamespace(
+            login=999, server="Broker-Demo", trade_mode="DEMO",
+            trade_allowed=True, margin_mode="HEDGING")
+        cad_magic = pe.PORTFOLIO_MAGICS["CAD"]
+        usd_magic = pe.PORTFOLIO_MAGICS["USD"]
+        positions = [
+            SimpleNamespace(magic=cad_magic, symbol=f"CAD{i}m", ticket=1000 + i,
+                            volume=0.01, type=0, profit=0.0)
+            for i in range(7)
+        ]
+
+        def fake_positions_get(*args, **kwargs):
+            return list(positions)
+
+        fake_mt5.positions_get.side_effect = fake_positions_get
+        fake_mt5.symbol_info_tick.return_value = SimpleNamespace(ask=1.1, bid=1.0998)
+
+        def fake_order_send(request):
+            ticket = request["position"]
+            positions[:] = [p for p in positions if p.ticket != ticket]
+            if ticket == 1006:
+                # Última perna do CAD fechando: uma cesta USD "abre"
+                # (caminho concorrente) bem neste instante.
+                positions.extend([
+                    SimpleNamespace(magic=usd_magic, symbol=f"USD{i}m", ticket=2000 + i,
+                                    volume=0.01, type=0, profit=0.0)
+                    for i in range(7)
+                ])
+            return SimpleNamespace(retcode=fake_mt5.TRADE_RETCODE_DONE, order=1,
+                                   price=1.1, comment="ok")
+
+        fake_mt5.order_send.side_effect = fake_order_send
+
+        with patch.dict(os.environ, DEMO_GATE_ENV), \
+             patch.object(pe, "MT5_AVAILABLE", True), patch.object(pe, "mt5", fake_mt5), \
+             patch.object(pe, "ensure_mt5", lambda: True), \
+             patch.object(pe, "_CLOSE_WATCHDOG_POLL_INTERVAL_SEC", 0.0):
+            res = pe.close_all_portfolios()
+
+        self.assertTrue(res["success"],
+                        "watchdog precisa fechar a cesta concorrente também, não só "
+                        "as que já estavam na lista inicial")
+        self.assertIn("USD", res["currencies_closed"])
+        self.assertEqual(res["currencies_closed"]["USD"]["closed_count"], 7)
+        self.assertEqual(positions, [], "as duas cestas (CAD e a USD concorrente) "
+                                        "precisam ter fechado de verdade")
+        print("[✓] close_all_portfolios() recalcula pendentes contra TODOS os magics a "
+              "cada rodada — uma cesta que abre durante o fechamento também é pega")
+
+    def test_transient_errors_bounded_despite_variable_exception_messages(self):
+        """Achado P3-1 (mfc-rev-2, rodada 14): a correção do P3-2 (dedup do
+        transient_errors por type(e).__name__ em vez de str(e) completo)
+        funcionava mas não tinha teste de regressão próprio — revertendo
+        pra str(e), a suíte inteira continuava verde (medido: 2.376 chaves
+        com mensagem variável contra 8 com mensagem estável). Simula um
+        broker cuja exceção muda de mensagem a cada tentativa (ex.:
+        incluindo um ticket ou timestamp) — o bound tem que vir da
+        CATEGORIA do erro, não do texto."""
+        fake_mt5 = self._mt5_with_open_basket(order_ok=False)
+        calls = {"n": 0}
+
+        def fake_close(*args, **kwargs):
+            calls["n"] += 1
+            raise RuntimeError(f"IPC timeout, ticket variável #{calls['n']}")
+
+        with patch.dict(os.environ, DEMO_GATE_ENV), \
+             patch.object(pe, "MT5_AVAILABLE", True), patch.object(pe, "mt5", fake_mt5), \
+             patch.object(pe, "ensure_mt5", lambda: True), \
+             patch.object(pe, "_CLOSE_WATCHDOG_DEADLINE_SEC", 0.05), \
+             patch.object(pe, "_CLOSE_WATCHDOG_POLL_INTERVAL_SEC", 0.0), \
+             patch.object(pe, "close_portfolio_basket", side_effect=fake_close):
+            res = pe.close_all_portfolios()
+
+        self.assertGreater(calls["n"], 1,
+                           "precisa ter retentado mais de uma vez pro cenário fazer sentido")
+        self.assertLessEqual(len(res["transient_errors"]), len(pe.PORTFOLIO_MAGICS),
+                             "o bound tem que vir da categoria do erro (moeda × tipo), "
+                             "não da quantidade de rodadas — cada rodada gerou uma "
+                             "mensagem de exceção DIFERENTE (ticket variável)")
+        print("[✓] transient_errors continua bounded mesmo com mensagem de exceção "
+              "variável a cada rodada — dedup por type(e).__name__, não por texto")
+
+    def test_close_all_never_declares_success_when_confirm_query_fails(self):
+        """Fail-closed no watchdog: se close_portfolio_basket() REPORTA
+        sucesso (order_send voltou DONE pras 7 pernas) mas a consulta de
+        CONFIRMAÇÃO (get_open_magics_and_symbols, chamada pelo watchdog
+        DEPOIS do fechamento individual) falha, o watchdog não pode declarar
+        'flat'. Achado em revisão (Codex, herdr-review rodada 10, F10-4): a
+        primeira versão deste teste fazia TODA consulta depois da primeira
+        falhar, incluindo a de DENTRO de close_portfolio_basket — então o
+        que era exercitado era o fail-closed já conhecido de
+        close_portfolio_basket (que nem chega a mandar ordem), não a
+        fronteira nova entre fechamento bem-sucedido e confirmação que
+        falha. Corrigido: positions_get() sempre funciona (fechamento
+        individual conclui com sucesso de verdade), só
+        get_open_magics_and_symbols() é forçada a falhar via patch direto."""
+        fake_mt5 = make_fake_mt5()
+        fake_mt5.account_info.return_value = SimpleNamespace(
+            login=999, server="Broker-Demo", trade_mode="DEMO",
+            trade_allowed=True, margin_mode="HEDGING")
+        magic = pe.PORTFOLIO_MAGICS["CAD"]
+        positions = [
+            SimpleNamespace(magic=magic, symbol=f"CAD{i}m", ticket=1000 + i,
+                            volume=0.01, type=0, profit=0.0)
+            for i in range(7)
+        ]
+
+        def fake_positions_get(*args, **kwargs):
+            return list(positions)
+
+        def fake_order_send(request):
+            positions[:] = [p for p in positions if p.ticket != request["position"]]
+            return SimpleNamespace(retcode=fake_mt5.TRADE_RETCODE_DONE, order=1,
+                                   price=1.1, comment="ok")
+
+        fake_mt5.positions_get.side_effect = fake_positions_get
+        fake_mt5.symbol_info_tick.return_value = SimpleNamespace(ask=1.1, bid=1.0998)
+        fake_mt5.order_send.side_effect = fake_order_send
+
+        with patch.dict(os.environ, DEMO_GATE_ENV), \
+             patch.object(pe, "MT5_AVAILABLE", True), patch.object(pe, "mt5", fake_mt5), \
+             patch.object(pe, "ensure_mt5", lambda: True), \
+             patch.object(pe, "_CLOSE_WATCHDOG_POLL_INTERVAL_SEC", 0.0), \
+             patch.object(pe, "_CLOSE_WATCHDOG_DEADLINE_SEC", 0.05), \
+             patch.object(pe, "get_open_magics_and_symbols",
+                          side_effect=pe.MT5QueryError("IPC timeout simulado")):
+            res = pe.close_all_portfolios()
+
+        self.assertFalse(res["success"],
+                         "consulta de confirmação falhando não pode virar sucesso, "
+                         "mesmo com as 7 pernas realmente fechadas (order_send DONE)")
+        self.assertEqual(res["error"], "position_query_failed")
+        self.assertEqual(positions, [],
+                         "as pernas realmente fecharam no broker simulado — o achado "
+                         "é que o watchdog não CONSEGUE confirmar isso, não que o "
+                         "fechamento em si falhou")
+        print("[✓] close_all_portfolios() nunca declara sucesso quando a consulta de "
+              "confirmação falha, mesmo com order_send individual voltando DONE — "
+              "testado na fronteira certa (Codex, F10-4)")
+
+    def test_close_all_never_sleeps_negative_when_confirm_check_straddles_deadline(self):
+        """Achado F13-2 (Codex, rodada 13): no caminho de MT5QueryError, a
+        versão anterior fazia DUAS leituras separadas de time.monotonic()
+        pra decidir 'ainda dá tempo?' e, se sim, 'quanto dormir?'. Se o
+        relógio passasse do deadline exatamente entre as duas leituras,
+        `time.sleep(negativo)` levantava ValueError, que escapava desta
+        função e virava 'exceção no encerramento' sem relação com a causa
+        real. Script de time.monotonic() que expõe exatamente essa janela:
+        a 1ª leitura no ramo (que a versão antiga usaria pra "ainda dá
+        tempo?") vem ANTES do deadline; a leitura seguinte (que a versão
+        antiga usaria pra "quanto dormir?", e a corrigida NUNCA faz, porque
+        reusa a mesma leitura) vem DEPOIS. Com a correção (uma leitura só),
+        o teste passa normalmente; com duas leituras separadas,
+        `time.sleep()` recebe um valor negativo e a exceção propaga —
+        o próprio teste falha com erro não tratado, sem precisar de
+        asserção especial pra isso."""
+        fake_mt5 = make_fake_mt5()
+        fake_mt5.account_info.return_value = SimpleNamespace(
+            login=999, server="Broker-Demo", trade_mode="DEMO",
+            trade_allowed=True, margin_mode="HEDGING")
+        magic = pe.PORTFOLIO_MAGICS["CAD"]
+        fake_mt5.positions_get.return_value = [
+            SimpleNamespace(magic=magic, symbol=f"CAD{i}m", ticket=1000 + i,
+                            volume=0.01, type=0, profit=0.0)
+            for i in range(7)
+        ]
+        # deadline = 0+10 = 10. Sequência: setup(0.0), topo do loop(0.0, <
+        # deadline), então get_open_magics_and_symbols levanta
+        # MT5QueryError (patchado abaixo) — 9.9 (ainda antes do deadline) e
+        # 20.0 (bem depois) são as duas leituras que a versão ANTIGA faria
+        # separadamente ali; a versão corrigida só consome uma das duas.
+        monotonic_values = iter([0.0, 0.0, 9.9, 20.0])
+
+        def fake_monotonic():
+            return next(monotonic_values, 999.0)
+
+        with patch.dict(os.environ, DEMO_GATE_ENV), \
+             patch.object(pe, "MT5_AVAILABLE", True), patch.object(pe, "mt5", fake_mt5), \
+             patch.object(pe, "ensure_mt5", lambda: True), \
+             patch.object(pe, "_CLOSE_WATCHDOG_DEADLINE_SEC", 10.0), \
+             patch.object(pe, "get_open_magics_and_symbols",
+                          side_effect=pe.MT5QueryError("timeout simulado")), \
+             patch.object(pe.time, "monotonic", side_effect=fake_monotonic):
+            res = pe.close_all_portfolios()  # não pode levantar ValueError
+
+        self.assertFalse(res["success"])
+        self.assertEqual(res["error"], "position_query_failed")
+        print("[✓] Nenhuma exceção (time.sleep negativo) quando o relógio cai "
+              "exatamente no deadline na leitura que decide se ainda dá tempo")
+
+    def test_close_all_respects_deadline_not_attempt_count(self):
+        """Achado em revisão (mfc-rev + mfc-rev-2, herdr-review rodada 10,
+        P2-1/F10-3, CONFIRMADO pelos dois independentemente): a primeira
+        versão do watchdog reusava CSS_AMBIGUOUS_CONFIRM_ATTEMPTS/_DELAY_SEC
+        (pensados pra confirmar ORDEM AMBÍGUA na abertura, sem prazo
+        externo) — a combinação MÁXIMA válida das duas (10 tentativas × 10s)
+        projetava até ~426s de espera, estourando a janela real de 240s do
+        scheduler (08:00-08:04). Agora o teto é um DEADLINE PRÓPRIO
+        (_CLOSE_WATCHDOG_DEADLINE_SEC), medido em tempo decorrido — imune a
+        qualquer valor de CSS_AMBIGUOUS_CONFIRM_*. Simula uma perna que
+        NUNCA fecha (broker sempre rejeita) com CSS_AMBIGUOUS_CONFIRM_ATTEMPTS
+        no valor MÁXIMO válido (10) — o watchdog tem que desistir pelo
+        deadline, não rodar 10 vezes."""
+        fake_mt5 = self._mt5_with_open_basket(order_ok=False)
+        rounds = {"n": 0}
+        real_close = pe.close_portfolio_basket
+
+        def counting_close(*args, **kwargs):
+            rounds["n"] += 1
+            return real_close(*args, **kwargs)
+
+        with patch.dict(os.environ, DEMO_GATE_ENV), \
+             patch.object(pe, "MT5_AVAILABLE", True), patch.object(pe, "mt5", fake_mt5), \
+             patch.object(pe, "ensure_mt5", lambda: True), \
+             patch.object(pe, "_AMBIGUOUS_CONFIRM_ATTEMPTS", 10), \
+             patch.object(pe, "_CLOSE_WATCHDOG_DEADLINE_SEC", 0.05), \
+             patch.object(pe, "_CLOSE_WATCHDOG_POLL_INTERVAL_SEC", 0.02), \
+             patch.object(pe, "close_portfolio_basket", side_effect=counting_close):
+            res = pe.close_all_portfolios()
+
+        self.assertFalse(res["success"])
+        self.assertLess(rounds["n"], 10,
+                        "com CSS_AMBIGUOUS_CONFIRM_ATTEMPTS=10 (valor válido máximo do "
+                        "lado da abertura), o watchdog de fechamento não pode rodar 10 "
+                        "vezes — o teto tem que vir do deadline de tempo, não da "
+                        "contagem de tentativas de outra variável")
+        # Achado F13-5 (Codex, herdr-review rodada 13, confiança alta,
+        # reproduzido de forma independente por mfc-rev-2 como P3-1): a
+        # asserção acima sozinha (`rounds < 10`) é falso-verde contra a
+        # BASELINE anterior a qualquer watchdog (commit ca035e28, uma única
+        # tentativa por moeda, sem retry nenhum) — rounds["n"] == 1 também
+        # satisfaz "< 10". Exigir MAIS de uma rodada prova que o retry de
+        # verdade aconteceu, não só que ele não explodiu.
+        self.assertGreater(rounds["n"], 1,
+                           "o watchdog precisa ter retentado de verdade (mais de uma "
+                           "rodada) — rounds==1 também passaria em '< 10', mas seria "
+                           "a versão SEM watchdog nenhum (baseline ca035e28)")
+        print("[✓] Watchdog de fechamento retenta de verdade e respeita o deadline de "
+              "tempo, não a contagem de CSS_AMBIGUOUS_CONFIRM_ATTEMPTS (que é de outra "
+              "fronteira) nem roda uma única vez feito a baseline sem watchdog")
+
+    def test_close_all_top_of_loop_deadline_check_prevents_one_extra_round(self):
+        """Achado F11-1 (Codex, rodada 11) + P3-1/F13-5 (mfc-rev-2 + Codex,
+        rodadas 12/13, CONFIRMADO pelos dois independentemente): a checagem
+        de deadline só rodava DEPOIS de uma rodada inteira (fechamento +
+        confirmação), então podia iniciar mais uma rodada completa já fora
+        do prazo, logo depois de um sleep que consumisse o resto do
+        orçamento. A correção (checar no TOPO do while, antes de fechar
+        qualquer coisa) só é observável quando deadline ≈ poll interval —
+        nesse regime, o sleep no fim de uma rodada consome quase todo o
+        orçamento restante, e uma rodada extra só acontece se a checagem no
+        topo estiver ausente."""
+        fake_mt5 = self._mt5_with_open_basket(order_ok=False)
+        rounds = {"n": 0}
+        real_close = pe.close_portfolio_basket
+
+        def counting_close(*args, **kwargs):
+            rounds["n"] += 1
+            return real_close(*args, **kwargs)
+
+        with patch.dict(os.environ, DEMO_GATE_ENV), \
+             patch.object(pe, "MT5_AVAILABLE", True), patch.object(pe, "mt5", fake_mt5), \
+             patch.object(pe, "ensure_mt5", lambda: True), \
+             patch.object(pe, "_CLOSE_WATCHDOG_DEADLINE_SEC", 0.08), \
+             patch.object(pe, "_CLOSE_WATCHDOG_POLL_INTERVAL_SEC", 0.08), \
+             patch.object(pe, "close_portfolio_basket", side_effect=counting_close):
+            res = pe.close_all_portfolios()
+
+        self.assertFalse(res["success"])
+        self.assertEqual(rounds["n"], 1,
+                         "com deadline == poll interval, o sleep no fim da 1ª rodada já "
+                         "consome o orçamento inteiro — a checagem no TOPO do loop tem "
+                         "que impedir a 2ª rodada; sem ela, a checagem só rodaria no "
+                         "FIM da 2ª rodada, e ela aconteceria mesmo assim")
+        print("[✓] Checagem de deadline no topo do loop impede rodada extra após o "
+              "sleep consumir o orçamento restante")
 
 
 class TestProvenanceStamping(unittest.TestCase):
