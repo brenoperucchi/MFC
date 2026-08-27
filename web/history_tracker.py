@@ -33,7 +33,7 @@ HISTORY_FILE = os.path.join(DATA_DIR, "simulated_trades_history.json")
 # "hora do servidor == 3" assumindo servidor = UTC+3 (offset implícito +6 na
 # rotulagem de data) — nesta conta isso aponta pra meia-noite BRT, não 21h.
 # Reconfira se a corretora/conta mudar.
-def _env_int_safe(name, default):
+def _env_int_safe(name, default, lo=None, hi=None):
     """Mesmo padrão de agents/portfolio_executor.py::_env_number() — nunca
     derruba o IMPORT deste módulo se vier lixo. Achado em revisão (mfc-rev-2,
     herdr-review rodada 7, P2-1): GMT_OFFSET usava `int()` cru, sem
@@ -43,18 +43,33 @@ def _env_int_safe(name, default):
     que `_env_number()` foi criado pra evitar, sobrevivendo numa variável
     fora do escopo original do F-06 por este módulo não reusar aquela
     função (evitar import circular: agents/portfolio_executor.py importa
-    deste módulo, não o contrário)."""
+    deste módulo, não o contrário).
+
+    `lo`/`hi` opcionais SÓ avisam, não recusam (achado em revisão: mfc-rev-2
+    + Codex, herdr-review rodadas 8/9, P3-2/F09-02: um valor que CASTA mas é
+    absurdo, ex. GMT_OFFSET="99", passava sem aviso nenhum e deslocava
+    ENTRY_SERVER_HOUR em silêncio). Não é um gate fail-closed como
+    check_execution_config() em agents/portfolio_executor.py — GMT_OFFSET só
+    afeta rotulagem de sessão em track record/backtest, nunca envio de
+    ordem, então recusar computar aqui seria mais rígido do que o risco
+    justifica; um aviso visível já fecha o "silêncio" que era o achado."""
     raw = os.environ.get(name)
     if raw is None or raw.strip() == "":
         return default
     try:
-        return int(raw.strip())
+        valor = int(raw.strip())
     except (TypeError, ValueError):
         print(f"[!] {name}={raw!r} inválido — usando o padrão {default}.")
         return default
+    if lo is not None and hi is not None and not (lo <= valor <= hi):
+        print(f"[!] {name}={valor} fora da faixa esperada [{lo}, {hi}] — "
+              f"usando mesmo assim, mas confira se é intencional.")
+    return valor
 
 
-GMT_OFFSET = _env_int_safe("CSS_MT5_GMT_OFFSET", -3)
+# Faixa real de fuso horário (UTC-12 a UTC+14) — só aviso, não recusa (ver
+# docstring de _env_int_safe acima).
+GMT_OFFSET = _env_int_safe("CSS_MT5_GMT_OFFSET", -3, lo=-12, hi=14)
 ENTRY_SERVER_HOUR = (21 - GMT_OFFSET) % 24
 
 

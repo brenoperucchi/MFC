@@ -17,6 +17,8 @@ do terminal rodando.
 import os
 import sys
 import subprocess
+import io
+from contextlib import redirect_stdout
 import json
 import tempfile
 import threading
@@ -671,6 +673,35 @@ class TestGmtOffsetEnvSafety(unittest.TestCase):
             valor = ht._env_int_safe("CSS_MT5_GMT_OFFSET_TESTE", -3)
         self.assertEqual(valor, 0)
         print("[✓] _env_int_safe() aceita um inteiro válido normalmente")
+
+    def test_env_int_safe_warns_but_accepts_value_outside_range(self):
+        """Achado em revisão (mfc-rev-2 + Codex, herdr-review rodadas 8/9,
+        P3-2/F09-02): um valor que CASTA mas é absurdo pra fuso horário real
+        (ex.: 99) passava sem nenhum aviso, deslocando ENTRY_SERVER_HOUR em
+        silêncio. Não é caminho de execução ao vivo — avisa, não recusa."""
+        buf = io.StringIO()
+        with patch.dict(os.environ, {"CSS_MT5_GMT_OFFSET_TESTE": "99"}), \
+             redirect_stdout(buf):
+            valor = ht._env_int_safe("CSS_MT5_GMT_OFFSET_TESTE", -3, lo=-12, hi=14)
+        self.assertEqual(valor, 99, "fora do caminho de execução, o valor é usado mesmo assim")
+        self.assertIn("fora da faixa esperada", buf.getvalue())
+        print("[✓] _env_int_safe() avisa quando o valor castado está fora da faixa "
+              "esperada, mas continua usando (não é um gate fail-closed)")
+
+    def test_gmt_offset_module_constant_uses_the_real_timezone_range(self):
+        """A ligação real (`GMT_OFFSET = _env_int_safe(...)`) precisa passar
+        lo=-12, hi=14 — senão a checagem de faixa acima nunca dispara na
+        prática. Mesmo padrão de subprocesso do teste de crash-no-import
+        acima, pra não repetir o erro de só testar a função isolada."""
+        env = dict(os.environ)
+        env["CSS_MT5_GMT_OFFSET"] = "99"
+        result = subprocess.run(
+            [sys.executable, "-c", "import web.history_tracker as ht; print(ht.GMT_OFFSET)"],
+            cwd=pe.BASE_DIR, env=env, capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("fora da faixa esperada", result.stdout)
+        self.assertIn("99", result.stdout)
+        print("[✓] A ligação real de GMT_OFFSET usa a faixa de fuso horário, não só a função")
 
     def test_env_int_safe_falls_back_when_absent(self):
         with patch.dict(os.environ, {}, clear=False):
