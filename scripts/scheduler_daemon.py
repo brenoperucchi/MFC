@@ -39,6 +39,14 @@ DATA_DIR = os.path.join(BASE_DIR, "data")
 # Estado atual (some quando resolve) e histórico da reconciliação.
 RECONCILE_ALERT = os.path.join(DATA_DIR, "RECONCILE_ALERT.json")
 RECONCILE_LOG = os.path.join(DATA_DIR, "reconcile_alerts.log")
+# Histórico de cestas PARCIAIS às 21:05 (achado mfc-rev-2, herdr-ask consulta
+# 3, decisão do Breno 27/08): antes disso, uma cesta parcial (margem, requote,
+# símbolo desabilitado, queda de conexão — qualquer causa) só virava um print()
+# que ninguém lê, e a reconciliação das 08:10 não pega o caso porque a cesta
+# parcial fecha limpa por magic, sem posição órfã pra detectar. Sem estado
+# resolvido/não-resolvido (diferente de RECONCILE_ALERT): é notificação de um
+# evento pontual da noite, não uma condição que precisa ser "limpa" depois.
+PARTIAL_BASKET_LOG = os.path.join(DATA_DIR, "partial_basket_alerts.log")
 import json
 
 
@@ -115,10 +123,13 @@ def execute_phase_2105():
     decide e abre, o EA vira guardião do fechamento — ver
     whatsapp-tools/PLANO_IMPLEMENTACAO_MFC.md, Seção 1). Todas as travas de
     segurança (kill switch, validade da configuração de execução, conta
-    demo, idempotência, tetos de exposição, colisão de símbolo em conta
-    netting, stop-loss catastrófico — ordem completa em CLAUDE.md, seção
+    demo, margem livre — piso fixo e agregada das 7 pernas —, idempotência,
+    tetos de exposição, colisão de símbolo em conta netting, preflight
+    tudo-ou-nada, stop-loss catastrófico — ordem completa em CLAUDE.md, seção
     "Live MT5 execution") vivem dentro de open_portfolio_basket() e são
-    checadas por cesta, individualmente."""
+    checadas por cesta, individualmente. Uma cesta que abrir só parte das 7
+    pernas (por qualquer causa, inclusive exceção isolada numa perna) dispara
+    um alerta externo aqui mesmo (arquivo + Telegram) — ver PARTIAL_BASKET_LOG."""
     print("\n" + "="*70)
     print(f"  [ROUTINE 21:05 BRT] ABERTURA DAS CESTAS DE PORTFÓLIO (PYTHON)")
     print("="*70)
@@ -173,7 +184,7 @@ def execute_phase_2105():
             opened_count = res.get("opened_count", 0)
             total_pairs = res.get("total_pairs", 0)
             if opened_count < total_pairs:
-                partial.append((ccy, opened_count, total_pairs))
+                partial.append((ccy, opened_count, total_pairs, res.get("uncertain_count", 0)))
                 print(f"[!] {ccy}: cesta PARCIAL ({opened_count}/{total_pairs} pares) — "
                       f"exposição direcional não diversificada. REVISAR MANUALMENTE.")
             else:
@@ -203,6 +214,20 @@ def execute_phase_2105():
                 lots = list(leg_lots_by_pair.values())
                 avg_lot = round((sum(lots) / len(lots)) if lots else 0.01, 4)
                 pending_cost.append((ccy, direction, avg_lot, leg_lots_by_pair))
+        elif res.get("uncertain_count", 0) > 0:
+            # Achado em revisão (Codex, herdr-review rodada 18, MFC18-01):
+            # success=False (nenhuma perna CONFIRMADA aberta) não é o mesmo
+            # que "nada aconteceu" — se alguma perna ficou UNCERTAIN (ordem
+            # enviada ou resposta ambígua, sem confirmação nem num sentido
+            # nem no outro), pode haver exposição real que o ramo `refused`
+            # esconderia. Tratada como PARCIAL (mesmo alerta externo), não
+            # recusada silenciosa.
+            opened_count = res.get("opened_count", 0)
+            total_pairs = res.get("total_pairs", 0)
+            partial.append((ccy, opened_count, total_pairs, res["uncertain_count"]))
+            print(f"[!] {ccy}: cesta com {res['uncertain_count']} perna(s) em estado "
+                  f"INCERTO (não confirmadas, podem estar abertas) — tratada como "
+                  f"PARCIAL ({opened_count}/{total_pairs} confirmadas). REVISAR MANUALMENTE.")
         else:
             refused.append((ccy, res.get("error"), res.get("message")))
             print(f"[!] {ccy}: abertura recusada — {res.get('error')}: {res.get('message')}")
@@ -242,9 +267,73 @@ def execute_phase_2105():
     # trocando o problema que este desenho comprou o direito de não ter por
     # um atraso na abertura. Probabilidade muito baixa — exige travamento E
     # recuperação dentro da janela certa —, por isso aceito sem fechar.
+    #
+    # Disparada ANTES do alerta de cesta parcial logo abaixo (achado em
+    # revisão, Codex, herdr-review rodada 17, P3): o alerta chama
+    # send_telegram_message() de forma síncrona, que pode levar até ~50s no
+    # pior caso (duas tentativas de rede) — começar a medição de custo
+    # primeiro garante que ela nunca espera por isso, em vez de só prometer
+    # em comentário.
     if pending_cost:
-        threading.Thread(target=_measure_pending_costs, args=(pending_cost,),
-                         name="cost_batch", daemon=True).start()
+        # Achado em revisão (Codex, herdr-review rodada 18, MFC18-04): sem
+        # try/except aqui, uma falha ao CRIAR a thread (exaustão de recursos
+        # do runtime, por exemplo — rara, mas o próprio desenho já aceita
+        # threads de medição penduradas por tempo indefinido) saía da função
+        # antes de chegar no bloco de alerta logo abaixo, pulando justamente
+        # a notificação que essa correção existe pra garantir. Medir custo
+        # é melhor-esforço; o alerta de cesta parcial não pode depender
+        # disso.
+        try:
+            threading.Thread(target=_measure_pending_costs, args=(pending_cost,),
+                             name="cost_batch", daemon=True).start()
+        except RuntimeError as e:
+            print(f"[-] Falha ao iniciar a thread de medição de custo: {e}")
+
+    # Alerta externo de cesta PARCIAL (achado mfc-rev-2, herdr-ask consulta 3,
+    # decisão do Breno 27/08) — melhor esforço, nunca pode derrubar o daemon.
+    # Um por NOITE, não um por moeda: se várias cestas ficarem parciais na
+    # mesma execução, é uma mensagem só, como o [RESUMO 21:05] acima já
+    # agrega.
+    if partial:
+        # Achado em revisão (mfc-rev-2, herdr-review rodada 19, P2-1): o texto
+        # genérico "perna(s) faltando" está certo quando a causa é rejeição
+        # confirmada (margem, símbolo, requote com resposta clara), mas é o
+        # DIAGNÓSTICO OPOSTO quando a causa é INCERTEZA (achado MFC18-01) — aí
+        # a leitura certa não é "faltou perna", é "não sabemos se as 7 saíram
+        # ou não, podem estar todas abertas". As duas leituras pedem ações
+        # diferentes, e a errada ("faltou, abro na mão") é o próprio risco de
+        # dobrar perna que este arquivo existe pra evitar. `detalhe` agora
+        # mostra a contagem incerta quando ela existir, por moeda.
+        detalhe = {
+            ccy: (f"{n}/{total} confirmadas, {unc} INCERTA(S)" if unc else f"{n}/{total}")
+            for ccy, n, total, unc in partial
+        }
+        tem_incerta = any(unc for _, _, _, unc in partial)
+        if tem_incerta:
+            causa = ("perna(s) com resultado INCERTO — ordem enviada ou resposta ambígua do "
+                     "broker, sem confirmação nem de que abriu nem de que não abriu; pode haver "
+                     "MAIS posições abertas do que o número confirmado sugere")
+        else:
+            causa = "perna(s) faltando por margem, requote, símbolo indisponível ou queda de conexão"
+        texto = (f"⚠️ <b>MFC 21:05</b> — cesta(s) PARCIAL(is): {detalhe}. "
+                 f"Exposição direcional não diversificada ({causa}) — revisar manualmente. "
+                 f"A reconciliação das 08:10 NÃO detecta este caso: uma cesta parcial fecha "
+                 f"limpa por magic, sem posição órfã pra pegar.")
+        stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        try:
+            with open(PARTIAL_BASKET_LOG, "a", encoding="utf-8") as f:
+                f.write(f"[{stamp}] {re.sub(r'<[^>]+>', '', texto)}\n")
+        except OSError as e:
+            print(f"[-] Falha ao gravar {PARTIAL_BASKET_LOG}: {e}")
+        try:
+            from web.telegram_service import send_telegram_message
+            tg_res = send_telegram_message(texto)
+            if not tg_res.get("success"):
+                print(f"[-] Telegram não confirmou o alerta de cesta parcial "
+                      f"({tg_res.get('error')}) — segue registrado em {PARTIAL_BASKET_LOG}.")
+        except Exception as e:
+            print(f"[-] Telegram indisponível ({e}) — alerta de cesta parcial segue "
+                  f"registrado em {PARTIAL_BASKET_LOG}.")
 
 
 def execute_phase_0800():

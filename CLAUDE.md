@@ -93,9 +93,50 @@ reverts to the EA doing both, without recompiling.
 Every safety gate is checked inside `open_portfolio_basket()`, in order: kill switch →
 execution config validity (`check_execution_config()` — `CSS_MAX_LOT`,
 `CSS_MAX_CONCURRENT_BASKETS`, `CSS_CATASTROPHIC_SL_PIPS`, the two
-`CSS_AMBIGUOUS_CONFIRM_*`) → account identity (`CSS_MT5_EXPECTED_LOGIN`) → demo lock
-(`CSS_LIVE_TRADING`) → idempotency → exposure caps → netting symbol collision →
-symbol/tick preflight (all-or-nothing) → broker-side catastrophic stop-loss. All
+`CSS_AMBIGUOUS_CONFIRM_*`, `CSS_MIN_MARGIN_FREE`) → account identity
+(`CSS_MT5_EXPECTED_LOGIN`) → demo lock (`CSS_LIVE_TRADING`) → minimum free
+margin, flat floor (`check_account_gate()`, against the account's live
+`margin_free` vs. `CSS_MIN_MARGIN_FREE` — item 2 of the upstream/Miquéias
+reconciliation plan, rewritten rather than ported: upstream fails open when
+`account_info()` is `None` or raises, and hardcodes the currency in its
+message; here a missing/non-finite `margin_free` also refuses, fail-closed,
+and the message names the account's real currency) → idempotency → exposure
+caps → netting symbol collision → symbol/tick preflight (all-or-nothing) →
+**aggregate margin check** (sums `order_calc_margin()` over the resolved 7 legs
+against a *fresh* `margin_free` read, refuses if it doesn't cover the sum plus
+the `CSS_MIN_MARGIN_FREE` reserve — errors `margin_calc_failed`/
+`insufficient_aggregate_margin`) → broker-side catastrophic stop-loss.
+
+The margin gate is two layers, decided in two steps (herdr-review round 15
+found the gap; herdr-ask consulta 3 + an ephemeral gpt-5.6-sol arbiter decided
+the follow-up, both 2026-08-27, because the two reviewers disagreed on timing,
+not on the fix itself): `CSS_MIN_MARGIN_FREE` alone (achado P2-1/F15-01) is a
+flat, broker/leverage-agnostic floor, not a computed "do these 7 legs fit"
+check — a 1:100-leverage account could pass it with less free margin than a
+basket actually needs, with no rollback for a partially-filled basket. The
+Breno's answer to "how soon is a real-money account" (weeks, not months) is
+what decided implementing the aggregate check immediately instead of deferring
+it to the `CSS_CATASTROPHIC_SL_PIPS` recalibration milestone. **`order_calc_margin()`
+is Windows-only and untestable on a Linux checkout — validate it manually on
+the real terminal, comparing predicted vs. observed margin drop across a
+controlled demo execution, before ever setting `CSS_LIVE_TRADING=true`.** See
+the comment on `_EXECUTION_CONFIG_SPEC` and on the aggregate-margin block (right
+before the order-send loop) in `agents/portfolio_executor.py`.
+
+Separately, `execute_phase_2105()` in `scripts/scheduler_daemon.py` now sends an
+external alert (file log + best-effort Telegram) for any PARTIAL basket, whatever
+the cause (margin, requote, disabled symbol, dropped connection) — before this,
+a partial basket was only a `print()` nobody read, and the 08:10 reconciliation
+doesn't catch it (a partial basket closes cleanly by magic, leaving no orphan
+position to detect). This only alerts; it does not auto-close the partial basket
+— that's a separate, deliberately undecided question (risk-tolerance judgment
+call, not a technical one). Each leg in `open_portfolio_basket()`'s result ends
+in one of three states — `OPENED` (confirmed open), `ERROR` (confirmed NOT
+open), or `UNCERTAIN` (order sent, or an ambiguous broker response, with no
+confirmation either way — achado MFC18-01, herdr-review round 18) — and the
+top-level `uncertain_count` tells the scheduler when `success=False` still
+might mean real, unconfirmed exposure rather than a clean refusal; that case is
+alerted as PARTIAL too, not silently dropped into "refused". All
 configured via `.env` (see `.env.example`); a missing/invalid value fails closed,
 never open — an explicitly-set-but-invalid value (bad cast, out-of-range, or a value
 that would be silently clamped) refuses to open rather than substituting a default
@@ -112,18 +153,22 @@ genuinely ambiguous and must refuse. `CSS_MT5_SYMBOL_SUFFIX` is a different case
 missing is the *designed* normal path (`.env.example` ships it empty; that's what
 drives the auto-detection in `web/css_service.py`) and opens normally — what must
 refuse is *resolution failing* (the `#unresolved-family` marker reaching the
-preflight), not the variable being absent. The five `check_execution_config()`
+preflight), not the variable being absent. The six `check_execution_config()`
 variables are tunable safety margins with documented, conservative defaults
-(150 pips, 0.01 lot, 8 baskets, 3 attempts, 1.0s) — missing there means "use the
-documented default" and is allowed to open, exactly like it always has. Only an
-explicitly-provided-and-invalid value among those five refuses. Exposure caps
-and netting symbol collision are both pure refusal checks reading the same
+(150 pips, 0.01 lot, 8 baskets, 3 attempts, 1.0s, 50 min free margin) — missing
+there means "use the documented default" and is allowed to open, exactly like it
+always has. Only an explicitly-provided-and-invalid value among those six
+refuses — except `CSS_MIN_MARGIN_FREE`'s default is a documented *heuristic*
+floor, not a proven-safe one (see the margin-gate paragraph above); the live
+`margin_free` value it's compared against is a different case entirely and
+always fails closed when missing/non-finite, with no default at all. Exposure
+caps and netting symbol collision are both pure refusal checks reading the same
 `open_magics` snapshot with no side effects, so their relative order doesn't change
 the open/refuse decision — only which error/message comes back when both would have
 refused (verified true since at least `c24a44c`, reviewed rounds 4–5). Reordering
 either of THESE two specifically is not the P0 "gate ordering" case this invariant
 exists to prevent; reordering any gate relative to kill switch, account identity,
-demo lock, or idempotency still is.
+demo lock, minimum free margin, or idempotency still is.
 
 **Kill switch:** `touch data/CSS_KILL.flag` blocks any NEW basket. Closing is never
 blocked — reducing risk always proceeds. The EA reads the same file name from the

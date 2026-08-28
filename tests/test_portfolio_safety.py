@@ -63,6 +63,11 @@ def make_fake_mt5(**overrides):
     fake.SYMBOL_TRADE_MODE_FULL = "FULL"
     fake.terminal_info.return_value = SimpleNamespace(connected=True)
     fake.positions_get.return_value = []
+    # Default pequeno e finito — testes que não mexem com margem agregada
+    # não devem cair em margin_calc_failed só por não terem configurado
+    # isto explicitamente (achado do gate agregado, item 2 parte 2 do
+    # plano de reconciliação, 2026-08-27).
+    fake.order_calc_margin.return_value = 10.0
     for k, v in overrides.items():
         setattr(fake, k, v)
     return fake
@@ -310,13 +315,38 @@ class TestAccountSafety(unittest.TestCase):
         self.assertFalse(info["is_demo"])
         print("[✓] get_account_safety_info() falha fechado quando MT5 indisponível")
 
+    def test_get_account_safety_info_sanitizes_non_finite_margin_free(self):
+        """Achado em revisão (Codex, herdr-review rodada 15, F15-02): um
+        margin_free NaN/inf que chegasse até a resposta HTTP de
+        /api/portfolio-robots/open quebraria a serialização (Starlette usa
+        allow_nan=False), devolvendo 500 em vez da recusa estruturada.
+        get_account_safety_info() agora sanitiza NA FRONTEIRA — antes de
+        qualquer coisa a jusante (inclusive check_account_gate()) ver o
+        valor — pra None, o mesmo "indisponível" já tratado em todo o
+        resto do arquivo."""
+        for valor_bruto in (float("nan"), float("inf"), float("-inf"), "not_a_number"):
+            with self.subTest(valor_bruto=valor_bruto):
+                fake_mt5 = make_fake_mt5()
+                fake_mt5.account_info.return_value = SimpleNamespace(
+                    login=999, server="Broker-Demo", trade_mode="DEMO",
+                    trade_allowed=True, margin_mode="HEDGING",
+                    margin_free=valor_bruto, currency="USD",
+                )
+                with patch.object(pe, "MT5_AVAILABLE", True), patch.object(pe, "mt5", fake_mt5):
+                    info = pe.get_account_safety_info()
+                self.assertIsNone(info["margin_free"],
+                                   f"{valor_bruto!r} deveria virar None, não vazar pra fora "
+                                   f"do módulo (JSON com NaN/inf quebra a serialização)")
+        print("[✓] margin_free NaN/inf/não-numérico é sanitizado pra None já em "
+              "get_account_safety_info(), antes de qualquer serialização JSON")
+
     def test_open_refused_when_account_not_demo(self):
         """Login batendo com o esperado, mas conta real sem CSS_LIVE_TRADING —
         recusa especificamente pela checagem de demo, não pela de identidade."""
         fake_mt5 = make_fake_mt5()
         fake_mt5.account_info.return_value = SimpleNamespace(
             login=12345, server="Broker-Real", trade_mode="REAL",
-            trade_allowed=True, margin_mode="HEDGING"
+            trade_allowed=True, margin_mode="HEDGING", margin_free=100000.0, currency="USD"
         )
         with patch.dict(os.environ, {"CSS_MT5_EXPECTED_LOGIN": "12345", "CSS_LIVE_TRADING": ""}), \
              patch.object(pe, "MT5_AVAILABLE", True), patch.object(pe, "mt5", fake_mt5):
@@ -333,7 +363,7 @@ class TestAccountSafety(unittest.TestCase):
         fake_mt5 = make_fake_mt5()
         fake_mt5.account_info.return_value = SimpleNamespace(
             login=999, server="Broker-Demo", trade_mode="DEMO",
-            trade_allowed=True, margin_mode="HEDGING"
+            trade_allowed=True, margin_mode="HEDGING", margin_free=100000.0, currency="USD"
         )
         fake_mt5.symbol_info.return_value = SimpleNamespace(visible=True, trade_mode="FULL")
         fake_mt5.symbol_info_tick.return_value = SimpleNamespace(ask=1.1000, bid=1.0998)
@@ -361,7 +391,7 @@ class TestAccountGate(unittest.TestCase):
         fake_mt5 = make_fake_mt5()
         fake_mt5.account_info.return_value = SimpleNamespace(
             login=999, server="Broker-Demo", trade_mode="DEMO",
-            trade_allowed=True, margin_mode="HEDGING"
+            trade_allowed=True, margin_mode="HEDGING", margin_free=100000.0, currency="USD"
         )
         with patch.dict(os.environ, {"CSS_MT5_EXPECTED_LOGIN": "", "CSS_LIVE_TRADING": ""}), \
              patch.object(pe, "MT5_AVAILABLE", True), patch.object(pe, "mt5", fake_mt5):
@@ -377,7 +407,7 @@ class TestAccountGate(unittest.TestCase):
         fake_mt5 = make_fake_mt5()
         fake_mt5.account_info.return_value = SimpleNamespace(
             login=111, server="Broker-Demo-Outra-Conta", trade_mode="DEMO",
-            trade_allowed=True, margin_mode="HEDGING"
+            trade_allowed=True, margin_mode="HEDGING", margin_free=100000.0, currency="USD"
         )
         with patch.dict(os.environ, {"CSS_MT5_EXPECTED_LOGIN": "999", "CSS_LIVE_TRADING": ""}), \
              patch.object(pe, "MT5_AVAILABLE", True), patch.object(pe, "mt5", fake_mt5):
@@ -391,7 +421,7 @@ class TestAccountGate(unittest.TestCase):
         fake_mt5 = make_fake_mt5()
         fake_mt5.account_info.return_value = SimpleNamespace(
             login=555, server="Broker-Real", trade_mode="REAL",
-            trade_allowed=True, margin_mode="HEDGING"
+            trade_allowed=True, margin_mode="HEDGING", margin_free=100000.0, currency="USD"
         )
         with patch.dict(os.environ, {"CSS_MT5_EXPECTED_LOGIN": "555", "CSS_LIVE_TRADING": ""}), \
              patch.object(pe, "MT5_AVAILABLE", True), patch.object(pe, "mt5", fake_mt5):
@@ -407,7 +437,7 @@ class TestAccountGate(unittest.TestCase):
         fake_mt5 = make_fake_mt5()
         fake_mt5.account_info.return_value = SimpleNamespace(
             login=555, server="Broker-Real", trade_mode="REAL",
-            trade_allowed=True, margin_mode="HEDGING"
+            trade_allowed=True, margin_mode="HEDGING", margin_free=100000.0, currency="USD"
         )
         fake_mt5.symbol_info.return_value = SimpleNamespace(visible=True, trade_mode="FULL")
         fake_mt5.symbol_info_tick.return_value = SimpleNamespace(ask=1.1000, bid=1.0998)
@@ -420,6 +450,521 @@ class TestAccountGate(unittest.TestCase):
         self.assertTrue(fake_mt5.order_send.called)
         self.assertEqual(result["opened_count"], 7)
         print("[✓] Conta real só é aceita com CSS_LIVE_TRADING=true E login esperado batendo")
+
+
+class TestMarginFreeGate(unittest.TestCase):
+    """check_account_gate(): item 2 do plano de reconciliação com o upstream
+    (design consultado via herdr-ask, mfc-rev + mfc-rev-2, 2026-08-27) —
+    margem livre mínima antes de abrir. Reescrita, não portada: o upstream
+    (Miquéias, d2eb1d3) pula a checagem inteira quando account_info() é None
+    ou lança exceção; aqui margin_free ausente/não-finito recusa por não
+    conseguir confirmar nada (fail-closed), igual às outras checagens desta
+    função."""
+
+    def _demo_mt5(self, margin_free, currency="USD"):
+        fake_mt5 = make_fake_mt5()
+        fake_mt5.account_info.return_value = SimpleNamespace(
+            login=999, server="Broker-Demo", trade_mode="DEMO",
+            trade_allowed=True, margin_mode="HEDGING",
+            margin_free=margin_free, currency=currency,
+        )
+        fake_mt5.symbol_info.return_value = SimpleNamespace(visible=True, trade_mode="FULL")
+        fake_mt5.symbol_info_tick.return_value = SimpleNamespace(ask=1.1000, bid=1.0998)
+        fake_mt5.order_send.return_value = SimpleNamespace(
+            retcode=fake_mt5.TRADE_RETCODE_DONE, order=1, price=1.1000, comment="ok"
+        )
+        return fake_mt5
+
+    def _open(self, fake_mt5):
+        with patch.dict(os.environ, {"CSS_MT5_EXPECTED_LOGIN": "999", "CSS_LIVE_TRADING": ""}), \
+             patch.object(pe, "MT5_AVAILABLE", True), patch.object(pe, "mt5", fake_mt5):
+            return pe.open_portfolio_basket("CAD", "BUY")
+
+    def test_refuses_when_margin_free_is_none(self):
+        fake_mt5 = self._demo_mt5(margin_free=None)
+        result = self._open(fake_mt5)
+        self.assertFalse(result["success"])
+        self.assertEqual(result["error"], "margin_free_unavailable")
+        fake_mt5.order_send.assert_not_called()
+        print("[✓] margin_free ausente (None) recusa a abertura — fail-closed, não "
+              "'margem infinita'")
+
+    def test_refuses_when_margin_free_is_not_finite(self):
+        for valor in (float("nan"), float("inf"), float("-inf")):
+            with self.subTest(valor=valor):
+                fake_mt5 = self._demo_mt5(margin_free=valor)
+                result = self._open(fake_mt5)
+                self.assertFalse(result["success"])
+                self.assertEqual(result["error"], "margin_free_unavailable")
+                fake_mt5.order_send.assert_not_called()
+        print("[✓] margin_free não-finito (NaN/inf/-inf) recusa a abertura")
+
+    def test_refuses_when_margin_free_below_configured_minimum(self):
+        fake_mt5 = self._demo_mt5(margin_free=10.0, currency="EUR")
+        with patch.object(pe, "MIN_MARGIN_FREE", 50.0):
+            result = self._open(fake_mt5)
+        self.assertFalse(result["success"])
+        self.assertEqual(result["error"], "insufficient_margin")
+        self.assertIn("EUR", result["message"],
+                       "mensagem tem que citar a moeda REAL da conta, não assumir USD "
+                       "(era exatamente o bug do upstream)")
+        fake_mt5.order_send.assert_not_called()
+        print("[✓] margin_free abaixo do mínimo configurado recusa, e a mensagem cita a "
+              "moeda real da conta (EUR), não USD hardcoded")
+
+    def test_allows_open_when_margin_free_above_minimum(self):
+        """Controle: acima do mínimo, o gate deixa passar e a abertura segue
+        normalmente — prova que a checagem não é um falso-positivo permanente."""
+        fake_mt5 = self._demo_mt5(margin_free=100000.0)
+        with patch.object(pe, "MIN_MARGIN_FREE", 50.0):
+            result = self._open(fake_mt5)
+        self.assertTrue(fake_mt5.order_send.called)
+        self.assertEqual(result["opened_count"], 7)
+        print("[✓] margin_free acima do mínimo não bloqueia a abertura")
+
+    def test_margin_check_does_not_mask_account_identity_failure(self):
+        """A ordem importa: identidade da conta é checada ANTES da margem, não
+        depois — login errado tem que reprovar como 'wrong_account', mesmo que
+        a margem também esteja insuficiente."""
+        fake_mt5 = self._demo_mt5(margin_free=1.0)
+        fake_mt5.account_info.return_value = SimpleNamespace(
+            login=111, server="Broker-Demo-Outra-Conta", trade_mode="DEMO",
+            trade_allowed=True, margin_mode="HEDGING", margin_free=1.0, currency="USD",
+        )
+        result = self._open(fake_mt5)
+        self.assertFalse(result["success"])
+        self.assertEqual(result["error"], "wrong_account")
+        print("[✓] Identidade da conta é checada antes da margem — login errado não vira "
+              "'insufficient_margin' por engano")
+
+    def test_margin_check_happens_before_idempotency(self):
+        """A margem é checada ANTES da idempotência — se já há cesta aberta E a
+        margem está insuficiente, o erro reportado é o de margem, não o de
+        idempotência (mesma ordem usada pra identidade/demo-lock)."""
+        fake_mt5 = self._demo_mt5(margin_free=1.0)
+        fake_mt5.positions_get.return_value = [
+            SimpleNamespace(magic=pe.PORTFOLIO_MAGICS["CAD"], symbol="USDCAD")
+        ]
+        with patch.object(pe, "MIN_MARGIN_FREE", 50.0):
+            result = self._open(fake_mt5)
+        self.assertFalse(result["success"])
+        self.assertEqual(result["error"], "insufficient_margin")
+        print("[✓] Margem insuficiente recusa antes mesmo de chegar na checagem de "
+              "idempotência")
+
+
+class TestAggregateMarginGate(unittest.TestCase):
+    """Segunda parte do gate de margem livre — item 2 do plano de
+    reconciliação, decidido via herdr-ask consulta 3 + árbitro efêmero
+    (gpt-5.6-sol, 27/08): o Breno informou que a conta real está prevista
+    pra semanas, então esta parte entra JÁ, em vez de esperar o lote de
+    recalibração do CATASTROPHIC_SL_PIPS. CSS_MIN_MARGIN_FREE (checado
+    antes, em check_account_gate) é só um piso barato que não sabe quanto a
+    cesta exige; este cálculo soma order_calc_margin() das 7 pernas no
+    preflight tudo-ou-nada — onde os símbolos já estão resolvidos — e
+    recusa se a margem livre (relida fresca) não cobrir o total mais a
+    reserva. IMPORTANTE: order_calc_margin() é Windows-only, não roda neste
+    checkout — estes testes verificam a LÓGICA de agregação/fail-closed em
+    torno da chamada, não a semântica real do binding, que precisa ser
+    validada manualmente no terminal antes de qualquer conta real."""
+
+    def _demo_mt5(self, margin_free=100000.0, order_calc_margin=10.0):
+        fake_mt5 = make_fake_mt5()
+        fake_mt5.account_info.return_value = SimpleNamespace(
+            login=999, server="Broker-Demo", trade_mode="DEMO",
+            trade_allowed=True, margin_mode="HEDGING",
+            margin_free=margin_free, currency="USD",
+        )
+        fake_mt5.symbol_info.return_value = SimpleNamespace(visible=True, trade_mode="FULL")
+        fake_mt5.symbol_info_tick.return_value = SimpleNamespace(ask=1.1000, bid=1.0998)
+        fake_mt5.order_send.return_value = SimpleNamespace(
+            retcode=fake_mt5.TRADE_RETCODE_DONE, order=1, price=1.1000, comment="ok"
+        )
+        fake_mt5.order_calc_margin.return_value = order_calc_margin
+        return fake_mt5
+
+    def _open(self, fake_mt5):
+        with patch.dict(os.environ, {"CSS_MT5_EXPECTED_LOGIN": "999", "CSS_LIVE_TRADING": ""}), \
+             patch.object(pe, "MT5_AVAILABLE", True), patch.object(pe, "mt5", fake_mt5):
+            return pe.open_portfolio_basket("CAD", "BUY")
+
+    def test_refuses_when_order_calc_margin_returns_none(self):
+        fake_mt5 = self._demo_mt5()
+        fake_mt5.order_calc_margin.return_value = None
+        result = self._open(fake_mt5)
+        self.assertFalse(result["success"])
+        self.assertEqual(result["error"], "margin_calc_failed")
+        fake_mt5.order_send.assert_not_called()
+        print("[✓] order_calc_margin() retornando None recusa a cesta inteira, fail-closed")
+
+    def test_refuses_when_order_calc_margin_raises(self):
+        fake_mt5 = self._demo_mt5()
+        fake_mt5.order_calc_margin.side_effect = RuntimeError("terminal desconectado")
+        result = self._open(fake_mt5)
+        self.assertFalse(result["success"])
+        self.assertEqual(result["error"], "margin_calc_failed")
+        fake_mt5.order_send.assert_not_called()
+        print("[✓] Exceção em order_calc_margin() recusa a cesta, não propaga crash")
+
+    def test_refuses_when_order_calc_margin_is_non_finite(self):
+        for valor in (float("nan"), float("inf")):
+            with self.subTest(valor=valor):
+                fake_mt5 = self._demo_mt5(order_calc_margin=valor)
+                result = self._open(fake_mt5)
+                self.assertFalse(result["success"])
+                self.assertEqual(result["error"], "margin_calc_failed")
+                fake_mt5.order_send.assert_not_called()
+        print("[✓] order_calc_margin() não-finito recusa a cesta")
+
+    def test_refuses_when_order_calc_margin_is_negative(self):
+        """Achado em revisão (Codex, herdr-review rodada 16, F16-03):
+        isinstance + isfinite sozinhos aceitavam um retorno NEGATIVO — fora
+        do domínio de margem exigida, e reduziria margem_total tornando a
+        comparação mais permissiva do que devia."""
+        fake_mt5 = self._demo_mt5(order_calc_margin=-100.0)
+        result = self._open(fake_mt5)
+        self.assertFalse(result["success"])
+        self.assertEqual(result["error"], "margin_calc_failed")
+        fake_mt5.order_send.assert_not_called()
+        print("[✓] order_calc_margin() negativo recusa a cesta, não \"sobra\" margem")
+
+    def test_refuses_when_order_calc_margin_returns_a_bool(self):
+        """Achado em revisão (mfc-rev-2, herdr-review rodada 17, P3-1): a
+        metade `isinstance(margem, bool)` da correção do F16-03 não tinha
+        teste próprio — bool é subclasse de int em Python, e sem essa
+        exclusão True/False passariam como margem 1.0/0.0."""
+        fake_mt5 = self._demo_mt5(order_calc_margin=True)
+        result = self._open(fake_mt5)
+        self.assertFalse(result["success"])
+        self.assertEqual(result["error"], "margin_calc_failed")
+        fake_mt5.order_send.assert_not_called()
+        print("[✓] order_calc_margin() retornando bool (True/False) recusa a cesta, "
+              "não vira margem 1.0/0.0")
+
+    def test_refuses_when_only_one_leg_fails_calc_not_all(self):
+        """Achado em revisão (mfc-rev-2, herdr-review rodada 16, P3-1): os
+        testes anteriores configuravam order_calc_margin com falha UNIFORME
+        (todas as 7 pernas), o que não discrimina "qualquer perna falha" de
+        "todas as pernas falham" — uma mutação pra "só recusa se TODAS
+        falharem" passava a suíte inteira. Aqui só a 3ª chamada falha."""
+        fake_mt5 = self._demo_mt5()
+        fake_mt5.order_calc_margin.side_effect = [10.0, 10.0, None, 10.0, 10.0, 10.0, 10.0]
+        result = self._open(fake_mt5)
+        self.assertFalse(result["success"])
+        self.assertEqual(result["error"], "margin_calc_failed")
+        fake_mt5.order_send.assert_not_called()
+        print("[✓] UMA perna sem margem calculável recusa a cesta inteira, mesmo com as "
+              "outras 6 calculáveis (semântica é \"qualquer\", não \"todas\")")
+
+    def test_refuses_when_fresh_read_returns_a_different_account(self):
+        """Achado em revisão (mfc-rev-2, herdr-review rodada 16, P2-1): a
+        releitura fresca de margin_free não revalidava identidade — se o
+        binding global apontasse pra OUTRA conta entre o gate inicial e este
+        ponto (máquina com vários terminais MT5), a comparação de margem
+        seria feita contra a conta errada, na moeda errada, no último ponto
+        antes de 7 ordens reais saírem."""
+        fake_mt5 = self._demo_mt5()
+        segunda_leitura = SimpleNamespace(
+            login=111, server="Outro-Terminal", trade_mode="DEMO",
+            trade_allowed=True, margin_mode="HEDGING",
+            margin_free=999999.0, currency="BRL")
+        respostas = [fake_mt5.account_info.return_value, segunda_leitura]
+        fake_mt5.account_info.side_effect = lambda: respostas.pop(0) if respostas else segunda_leitura
+        result = self._open(fake_mt5)
+        self.assertFalse(result["success"])
+        self.assertEqual(result["error"], "wrong_account")
+        fake_mt5.order_send.assert_not_called()
+        print("[✓] Releitura fresca com conta diferente da validada recusa por identidade, "
+              "não compara margem de uma conta com a outra")
+
+    def test_refuses_when_sum_of_legs_exceeds_free_margin_even_above_flat_floor(self):
+        """O CENÁRIO CENTRAL do achado (F15-01/P2-1, os dois revisores +
+        árbitro): margin_free=60 passa no piso fixo (CSS_MIN_MARGIN_FREE=50),
+        mas 7 pernas a $10 de margem cada ($70) mais a reserva ($50) somam
+        $120 — muito acima dos $60 disponíveis. Sem este cálculo agregado, a
+        cesta abriria e provavelmente ficaria parcial no meio do envio."""
+        fake_mt5 = self._demo_mt5(margin_free=60.0, order_calc_margin=10.0)
+        with patch.object(pe, "MIN_MARGIN_FREE", 50.0):
+            result = self._open(fake_mt5)
+        self.assertFalse(result["success"])
+        self.assertEqual(result["error"], "insufficient_aggregate_margin")
+        fake_mt5.order_send.assert_not_called()
+        print("[✓] Margem agregada das 7 pernas recusa mesmo passando no piso fixo — o "
+              "cenário que o achado central da rodada 15 apontou")
+
+    def test_allows_open_when_aggregate_margin_fits(self):
+        """Controle: margem de sobra cobre as 7 pernas + reserva, a cesta abre normalmente."""
+        fake_mt5 = self._demo_mt5(margin_free=1000.0, order_calc_margin=10.0)
+        with patch.object(pe, "MIN_MARGIN_FREE", 50.0):
+            result = self._open(fake_mt5)
+        self.assertTrue(fake_mt5.order_send.called)
+        self.assertEqual(result["opened_count"], 7)
+        print("[✓] Margem agregada suficiente não bloqueia a abertura")
+
+    def test_refuses_when_fresh_margin_free_read_fails(self):
+        """A releitura de margin_free logo antes do envio (fresh read) também
+        é fail-closed: se a segunda consulta a account_info() falhar (ex.:
+        terminal caiu entre o gate inicial e o preflight), a cesta é
+        recusada, não aberta com o valor velho do gate inicial. Desde o
+        achado P2-1 (herdr-review rodada 16), a releitura revalida IDENTIDADE
+        antes de olhar margin_free — account_info()==None também zera
+        `login`, então quem pega isso primeiro é `wrong_account`
+        (login=None ≠ esperado), não mais `margin_free_unavailable`; o
+        resultado prático (recusa, sem enviar ordem, sem usar o valor
+        velho) é o mesmo."""
+        fake_mt5 = self._demo_mt5()
+        respostas = [fake_mt5.account_info.return_value, None]
+        fake_mt5.account_info.side_effect = lambda: respostas.pop(0) if respostas else None
+        result = self._open(fake_mt5)
+        self.assertFalse(result["success"])
+        self.assertEqual(result["error"], "wrong_account")
+        fake_mt5.order_send.assert_not_called()
+        print("[✓] Falha na releitura fresca recusa a cesta (via revalidação de identidade), "
+              "não usa o valor velho do gate inicial")
+
+    def test_refuses_when_fresh_read_has_right_account_but_no_margin_free(self):
+        """Complementa o teste acima: com a MESMA conta (identidade bate) mas
+        margin_free ausente na releitura, quem recusa é o branch de margem
+        mesmo — prova que a revalidação de identidade (achado P2-1) não
+        engoliu essa checagem, só passou a rodar antes dela."""
+        fake_mt5 = self._demo_mt5()
+        segunda_leitura = SimpleNamespace(
+            login=999, server="Broker-Demo", trade_mode="DEMO",
+            trade_allowed=True, margin_mode="HEDGING",
+            margin_free=None, currency="USD")
+        respostas = [fake_mt5.account_info.return_value, segunda_leitura]
+        fake_mt5.account_info.side_effect = lambda: respostas.pop(0) if respostas else segunda_leitura
+        result = self._open(fake_mt5)
+        self.assertFalse(result["success"])
+        self.assertEqual(result["error"], "margin_free_unavailable")
+        fake_mt5.order_send.assert_not_called()
+        print("[✓] Mesma conta na releitura, mas margin_free ausente, ainda recusa por "
+              "margin_free_unavailable (identidade não substitui a checagem de margem)")
+
+
+class TestPerLegExceptionIsolation(unittest.TestCase):
+    """Achado em revisão (mfc-rev-2, herdr-review rodada 16, P1-1, confirmado
+    por mfc-rev/F16-01): o laço que envia as 7 pernas não tinha try/except —
+    uma exceção do binding no meio do envio (IPC do terminal caindo, por
+    exemplo) propagava pra fora de open_portfolio_basket() com pernas
+    anteriores JÁ abertas no broker. O chamador (scheduler_daemon.py) tratava
+    qualquer exceção como "recusada" (nenhuma ordem saiu), quando na verdade
+    parte da cesta estava aberta — e o alerta de cesta parcial nunca
+    disparava porque o resultado nunca chegava como `partial`."""
+
+    def _demo_mt5(self):
+        fake_mt5 = make_fake_mt5()
+        fake_mt5.account_info.return_value = SimpleNamespace(
+            login=999, server="Broker-Demo", trade_mode="DEMO",
+            trade_allowed=True, margin_mode="HEDGING",
+            margin_free=100000.0, currency="USD",
+        )
+        fake_mt5.symbol_info.return_value = SimpleNamespace(visible=True, trade_mode="FULL")
+        fake_mt5.symbol_info_tick.return_value = SimpleNamespace(ask=1.1000, bid=1.0998)
+        return fake_mt5
+
+    def test_exception_mid_loop_does_not_propagate_and_isolates_only_that_leg(self):
+        fake_mt5 = self._demo_mt5()
+        chamadas = {"n": 0}
+
+        def fake_order_send(request):
+            chamadas["n"] += 1
+            if chamadas["n"] == 4:
+                raise RuntimeError("IPC do terminal caiu no meio da cesta")
+            return SimpleNamespace(retcode=fake_mt5.TRADE_RETCODE_DONE, order=chamadas["n"],
+                                    price=1.1, comment="ok")
+
+        fake_mt5.order_send.side_effect = fake_order_send
+        with patch.dict(os.environ, {"CSS_MT5_EXPECTED_LOGIN": "999", "CSS_LIVE_TRADING": ""}), \
+             patch.object(pe, "MT5_AVAILABLE", True), patch.object(pe, "mt5", fake_mt5), \
+             patch.object(pe, "_AMBIGUOUS_CONFIRM_DELAY_SEC", 0.0):
+            result = pe.open_portfolio_basket("CAD", "BUY")  # não pode levantar
+        self.assertTrue(result["success"])  # as outras 6 pernas abriram
+        self.assertEqual(result["opened_count"], 6)
+        self.assertEqual(result["total_pairs"], 7)
+        # UNCERTAIN, não ERROR (achado MFC18-01, herdr-review rodada 18): a
+        # ordem FOI enviada (chamadas["n"]==4 dispara dentro de order_send) e
+        # a confirmação não achou nada — "não confirmado", não "confirmado
+        # que não abriu".
+        incertas = [r for r in result["results"] if r["status"] == "UNCERTAIN"]
+        self.assertEqual(len(incertas), 1)
+        self.assertEqual(result["uncertain_count"], 1)
+        self.assertIn("Exceção durante o envio", incertas[0]["message"])
+        print("[✓] Exceção numa perna no meio do laço não propaga — vira UNCERTAIN isolado, "
+              "cesta segue com opened_count real (6/7), habilitando o alerta de cesta parcial")
+
+    def test_exception_confirms_open_position_before_marking_error(self):
+        """Achado em revisão (mfc-rev-2, herdr-review rodada 17, P2-1): uma
+        exceção em order_send() é ESTRITAMENTE mais ambígua que `res is
+        None` (a ordem pode ter chegado ao servidor e só a resposta ter se
+        perdido) — tratá-la direto como ERROR sem perguntar ao broker corre
+        o risco de o operador "reabrir na mão" uma perna que já estava
+        aberta, dobrando-a. A perna precisa passar pela mesma confirmação
+        que o caminho `res is None` já usa."""
+        fake_mt5 = self._demo_mt5()
+        chamadas = {"n": 0}
+
+        def fake_order_send(request):
+            chamadas["n"] += 1
+            if chamadas["n"] == 4:
+                raise RuntimeError("resposta perdida, mas a ordem pode ter chegado ao servidor")
+            return SimpleNamespace(retcode=fake_mt5.TRADE_RETCODE_DONE, order=chamadas["n"],
+                                    price=1.1, comment="ok")
+
+        def fake_positions_get(*args, **kwargs):
+            # Só a CONFIRMAÇÃO (_confirmed_position_volume) passa `symbol=`;
+            # a checagem de idempotência (get_open_magics_and_symbols) chama
+            # positions_get() sem argumento nenhum e precisa ver "nada
+            # aberto" pra não recusar a cesta ANTES do laço de envio.
+            if "symbol" in kwargs:
+                return [SimpleNamespace(magic=pe.PORTFOLIO_MAGICS["CAD"], volume=0.01)]
+            return []
+
+        fake_mt5.order_send.side_effect = fake_order_send
+        fake_mt5.positions_get.side_effect = fake_positions_get
+        with patch.dict(os.environ, {"CSS_MT5_EXPECTED_LOGIN": "999", "CSS_LIVE_TRADING": ""}), \
+             patch.object(pe, "MT5_AVAILABLE", True), patch.object(pe, "mt5", fake_mt5), \
+             patch.object(pe, "_AMBIGUOUS_CONFIRM_DELAY_SEC", 0.0):
+            result = pe.open_portfolio_basket("CAD", "BUY")
+        self.assertTrue(result["success"])
+        self.assertEqual(result["opened_count"], 7,
+                          "a perna que levantou exceção, mas está confirmada no broker, "
+                          "conta como aberta — cesta não deveria aparecer como parcial")
+        confirmadas = [r for r in result["results"] if "CONFIRMADA" in r.get("message", "")]
+        self.assertEqual(len(confirmadas), 1)
+        print("[✓] Exceção seguida de posição CONFIRMADA no broker conta como OPENED, "
+              "não descarta a perna como ERROR sem perguntar ao broker")
+
+    def test_exception_before_order_send_skips_confirmation_entirely(self):
+        """Achado em revisão (mfc-rev-2, herdr-review rodada 18, P3-1): o
+        `except` cobre o corpo INTEIRO da perna, não só order_send() — uma
+        exceção em _compute_catastrophic_sl() (ANTES de qualquer ordem
+        existir) não tem nada pra confirmar no broker. Sem a flag
+        `ordem_enviada`, a confirmação rodava mesmo assim (3 tentativas,
+        até ~2s de sleep cada) só pra sempre devolver None."""
+        fake_mt5 = self._demo_mt5()
+        fake_mt5.order_send.return_value = SimpleNamespace(
+            retcode=fake_mt5.TRADE_RETCODE_DONE, order=1, price=1.1, comment="ok")
+
+        def fake_sl(symbol, is_buy, price):
+            if symbol == "AUDCAD":
+                raise RuntimeError("falha ANTES de qualquer order_send")
+            return price - 0.015 if is_buy else price + 0.015
+
+        with patch.dict(os.environ, {"CSS_MT5_EXPECTED_LOGIN": "999", "CSS_LIVE_TRADING": ""}), \
+             patch.object(pe, "MT5_AVAILABLE", True), patch.object(pe, "mt5", fake_mt5), \
+             patch.object(pe, "_compute_catastrophic_sl", side_effect=fake_sl), \
+             patch.object(pe, "_confirm_position_after_ambiguous_retcode") as mock_confirm:
+            result = pe.open_portfolio_basket("CAD", "BUY")
+        self.assertTrue(result["success"])
+        self.assertEqual(result["opened_count"], 6)
+        self.assertEqual(result["uncertain_count"], 0,
+                          "exceção ANTES do envio é ERROR confirmado, não UNCERTAIN")
+        mock_confirm.assert_not_called()
+        print("[✓] Exceção ANTES de order_send() não dispara a confirmação — sem "
+              "ordem enviada, não há o que confirmar")
+
+    def test_daemon_alerts_when_leg_exception_causes_partial_basket(self):
+        """Ponta a ponta com o daemon: a mesma exceção precisa terminar como
+        cesta PARCIAL (com alerta), não como "recusada" silenciosa — a
+        lacuna exata que o achado P1-1 mediu."""
+        import scripts.scheduler_daemon as daemon
+        fake_mt5 = self._demo_mt5()
+        chamadas = {"n": 0}
+
+        def fake_order_send(request):
+            chamadas["n"] += 1
+            if chamadas["n"] == 4:
+                raise RuntimeError("IPC do terminal caiu no meio da cesta")
+            return SimpleNamespace(retcode=fake_mt5.TRADE_RETCODE_DONE, order=chamadas["n"],
+                                    price=1.1, comment="ok")
+
+        fake_mt5.order_send.side_effect = fake_order_send
+        enviados = []
+        payload = {
+            "date": datetime.now().strftime("%Y-%m-%d"),
+            "mt5_connected": True,
+            "portfolios": {"CAD": {"direction": "BUY", "status": "ACTIVE"}},
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            signals_path = os.path.join(tmp, "signals.json")
+            with open(signals_path, "w", encoding="utf-8") as f:
+                json.dump(payload, f)
+            with patch.dict(os.environ, {"CSS_MT5_EXPECTED_LOGIN": "999", "CSS_LIVE_TRADING": ""}), \
+                 patch.object(pe, "MT5_AVAILABLE", True), patch.object(pe, "mt5", fake_mt5), \
+                 patch.object(pe, "_AMBIGUOUS_CONFIRM_DELAY_SEC", 0.0), \
+                 patch.object(daemon, "SIGNALS_FILE", signals_path), \
+                 patch.object(daemon, "PARTIAL_BASKET_LOG", os.path.join(tmp, "partial.log")), \
+                 patch("web.telegram_service.send_telegram_message",
+                       lambda text, **kw: (enviados.append(text), {"success": True})[1]):
+                daemon.execute_phase_2105()
+        self.assertTrue(any("PARCIAL" in t and "CAD" in t for t in enviados),
+                         "exceção no meio da cesta devia terminar como PARCIAL com alerta, "
+                         "não 'recusada' silenciosa")
+        print("[✓] Ponta a ponta: exceção numa perna vira cesta PARCIAL com alerta externo, "
+              "não 'recusada' silenciosa")
+
+    def test_all_legs_uncertain_reports_uncertain_count_not_bare_failure(self):
+        """O CENÁRIO CENTRAL do achado MFC18-01 (herdr-review rodada 18,
+        Codex): se TODAS as 7 pernas ficarem UNCERTAIN (nenhuma confirmada
+        aberta, nenhuma confirmada fechada), success=False e opened_count=0
+        — mas isso não é "nada aconteceu", é "não sabemos o que aconteceu".
+        uncertain_count precisa refletir isso pro scheduler não tratar como
+        recusa silenciosa."""
+        fake_mt5 = self._demo_mt5()
+        fake_mt5.order_send.return_value = None  # res is None em toda perna — ambíguo
+        with patch.dict(os.environ, {"CSS_MT5_EXPECTED_LOGIN": "999", "CSS_LIVE_TRADING": ""}), \
+             patch.object(pe, "MT5_AVAILABLE", True), patch.object(pe, "mt5", fake_mt5), \
+             patch.object(pe, "_AMBIGUOUS_CONFIRM_DELAY_SEC", 0.0):
+            result = pe.open_portfolio_basket("CAD", "BUY")
+        self.assertFalse(result["success"])
+        self.assertEqual(result["opened_count"], 0)
+        self.assertEqual(result["uncertain_count"], 7)
+        print("[✓] Todas as 7 pernas UNCERTAIN: success=False mas uncertain_count=7 "
+              "denuncia que não é uma recusa limpa")
+
+    def test_daemon_treats_all_uncertain_basket_as_partial_not_refused(self):
+        """Ponta a ponta com o daemon — a lacuna exata do MFC18-01: antes
+        desta correção, success=False ia direto pro ramo `refused`, sem
+        checar uncertain_count, e a cesta nunca aparecia como PARCIAL nem
+        disparava o alerta, mesmo com 7 pernas em estado desconhecido."""
+        import scripts.scheduler_daemon as daemon
+        fake_mt5 = self._demo_mt5()
+        fake_mt5.order_send.return_value = None
+        enviados = []
+        payload = {
+            "date": datetime.now().strftime("%Y-%m-%d"),
+            "mt5_connected": True,
+            "portfolios": {"CAD": {"direction": "BUY", "status": "ACTIVE"}},
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            signals_path = os.path.join(tmp, "signals.json")
+            with open(signals_path, "w", encoding="utf-8") as f:
+                json.dump(payload, f)
+            with patch.dict(os.environ, {"CSS_MT5_EXPECTED_LOGIN": "999", "CSS_LIVE_TRADING": ""}), \
+                 patch.object(pe, "MT5_AVAILABLE", True), patch.object(pe, "mt5", fake_mt5), \
+                 patch.object(pe, "_AMBIGUOUS_CONFIRM_DELAY_SEC", 0.0), \
+                 patch.object(daemon, "SIGNALS_FILE", signals_path), \
+                 patch.object(daemon, "PARTIAL_BASKET_LOG", os.path.join(tmp, "partial.log")), \
+                 patch("web.telegram_service.send_telegram_message",
+                       lambda text, **kw: (enviados.append(text), {"success": True})[1]):
+                daemon.execute_phase_2105()
+        self.assertTrue(any("PARCIAL" in t and "CAD" in t for t in enviados),
+                         "cesta com 7 pernas UNCERTAIN (success=False) precisa alertar como "
+                         "PARCIAL, não desaparecer como 'recusada'")
+        # Achado em revisão (mfc-rev-2, herdr-review rodada 19, P2-1): o
+        # texto genérico "perna(s) faltando" é o diagnóstico OPOSTO do que se
+        # sabe quando a causa é incerteza (pode estar TUDO aberto, não
+        # faltando) — o alerta precisa dizer isso, não sugerir "abra a perna
+        # que falta na mão" (o próprio risco de dobrar perna).
+        texto_alerta = next(t for t in enviados if "PARCIAL" in t and "CAD" in t)
+        self.assertIn("INCERTA", texto_alerta)
+        self.assertNotIn("perna(s) faltando por margem", texto_alerta,
+                          "cesta 100% incerta não pode usar o texto de 'perna faltando' — "
+                          "sugere a ação errada (abrir na mão, dobrando a perna)")
+        print("[✓] Cesta com TODAS as pernas incertas (success=False) ainda alerta como "
+              "PARCIAL — a lacuna do MFC18-01 está fechada — com o texto certo (não "
+              "'faltando', e sim 'incerta')")
 
 
 class TestExecutionConfigGate(unittest.TestCase):
@@ -511,6 +1056,36 @@ class TestExecutionConfigGate(unittest.TestCase):
         fake_mt5.order_send.assert_not_called()
         print("[✓] CSS_AMBIGUOUS_CONFIRM_ATTEMPTS fora da faixa clampada recusa a "
               "abertura em vez de ser silenciosamente reescrito pra 10")
+
+    def test_open_refused_when_min_margin_free_is_zero_or_negative(self):
+        """Achado em revisão (mfc-rev-2, herdr-review rodada 15, P3-1):
+        CSS_MIN_MARGIN_FREE era a única das seis variáveis sem teste de
+        validação — um validador neutralizado (`lambda v: True`) passava a
+        suíte inteira sem nenhuma falha."""
+        for raw in ("0", "-1"):
+            with self.subTest(raw=raw):
+                fake_mt5 = make_fake_mt5()
+                with patch.dict(os.environ, {**DEMO_GATE_ENV, "CSS_MIN_MARGIN_FREE": raw}), \
+                     patch.object(pe, "MT5_AVAILABLE", True), patch.object(pe, "mt5", fake_mt5):
+                    result = pe.open_portfolio_basket("CAD", "BUY")
+                self.assertFalse(result["success"])
+                self.assertEqual(result["error"], "invalid_execution_config")
+                self.assertIn("CSS_MIN_MARGIN_FREE", result["message"])
+                fake_mt5.order_send.assert_not_called()
+                fake_mt5.account_info.assert_not_called()
+        print("[✓] CSS_MIN_MARGIN_FREE <= 0 recusa a abertura, mesmo sem consultar a conta")
+
+    def test_open_refused_when_min_margin_free_is_nan_infinite_or_text(self):
+        for raw in ("nan", "inf", "xyz"):
+            with self.subTest(raw=raw):
+                fake_mt5 = make_fake_mt5()
+                with patch.dict(os.environ, {**DEMO_GATE_ENV, "CSS_MIN_MARGIN_FREE": raw}), \
+                     patch.object(pe, "MT5_AVAILABLE", True), patch.object(pe, "mt5", fake_mt5):
+                    result = pe.open_portfolio_basket("CAD", "BUY")
+                self.assertFalse(result["success"])
+                self.assertEqual(result["error"], "invalid_execution_config")
+                fake_mt5.order_send.assert_not_called()
+        print("[✓] CSS_MIN_MARGIN_FREE=nan/inf/texto recusa a abertura")
 
     def test_open_reports_multiple_invalid_vars_in_one_message(self):
         fake_mt5 = make_fake_mt5()
@@ -608,7 +1183,7 @@ class TestExecutionConfigGate(unittest.TestCase):
         fake_mt5 = make_fake_mt5()
         fake_mt5.account_info.return_value = SimpleNamespace(
             login=999, server="Broker-Demo", trade_mode="DEMO",
-            trade_allowed=True, margin_mode="HEDGING")
+            trade_allowed=True, margin_mode="HEDGING", margin_free=100000.0, currency="USD")
         fake_mt5.symbol_info.return_value = SimpleNamespace(visible=True, trade_mode="FULL")
         fake_mt5.symbol_info_tick.return_value = SimpleNamespace(ask=1.1000, bid=1.0998)
         fake_mt5.order_send.return_value = SimpleNamespace(
@@ -633,7 +1208,7 @@ class TestExecutionConfigGate(unittest.TestCase):
         fake_mt5 = make_fake_mt5()
         fake_mt5.account_info.return_value = SimpleNamespace(
             login=999, server="Broker-Demo", trade_mode="DEMO",
-            trade_allowed=True, margin_mode="HEDGING")
+            trade_allowed=True, margin_mode="HEDGING", margin_free=100000.0, currency="USD")
         fake_mt5.positions_get.return_value = [
             SimpleNamespace(ticket=1, symbol="USDCAD", volume=0.01,
                             type=fake_mt5.ORDER_TYPE_SELL, magic=pe.PORTFOLIO_MAGICS["CAD"],
@@ -773,7 +1348,7 @@ class TestIdempotency(unittest.TestCase):
         fake_mt5 = make_fake_mt5()
         fake_mt5.account_info.return_value = SimpleNamespace(
             login=999, server="Broker-Demo", trade_mode="DEMO",
-            trade_allowed=True, margin_mode="HEDGING"
+            trade_allowed=True, margin_mode="HEDGING", margin_free=100000.0, currency="USD"
         )
         # Já existe posição sob o magic do CAD (801007).
         fake_mt5.positions_get.return_value = [
@@ -807,7 +1382,7 @@ class TestNettingCollision(unittest.TestCase):
         fake_mt5 = make_fake_mt5()
         fake_mt5.account_info.return_value = SimpleNamespace(
             login=999, server="Broker-Demo", trade_mode="DEMO",
-            trade_allowed=True, margin_mode="NETTING"
+            trade_allowed=True, margin_mode="NETTING", margin_free=100000.0, currency="USD"
         )
         # Cesta USD (magic diferente do CAD) já tem USDCAD aberto — colide
         # com um dos 7 pares que a cesta CAD abriria.
@@ -828,7 +1403,7 @@ class TestNettingCollision(unittest.TestCase):
         fake_mt5 = make_fake_mt5()
         fake_mt5.account_info.return_value = SimpleNamespace(
             login=999, server="Broker-Demo", trade_mode="DEMO",
-            trade_allowed=True, margin_mode="HEDGING"
+            trade_allowed=True, margin_mode="HEDGING", margin_free=100000.0, currency="USD"
         )
         fake_mt5.positions_get.return_value = [
             SimpleNamespace(magic=pe.PORTFOLIO_MAGICS["USD"], symbol="USDCAD")
@@ -859,7 +1434,7 @@ class TestNettingCollision(unittest.TestCase):
         fake_mt5 = make_fake_mt5()
         fake_mt5.account_info.return_value = SimpleNamespace(
             login=999, server="Broker-Demo", trade_mode="DEMO",
-            trade_allowed=True, margin_mode="ALGUM_MODO_NAO_MAPEADO"
+            trade_allowed=True, margin_mode="ALGUM_MODO_NAO_MAPEADO", margin_free=100000.0, currency="USD"
         )
         fake_mt5.positions_get.return_value = [
             SimpleNamespace(magic=pe.PORTFOLIO_MAGICS["USD"], symbol="USDCAD")
@@ -885,7 +1460,7 @@ class TestNettingCollision(unittest.TestCase):
         fake_mt5 = make_fake_mt5()
         fake_mt5.account_info.return_value = SimpleNamespace(
             login=999, server="Broker-Demo", trade_mode="DEMO",
-            trade_allowed=True, margin_mode="ALGUM_MODO_NAO_MAPEADO"
+            trade_allowed=True, margin_mode="ALGUM_MODO_NAO_MAPEADO", margin_free=100000.0, currency="USD"
         )
         fake_mt5.positions_get.return_value = [
             SimpleNamespace(magic=pe.PORTFOLIO_MAGICS["USD"], symbol="USDCAD")
@@ -913,7 +1488,7 @@ class TestNettingCollision(unittest.TestCase):
         fake_mt5 = make_fake_mt5()
         fake_mt5.account_info.return_value = SimpleNamespace(
             login=999, server="Broker-Demo", trade_mode="DEMO",
-            trade_allowed=True, margin_mode="NETTING")
+            trade_allowed=True, margin_mode="NETTING", margin_free=100000.0, currency="USD")
         # Posição existente vem com sufixo "m" — só a auto-detecção
         # descobre isso, já que não há sufixo configurado neste teste.
         fake_mt5.positions_get.return_value = [
@@ -960,7 +1535,7 @@ class TestNettingCollision(unittest.TestCase):
         fake_mt5 = make_fake_mt5()
         fake_mt5.account_info.return_value = SimpleNamespace(
             login=999, server="Broker-Demo", trade_mode="DEMO",
-            trade_allowed=True, margin_mode="HEDGING")
+            trade_allowed=True, margin_mode="HEDGING", margin_free=100000.0, currency="USD")
         fake_mt5.positions_get.return_value = ()
         fake_mt5.SYMBOL_TRADE_MODE_FULL = "FULL"
         fake_mt5.symbols_get.return_value = [
@@ -1005,7 +1580,7 @@ class TestNettingCollision(unittest.TestCase):
         fake_mt5 = make_fake_mt5()
         fake_mt5.account_info.return_value = SimpleNamespace(
             login=999, server="Broker-Demo", trade_mode="DEMO",
-            trade_allowed=True, margin_mode="NETTING")
+            trade_allowed=True, margin_mode="NETTING", margin_free=100000.0, currency="USD")
         fake_mt5.positions_get.return_value = [
             SimpleNamespace(magic=pe.PORTFOLIO_MAGICS["USD"], symbol="USDCADm")
         ]
@@ -1040,7 +1615,7 @@ class TestPositionQueryFailsClosed(unittest.TestCase):
         fake = make_fake_mt5()
         fake.account_info.return_value = SimpleNamespace(
             login=999, server="Broker-Demo", trade_mode="DEMO",
-            trade_allowed=True, margin_mode="HEDGING"
+            trade_allowed=True, margin_mode="HEDGING", margin_free=100000.0, currency="USD"
         )
         return fake
 
@@ -1716,7 +2291,7 @@ class TestSymbolResolution(unittest.TestCase):
         fake_mt5 = make_fake_mt5()
         fake_mt5.account_info.return_value = SimpleNamespace(
             login=999, server="Broker-Demo", trade_mode="DEMO",
-            trade_allowed=True, margin_mode="HEDGING")
+            trade_allowed=True, margin_mode="HEDGING", margin_free=100000.0, currency="USD")
         fake_mt5.positions_get.return_value = ()
         fake_mt5.symbol_info.return_value = None   # nenhum símbolo resolve
         with patch.dict(os.environ, DEMO_GATE_ENV), \
@@ -1735,7 +2310,7 @@ class TestSymbolResolution(unittest.TestCase):
         fake_mt5 = make_fake_mt5()
         fake_mt5.account_info.return_value = SimpleNamespace(
             login=999, server="Broker-Demo", trade_mode="DEMO",
-            trade_allowed=True, margin_mode="HEDGING")
+            trade_allowed=True, margin_mode="HEDGING", margin_free=100000.0, currency="USD")
         fake_mt5.positions_get.return_value = ()
         fake_mt5.symbol_info.return_value = SimpleNamespace(visible=True, trade_mode="FULL")
 
@@ -1767,7 +2342,7 @@ class TestSymbolResolution(unittest.TestCase):
         fake_mt5 = make_fake_mt5()
         fake_mt5.account_info.return_value = SimpleNamespace(
             login=999, server="Broker-Demo", trade_mode="DEMO",
-            trade_allowed=True, margin_mode="HEDGING")
+            trade_allowed=True, margin_mode="HEDGING", margin_free=100000.0, currency="USD")
         fake_mt5.positions_get.return_value = ()
         fake_mt5.symbol_info.return_value = SimpleNamespace(visible=True, trade_mode="FULL")
 
@@ -1803,7 +2378,7 @@ class TestSymbolResolution(unittest.TestCase):
         fake_mt5 = make_fake_mt5()
         fake_mt5.account_info.return_value = SimpleNamespace(
             login=999, server="Broker-Demo", trade_mode="DEMO",
-            trade_allowed=True, margin_mode="HEDGING"
+            trade_allowed=True, margin_mode="HEDGING", margin_free=100000.0, currency="USD"
         )
         fake_mt5.positions_get.return_value = ()
         fake_mt5.symbol_info.return_value = SimpleNamespace(visible=True, trade_mode="FULL")
@@ -1837,7 +2412,7 @@ class TestSymbolResolution(unittest.TestCase):
         fake_mt5 = make_fake_mt5()
         fake_mt5.account_info.return_value = SimpleNamespace(
             login=999, server="Broker-Demo", trade_mode="DEMO",
-            trade_allowed=True, margin_mode="HEDGING"
+            trade_allowed=True, margin_mode="HEDGING", margin_free=100000.0, currency="USD"
         )
         fake_mt5.positions_get.return_value = ()
         fake_mt5.symbol_info.return_value = SimpleNamespace(visible=True, trade_mode="FULL")
@@ -1883,7 +2458,7 @@ class TestSymbolResolution(unittest.TestCase):
         fake_mt5.SYMBOL_TRADE_MODE_FULL = "FULL"
         fake_mt5.account_info.return_value = SimpleNamespace(
             login=999, server="Broker-Demo", trade_mode="DEMO",
-            trade_allowed=True, margin_mode="HEDGING")
+            trade_allowed=True, margin_mode="HEDGING", margin_free=100000.0, currency="USD")
         fake_mt5.positions_get.return_value = ()
 
         def info_for(sym):
@@ -1920,7 +2495,7 @@ class TestSymbolResolution(unittest.TestCase):
         fake_mt5.SYMBOL_TRADE_MODE_FULL = "FULL"
         fake_mt5.account_info.return_value = SimpleNamespace(
             login=999, server="Broker-Demo", trade_mode="DEMO",
-            trade_allowed=True, margin_mode="HEDGING")
+            trade_allowed=True, margin_mode="HEDGING", margin_free=100000.0, currency="USD")
         fake_mt5.positions_get.return_value = ()
         # CADJPY sem trade_mode nenhum (não CLOSEONLY — AUSENTE); os outros
         # 6 pares vêm com FULL explícito.
@@ -2041,7 +2616,7 @@ class TestExposureCaps(unittest.TestCase):
         fake = make_fake_mt5()
         fake.account_info.return_value = SimpleNamespace(
             login=999, server="Broker-Demo", trade_mode="DEMO",
-            trade_allowed=True, margin_mode="HEDGING")
+            trade_allowed=True, margin_mode="HEDGING", margin_free=100000.0, currency="USD")
         fake.positions_get.return_value = positions
         fake.symbol_info.return_value = SimpleNamespace(visible=True, trade_mode="FULL")
         fake.symbol_info_tick.return_value = SimpleNamespace(ask=1.1, bid=1.0998)
@@ -2205,7 +2780,7 @@ class TestAmbiguousRetcodeConfirmation(unittest.TestCase):
         fake_mt5 = make_fake_mt5()
         fake_mt5.account_info.return_value = SimpleNamespace(
             login=999, server="Broker-Demo", trade_mode="DEMO",
-            trade_allowed=True, margin_mode="HEDGING")
+            trade_allowed=True, margin_mode="HEDGING", margin_free=100000.0, currency="USD")
         fake_mt5.symbol_info.return_value = SimpleNamespace(visible=True, trade_mode="FULL")
         fake_mt5.symbol_info_tick.return_value = SimpleNamespace(ask=1.1, bid=1.0998)
         fake_mt5.TRADE_RETCODE_DONE_PARTIAL = 10010
@@ -2249,7 +2824,7 @@ class TestAmbiguousRetcodeConfirmation(unittest.TestCase):
         fake_mt5 = make_fake_mt5()
         fake_mt5.account_info.return_value = SimpleNamespace(
             login=999, server="Broker-Demo", trade_mode="DEMO",
-            trade_allowed=True, margin_mode="HEDGING")
+            trade_allowed=True, margin_mode="HEDGING", margin_free=100000.0, currency="USD")
         fake_mt5.positions_get.return_value = []
         fake_mt5.symbol_info.return_value = SimpleNamespace(visible=True, trade_mode="FULL")
         fake_mt5.symbol_info_tick.return_value = SimpleNamespace(ask=1.1, bid=1.0998)
@@ -2277,9 +2852,12 @@ class TestAmbiguousRetcodeConfirmation(unittest.TestCase):
         self.assertEqual(len(calls_for_first), 1,
                           "reenviou depois de retcode ambíguo não confirmado — pode ter dobrado a perna")
         first_leg_result = next(r for r in result["results"] if r["pair"] == first_symbol)
-        self.assertEqual(first_leg_result["status"], "ERROR")
+        # UNCERTAIN, não ERROR (achado MFC18-01, herdr-review rodada 18):
+        # "não confirmado" não é o mesmo que "confirmado que não abriu".
+        self.assertEqual(first_leg_result["status"], "UNCERTAIN")
         self.assertEqual(result["opened_count"], 6)
-        print("[✓] retcode ambíguo não confirmado NÃO reenvia — fica ERROR pra revisão manual")
+        self.assertEqual(result["uncertain_count"], 1)
+        print("[✓] retcode ambíguo não confirmado NÃO reenvia — fica UNCERTAIN pra revisão manual")
 
     def test_order_send_returning_none_is_treated_as_ambiguous_not_resent(self):
         """res is None (ex.: exceção de conexão dentro do próprio order_send,
@@ -2288,7 +2866,7 @@ class TestAmbiguousRetcodeConfirmation(unittest.TestCase):
         fake_mt5 = make_fake_mt5()
         fake_mt5.account_info.return_value = SimpleNamespace(
             login=999, server="Broker-Demo", trade_mode="DEMO",
-            trade_allowed=True, margin_mode="HEDGING")
+            trade_allowed=True, margin_mode="HEDGING", margin_free=100000.0, currency="USD")
         fake_mt5.positions_get.return_value = []
         fake_mt5.symbol_info.return_value = SimpleNamespace(visible=True, trade_mode="FULL")
         fake_mt5.symbol_info_tick.return_value = SimpleNamespace(ask=1.1, bid=1.0998)
@@ -2313,8 +2891,9 @@ class TestAmbiguousRetcodeConfirmation(unittest.TestCase):
                             if c.args[0]["symbol"] == first_broker_symbol]
         self.assertEqual(len(calls_for_first), 1)
         first_leg_result = next(r for r in result["results"] if r["pair"] == first_symbol)
-        self.assertEqual(first_leg_result["status"], "ERROR")
-        print("[✓] order_send retornando None (não uma resposta) também não reenvia às cegas")
+        self.assertEqual(first_leg_result["status"], "UNCERTAIN")
+        print("[✓] order_send retornando None (não uma resposta) também não reenvia às cegas, "
+              "e fica UNCERTAIN, não ERROR")
 
     def test_fallback_error_reports_the_resend_response_not_the_original(self):
         """Regressão (achado em revisão): a mensagem de erro do fallback com
@@ -2324,7 +2903,7 @@ class TestAmbiguousRetcodeConfirmation(unittest.TestCase):
         fake_mt5 = make_fake_mt5()
         fake_mt5.account_info.return_value = SimpleNamespace(
             login=999, server="Broker-Demo", trade_mode="DEMO",
-            trade_allowed=True, margin_mode="HEDGING")
+            trade_allowed=True, margin_mode="HEDGING", margin_free=100000.0, currency="USD")
         fake_mt5.positions_get.return_value = []
         fake_mt5.symbol_info.return_value = SimpleNamespace(visible=True, trade_mode="FULL")
         fake_mt5.symbol_info_tick.return_value = SimpleNamespace(ask=1.1, bid=1.0998)
@@ -2356,6 +2935,93 @@ class TestAmbiguousRetcodeConfirmation(unittest.TestCase):
         self.assertEqual(first_leg_result["message"], "requote do reenvio")
         print("[✓] erro do fallback reporta a resposta do REENVIO, não a original")
 
+    def test_ambiguous_resend_response_confirms_as_opened_not_error(self):
+        """Achado em revisão (Codex + mfc-rev-2, herdr-review rodada 19, P1
+        confirmado pelos dois independentemente): o REENVIO (res2, com
+        ORDER_FILLING_RETURN) é tão capaz de vir ambíguo quanto a 1ª
+        tentativa — antes desta correção, um res2 ambíguo caía direto em
+        ERROR sem perguntar ao broker. mfc-rev-2 mediu que num broker que só
+        aceita RETURN, as 7 pernas passam por ESTE caminho sempre, não é
+        canto raro."""
+        fake_mt5 = make_fake_mt5()
+        fake_mt5.account_info.return_value = SimpleNamespace(
+            login=999, server="Broker-Demo", trade_mode="DEMO",
+            trade_allowed=True, margin_mode="HEDGING", margin_free=100000.0, currency="USD")
+        fake_mt5.symbol_info.return_value = SimpleNamespace(visible=True, trade_mode="FULL")
+        fake_mt5.symbol_info_tick.return_value = SimpleNamespace(ask=1.1, bid=1.0998)
+        fake_mt5.TRADE_RETCODE_REQUOTE = 10004  # não ambíguo — dispara o fallback
+        fake_mt5.TRADE_RETCODE_DONE_PARTIAL = 10010  # ambíguo, do reenvio
+
+        pairs = pe.get_portfolio_pairs("CAD", "BUY")
+        first_symbol = pairs[0]["pair"]
+        first_broker_symbol = pe.to_broker_symbol(first_symbol)
+
+        def fake_order_send(request):
+            if request["symbol"] != first_broker_symbol:
+                return SimpleNamespace(retcode=fake_mt5.TRADE_RETCODE_DONE, order=1,
+                                        price=1.1, comment="ok")
+            if request["type_filling"] == fake_mt5.ORDER_FILLING_IOC:
+                return SimpleNamespace(retcode=fake_mt5.TRADE_RETCODE_REQUOTE, order=None,
+                                        price=None, comment="requote na 1a tentativa")
+            return SimpleNamespace(retcode=fake_mt5.TRADE_RETCODE_DONE_PARTIAL, order=None,
+                                    price=None, comment="reenvio ambíguo")
+        fake_mt5.order_send.side_effect = fake_order_send
+
+        def fake_positions_get(*args, **kwargs):
+            # Só a confirmação passa `symbol=`; a checagem de idempotência
+            # chama positions_get() sem argumento e precisa ver "nada aberto".
+            if "symbol" in kwargs:
+                return [SimpleNamespace(magic=pe.PORTFOLIO_MAGICS["CAD"],
+                                        symbol=first_broker_symbol, volume=0.01)]
+            return []
+
+        fake_mt5.positions_get.side_effect = fake_positions_get
+
+        with patch.dict(os.environ, DEMO_GATE_ENV), \
+             patch.object(pe, "MT5_AVAILABLE", True), patch.object(pe, "mt5", fake_mt5):
+            result = pe.open_portfolio_basket("CAD", "BUY")
+
+        first_leg_result = next(r for r in result["results"] if r["pair"] == first_symbol)
+        self.assertEqual(first_leg_result["status"], "OPENED")
+        self.assertEqual(result["opened_count"], 7)
+        print("[✓] Reenvio (res2) com retcode ambíguo, confirmado no broker, "
+              "conta como OPENED — não fica ERROR só por ter sido a 2ª tentativa")
+
+    def test_ambiguous_resend_response_unconfirmed_is_uncertain_not_error(self):
+        """Metade que fecha o achado: res2 ambíguo E não confirmado tem que
+        virar UNCERTAIN (pode estar aberta), não ERROR (confirmado que não
+        abriu) — depois da rodada 18, ERROR virou uma promessa que este
+        caminho quebrava."""
+        fake_mt5 = make_fake_mt5()
+        fake_mt5.account_info.return_value = SimpleNamespace(
+            login=999, server="Broker-Demo", trade_mode="DEMO",
+            trade_allowed=True, margin_mode="HEDGING", margin_free=100000.0, currency="USD")
+        fake_mt5.positions_get.return_value = []  # nunca confirma nada
+        fake_mt5.symbol_info.return_value = SimpleNamespace(visible=True, trade_mode="FULL")
+        fake_mt5.symbol_info_tick.return_value = SimpleNamespace(ask=1.1, bid=1.0998)
+        fake_mt5.TRADE_RETCODE_REQUOTE = 10004
+        fake_mt5.TRADE_RETCODE_DONE_PARTIAL = 10010
+
+        def fake_order_send(request):
+            if request["type_filling"] == fake_mt5.ORDER_FILLING_IOC:
+                return SimpleNamespace(retcode=fake_mt5.TRADE_RETCODE_REQUOTE, order=None,
+                                        price=None, comment="requote na 1a tentativa")
+            return SimpleNamespace(retcode=fake_mt5.TRADE_RETCODE_DONE_PARTIAL, order=None,
+                                    price=None, comment="reenvio ambíguo, nunca confirmado")
+        fake_mt5.order_send.side_effect = fake_order_send
+
+        with patch.dict(os.environ, DEMO_GATE_ENV), \
+             patch.object(pe, "MT5_AVAILABLE", True), patch.object(pe, "mt5", fake_mt5):
+            result = pe.open_portfolio_basket("CAD", "BUY")
+
+        self.assertFalse(result["success"])
+        self.assertEqual(result["opened_count"], 0)
+        self.assertEqual(result["uncertain_count"], 7)
+        for r in result["results"]:
+            self.assertEqual(r["status"], "UNCERTAIN")
+        print("[✓] Reenvio (res2) ambíguo e nunca confirmado vira UNCERTAIN em todas as "
+              "7 pernas, não ERROR — uncertain_count reflete isso pro alerta do daemon")
+
 
 class TestCloseFailsClosed(unittest.TestCase):
     """O pior modo de falha do sistema: anunciar 'encerramento concluído' com
@@ -2365,7 +3031,7 @@ class TestCloseFailsClosed(unittest.TestCase):
         fake = make_fake_mt5()
         fake.account_info.return_value = SimpleNamespace(
             login=999, server="Broker-Demo", trade_mode="DEMO",
-            trade_allowed=True, margin_mode="HEDGING")
+            trade_allowed=True, margin_mode="HEDGING", margin_free=100000.0, currency="USD")
         magic = pe.PORTFOLIO_MAGICS["CAD"]
         fake.positions_get.return_value = [
             SimpleNamespace(magic=magic, symbol=f"CAD{i}m", ticket=1000 + i,
@@ -2419,7 +3085,7 @@ class TestCloseFailsClosed(unittest.TestCase):
         fake_mt5 = self._mt5_with_open_basket()
         fake_mt5.account_info.return_value = SimpleNamespace(
             login=111, server="Outro-Terminal", trade_mode="DEMO",
-            trade_allowed=True, margin_mode="HEDGING")
+            trade_allowed=True, margin_mode="HEDGING", margin_free=100000.0, currency="USD")
         with patch.dict(os.environ, {"CSS_MT5_EXPECTED_LOGIN": "999", "CSS_LIVE_TRADING": ""}), \
              patch.object(pe, "MT5_AVAILABLE", True), patch.object(pe, "mt5", fake_mt5), \
              patch.object(pe, "ensure_mt5", lambda: True):
@@ -2444,7 +3110,7 @@ class TestCloseFailsClosed(unittest.TestCase):
         fake_mt5 = make_fake_mt5()
         fake_mt5.account_info.return_value = SimpleNamespace(
             login=999, server="Broker-Demo", trade_mode="DEMO",
-            trade_allowed=True, margin_mode="HEDGING")
+            trade_allowed=True, margin_mode="HEDGING", margin_free=100000.0, currency="USD")
         magic = pe.PORTFOLIO_MAGICS["CAD"]
         TICKET_TEIMOSA = 1006
         positions = [
@@ -2517,7 +3183,7 @@ class TestCloseFailsClosed(unittest.TestCase):
         fake_mt5 = make_fake_mt5()
         fake_mt5.account_info.return_value = SimpleNamespace(
             login=999, server="Broker-Demo", trade_mode="DEMO",
-            trade_allowed=True, margin_mode="HEDGING")
+            trade_allowed=True, margin_mode="HEDGING", margin_free=100000.0, currency="USD")
         cad_magic = pe.PORTFOLIO_MAGICS["CAD"]
         usd_magic = pe.PORTFOLIO_MAGICS["USD"]
         positions = [
@@ -2614,7 +3280,7 @@ class TestCloseFailsClosed(unittest.TestCase):
         fake_mt5 = make_fake_mt5()
         fake_mt5.account_info.return_value = SimpleNamespace(
             login=999, server="Broker-Demo", trade_mode="DEMO",
-            trade_allowed=True, margin_mode="HEDGING")
+            trade_allowed=True, margin_mode="HEDGING", margin_free=100000.0, currency="USD")
         magic = pe.PORTFOLIO_MAGICS["CAD"]
         positions = [
             SimpleNamespace(magic=magic, symbol=f"CAD{i}m", ticket=1000 + i,
@@ -2674,7 +3340,7 @@ class TestCloseFailsClosed(unittest.TestCase):
         fake_mt5 = make_fake_mt5()
         fake_mt5.account_info.return_value = SimpleNamespace(
             login=999, server="Broker-Demo", trade_mode="DEMO",
-            trade_allowed=True, margin_mode="HEDGING")
+            trade_allowed=True, margin_mode="HEDGING", margin_free=100000.0, currency="USD")
         magic = pe.PORTFOLIO_MAGICS["CAD"]
         fake_mt5.positions_get.return_value = [
             SimpleNamespace(magic=magic, symbol=f"CAD{i}m", ticket=1000 + i,
@@ -2791,6 +3457,41 @@ class TestCloseFailsClosed(unittest.TestCase):
                          "FIM da 2ª rodada, e ela aconteceria mesmo assim")
         print("[✓] Checagem de deadline no topo do loop impede rodada extra após o "
               "sleep consumir o orçamento restante")
+
+    def test_close_never_blocked_by_missing_or_zero_margin_free(self):
+        """Achado em revisão (mfc-rev-2, herdr-review rodada 15, P2-2): o
+        fechamento usa check_account_identity(), não check_account_gate()
+        (que é só pra ABERTURA) — margin_free ausente ou zerado não pode
+        bloquear fechar, mesmo que bloqueie abrir. Antes deste teste, os
+        mocks de account_info() desta classe não tinham margin_free
+        nenhum, e isso acidentalmente provava o mesmo ponto (se o
+        fechamento algum dia passasse a usar check_account_gate(), os
+        outros testes desta classe quebrariam); com margin_free=100000.0
+        adicionado nos mocks pra sustentar o gate de abertura, essa rede
+        acidental sumiu — este teste ocupa o lugar dela explicitamente, pro
+        caminho compartilhado por close_portfolio_basket() e
+        close_all_portfolios() (que chama o primeiro por moeda)."""
+        for margin_free in (None, 0.0):
+            with self.subTest(margin_free=margin_free):
+                fake_mt5 = self._mt5_with_open_basket()
+                fake_mt5.account_info.return_value = SimpleNamespace(
+                    login=999, server="Broker-Demo", trade_mode="DEMO",
+                    trade_allowed=True, margin_mode="HEDGING",
+                    margin_free=margin_free, currency="USD")
+                magic = pe.PORTFOLIO_MAGICS["CAD"]
+                fake_mt5.positions_get.return_value = [
+                    SimpleNamespace(magic=magic, symbol=f"CAD{i}m", ticket=1000 + i,
+                                    volume=0.01, type=0, profit=0.0)
+                    for i in range(7)
+                ]
+                with patch.dict(os.environ, DEMO_GATE_ENV), \
+                     patch.object(pe, "MT5_AVAILABLE", True), patch.object(pe, "mt5", fake_mt5), \
+                     patch.object(pe, "ensure_mt5", lambda: True):
+                    res = pe.close_portfolio_basket("CAD")
+                self.assertTrue(res["success"])
+                fake_mt5.order_send.assert_called()
+        print("[✓] margin_free ausente/zerado não bloqueia close_portfolio_basket() — "
+              "fechar nunca passa pelo gate de margem, só abrir")
 
 
 class TestProvenanceStamping(unittest.TestCase):
@@ -3866,6 +4567,149 @@ class TestScheduledOpenTrigger(unittest.TestCase):
         self.assertEqual(cad_call[3], expected_leg_lots)
         print("[✓] Campo \"lot\" é a média das pernas confirmadas, e o mapa por perna "
               "(usado no cálculo real do custo) chega intacto até measure_and_log_basket_cost")
+
+    def _write_signals_file(self, tmp, payload):
+        path = os.path.join(tmp, "signals.json")
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(payload, f)
+        return path
+
+    def test_execute_phase_2105_alerts_telegram_on_partial_basket(self):
+        """Achado em revisão (mfc-rev-2, herdr-ask consulta 3, decisão do
+        Breno 27/08): antes desta correção, uma cesta PARCIAL só virava um
+        print() — nenhum canal externo, e a reconciliação das 08:10 não pega
+        o caso (a cesta parcial fecha limpa por magic). Cobre qualquer
+        causa de parcialidade (margem, requote, símbolo, conexão), não só
+        margem. Usa arquivo de sinal REAL (não mock_open): a escrita real do
+        PARTIAL_BASKET_LOG precisa acontecer de verdade, e mockar
+        builtins.open globalmente impediria isso."""
+        import scripts.scheduler_daemon as daemon
+        enviados = []
+        medido = threading.Event()
+        with tempfile.TemporaryDirectory() as tmp:
+            signals_path = self._write_signals_file(tmp, self._signals())
+            with patch.object(daemon, "SIGNALS_FILE", signals_path), \
+                 patch.object(daemon, "PARTIAL_BASKET_LOG", os.path.join(tmp, "partial.log")), \
+                 patch.object(daemon, "open_portfolio_basket") as mock_open_basket, \
+                 patch.object(daemon, "measure_and_log_basket_cost",
+                              side_effect=lambda *a: medido.set()), \
+                 patch("web.telegram_service.send_telegram_message",
+                       lambda text, **kw: (enviados.append(text), {"success": True})[1]):
+                mock_open_basket.side_effect = [
+                    {"success": True, "opened_count": 5, "total_pairs": 7, "results": []},  # CAD parcial
+                    {"success": True, "opened_count": 7, "total_pairs": 7, "results": []},  # USD completa
+                ]
+                daemon.execute_phase_2105()
+                # Achado em revisão (Codex, herdr-review rodada 18, MFC18-03):
+                # a thread de custo não é aguardada — sem esperar ela chamar
+                # o mock (ainda dentro do `with`, com o patch ainda ativo),
+                # a restauração do patch na saída do `with` poderia correr
+                # ANTES da thread rodar, e ela chamaria a função REAL de
+                # medição depois. Esperar aqui garante que o mock já foi
+                # chamado (ou não será mais) antes do patch sair de cena.
+                self.assertTrue(medido.wait(timeout=2), "medição de custo (mockada) nunca rodou")
+            self.assertTrue(any("PARCIAL" in t and "CAD" in t for t in enviados),
+                             "alerta de cesta parcial não chegou no Telegram")
+        print("[✓] Cesta parcial às 21:05 dispara alerta externo (Telegram), não só print")
+
+    def test_execute_phase_2105_no_partial_alert_when_all_baskets_complete(self):
+        """Controle: sem cesta parcial, nenhum alerta é disparado (não é ruído
+        toda noite que tudo abriu certo)."""
+        import scripts.scheduler_daemon as daemon
+        enviados = []
+        medicoes = []
+        todas_medidas = threading.Event()
+
+        def fake_measure(*args):
+            medicoes.append(args)
+            if len(medicoes) >= 2:
+                todas_medidas.set()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            signals_path = self._write_signals_file(tmp, self._signals())
+            with patch.object(daemon, "SIGNALS_FILE", signals_path), \
+                 patch.object(daemon, "PARTIAL_BASKET_LOG", os.path.join(tmp, "partial.log")), \
+                 patch.object(daemon, "open_portfolio_basket") as mock_open_basket, \
+                 patch.object(daemon, "measure_and_log_basket_cost", side_effect=fake_measure), \
+                 patch("web.telegram_service.send_telegram_message",
+                       lambda text, **kw: (enviados.append(text), {"success": True})[1]):
+                mock_open_basket.return_value = {"success": True, "opened_count": 7,
+                                                  "total_pairs": 7, "results": []}
+                daemon.execute_phase_2105()
+                # CAD e USD (as duas ACTIVE em self._signals()) abrem completas
+                # — espera as DUAS medições (achado MFC18-03, mesmo motivo do
+                # teste acima) antes de sair do `with` e restaurar o patch.
+                self.assertTrue(todas_medidas.wait(timeout=2), "nem todas as medições rodaram")
+            self.assertEqual(enviados, [])
+        print("[✓] Sem cesta parcial, nenhum alerta externo é disparado")
+
+    def test_execute_phase_2105_partial_alert_survives_telegram_failure(self):
+        """Telegram é melhor esforço — se falhar (exceção ou token/chat_id
+        ausente), o alerta continua registrado em arquivo e a fase não
+        propaga a falha pro chamador (que ainda precisa rodar o 08:00)."""
+        import scripts.scheduler_daemon as daemon
+        medido = threading.Event()
+        with tempfile.TemporaryDirectory() as tmp:
+            signals_path = self._write_signals_file(tmp, self._signals())
+            log_path = os.path.join(tmp, "partial.log")
+            with patch.object(daemon, "SIGNALS_FILE", signals_path), \
+                 patch.object(daemon, "PARTIAL_BASKET_LOG", log_path), \
+                 patch.object(daemon, "open_portfolio_basket") as mock_open_basket, \
+                 patch.object(daemon, "measure_and_log_basket_cost",
+                              side_effect=lambda *a: medido.set()), \
+                 patch("web.telegram_service.send_telegram_message",
+                       side_effect=RuntimeError("telegram off")):
+                mock_open_basket.side_effect = [
+                    {"success": True, "opened_count": 5, "total_pairs": 7, "results": []},
+                    {"success": True, "opened_count": 7, "total_pairs": 7, "results": []},
+                ]
+                daemon.execute_phase_2105()  # não pode propagar exceção
+                self.assertTrue(medido.wait(timeout=2), "medição de custo (mockada) nunca rodou")
+            with open(log_path, encoding="utf-8") as f:
+                self.assertIn("PARCIAL", f.read())
+        print("[✓] Alerta de cesta parcial persiste em arquivo mesmo com o Telegram fora, "
+              "e não derruba execute_phase_2105")
+
+    def test_execute_phase_2105_starts_cost_thread_before_partial_alert(self):
+        """Achado em revisão (mfc-rev-2, herdr-review rodada 18, P3-2): a
+        correção da rodada 17 (mover a thread de custo pra ANTES do alerta
+        síncrono de Telegram, que pode levar ~50s no pior caso) não tinha
+        teste — sem ele, uma refatoração que trocasse a ordem de volta
+        passaria a suíte inteira em silêncio. `FakeThread.start()` roda o
+        alvo IMEDIATAMENTE, de forma síncrona, pra que a ordem seja
+        determinística (não uma corrida de agendamento entre threads)."""
+        import scripts.scheduler_daemon as daemon
+        ordem = []
+
+        class FakeThread:
+            def __init__(self, target=None, args=(), **kwargs):
+                self._target = target
+                self._args = args
+
+            def start(self):
+                ordem.append("thread_start")
+                if self._target:
+                    self._target(*self._args)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            signals_path = self._write_signals_file(tmp, self._signals())
+            with patch.object(daemon, "SIGNALS_FILE", signals_path), \
+                 patch.object(daemon, "PARTIAL_BASKET_LOG", os.path.join(tmp, "partial.log")), \
+                 patch.object(daemon, "open_portfolio_basket") as mock_open_basket, \
+                 patch.object(daemon, "measure_and_log_basket_cost"), \
+                 patch.object(daemon.threading, "Thread", FakeThread), \
+                 patch("web.telegram_service.send_telegram_message",
+                       side_effect=lambda text, **kw: (ordem.append("telegram"), {"success": True})[1]):
+                mock_open_basket.side_effect = [
+                    {"success": True, "opened_count": 5, "total_pairs": 7, "results": []},  # CAD parcial
+                    {"success": True, "opened_count": 7, "total_pairs": 7, "results": []},  # USD completa
+                ]
+                daemon.execute_phase_2105()
+        self.assertEqual(ordem, ["thread_start", "telegram"],
+                          "a thread de medição de custo tem que começar ANTES do alerta "
+                          "Telegram síncrono da cesta parcial")
+        print("[✓] Thread de medição de custo começa antes do alerta Telegram síncrono "
+              "(não espera até ~50s por ele)")
 
     def test_execute_phase_2105_refuses_stale_signal(self):
         mock_open_basket = self._run_phase(self._signals(date_str="2020-01-01"))

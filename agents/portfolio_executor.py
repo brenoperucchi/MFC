@@ -79,7 +79,7 @@ def _env_number(name, default, cast=int):
 
 
 # Fonte única de (nome, default, cast, validador, descrição de domínio) pras
-# cinco variáveis de segurança tunáveis — achado em revisão (mfc-rev-2,
+# seis variáveis de segurança tunáveis — achado em revisão (mfc-rev-2,
 # herdr-review rodada 7, P1-1, confiança alta, confirmado por mfc-rev
 # independentemente): a primeira versão de check_execution_config() (mais
 # abaixo) validava CSS_CATASTROPHIC_SL_PIPS e CSS_AMBIGUOUS_CONFIRM_ATTEMPTS
@@ -109,6 +109,20 @@ _EXECUTION_CONFIG_SPEC = (
     ("CSS_AMBIGUOUS_CONFIRM_DELAY_SEC", 1.0, float,
      lambda v: math.isfinite(v) and 0.0 <= v <= 10.0,
      "precisa ser um número finito entre 0.0 e 10.0"),
+    # Item 2 do plano de reconciliação com o upstream (Miquéias) — achado em
+    # revisão (herdr-ask, mfc-rev + mfc-rev-2): o upstream (d2eb1d3) tem uma
+    # checagem de margem livre antes de abrir, mas fail-open em dois pontos
+    # (account_info() is None ou exceção pulam a checagem inteira) e sem
+    # verificar a moeda da conta na mensagem. Reescrita, não portada — só o
+    # LIMIAR é validado aqui (mesmo padrão de CSS_MAX_LOT); a comparação
+    # contra o margin_free AO VIVO da conta acontece em check_account_gate(),
+    # que já tem o snapshot da conta em mãos. Valor de partida arbitrário
+    # (o upstream também não justificava o 30.0 dele) — recalibrar com a
+    # margem real exigida pelas 7 pernas de uma cesta antes de qualquer
+    # conta real, mesma ressalva que CATASTROPHIC_SL_PIPS já tem.
+    ("CSS_MIN_MARGIN_FREE", 50.0, float,
+     lambda v: math.isfinite(v) and v > 0,
+     "precisa ser um número finito > 0"),
 )
 
 
@@ -130,6 +144,9 @@ CATASTROPHIC_SL_PIPS = _spec_env_number("CSS_CATASTROPHIC_SL_PIPS")
 # parâmetro vire uma posição muito maior que a pretendida.
 MAX_LOT = _spec_env_number("CSS_MAX_LOT")
 MAX_CONCURRENT_BASKETS = _spec_env_number("CSS_MAX_CONCURRENT_BASKETS")
+
+# Limiar de margem livre mínima — ver comentário em _EXECUTION_CONFIG_SPEC.
+MIN_MARGIN_FREE = _spec_env_number("CSS_MIN_MARGIN_FREE")
 
 # Contas em modo netting não têm posição isolada por magic number — duas
 # cestas que compartilham um par (ex.: USD e EUR podem operar EURUSD) se
@@ -190,7 +207,21 @@ def check_account_gate(safety: dict) -> dict:
     """Confirma identidade e permissão da conta conectada antes de qualquer
     ordem de ABERTURA. Falha fechado em qualquer ambiguidade — ver comentário
     acima. Identidade é delegada a check_account_identity (mesma regra usada
-    no fechamento); aqui se soma a trava de demo/live."""
+    no fechamento); aqui se soma a trava de demo/live e a margem livre
+    mínima.
+
+    Margem livre (item 2 do plano de reconciliação com o upstream —
+    consulta de design via herdr-ask, mfc-rev + mfc-rev-2): o upstream
+    (Miquéias, `d2eb1d3`) tem uma checagem parecida, mas fail-open em dois
+    pontos — `acc is not None and acc.margin_free < 30.0` pula a checagem
+    INTEIRA quando `account_info()` volta `None`, e uma exceção só imprime
+    aviso e segue abrindo. Reescrita, não portada: `margin_free` ausente ou
+    não-finito (`None`, `NaN`, `inf` — o binding nunca deveria devolver
+    esses dois últimos, mas não custa nada checar) recusa por não conseguir
+    confirmar nada, exatamente como as outras checagens desta função; só
+    entra no cálculo quando é um número real. E a mensagem cita a moeda
+    REAL da conta (`safety["currency"]`), não assume USD como o upstream
+    fazia."""
     ident = check_account_identity(safety)
     if not ident["allowed"]:
         return ident
@@ -203,6 +234,25 @@ def check_account_gate(safety: dict) -> dict:
             "error": "not_demo_account",
             "message": f"Conta {expected_login} @ {safety.get('server')} não é demo e "
                        f"CSS_LIVE_TRADING não está ligado — abertura recusada.",
+        }
+
+    margin_free = safety.get("margin_free")
+    moeda = safety.get("currency") or "?"
+    if margin_free is None or not math.isfinite(margin_free):
+        return {
+            "allowed": False,
+            "error": "margin_free_unavailable",
+            "message": f"Conta {expected_login} @ {safety.get('server')}: margin_free não "
+                       f"pôde ser lido do snapshot da conta — abertura recusada (fail-closed).",
+        }
+    if margin_free < MIN_MARGIN_FREE:
+        return {
+            "allowed": False,
+            "error": "insufficient_margin",
+            "message": f"Conta {expected_login} @ {safety.get('server')}: margem livre "
+                       f"{margin_free:.2f} {moeda} abaixo do mínimo configurado "
+                       f"({MIN_MARGIN_FREE:.2f}) — abertura recusada. Ajuste "
+                       f"CSS_MIN_MARGIN_FREE se a mudança for deliberada.",
         }
 
     return {"allowed": True, "error": None, "message": None}
@@ -298,6 +348,8 @@ def get_account_safety_info():
         "server": None,
         "margin_mode": None,
         "trade_allowed": False,
+        "margin_free": None,
+        "currency": None,
         "error": None,
     }
     if not MT5_AVAILABLE or mt5 is None:
@@ -312,6 +364,24 @@ def get_account_safety_info():
         info["server"] = acc.server
         info["trade_allowed"] = bool(getattr(acc, "trade_allowed", False))
         info["is_demo"] = (acc.trade_mode == mt5.ACCOUNT_TRADE_MODE_DEMO)
+        # Item 2 do plano de reconciliação (margem livre) — lida do MESMO
+        # snapshot de account_info() que já temos em mãos, sem consulta MT5
+        # extra nem janela entre duas leituras. getattr com default None:
+        # se o binding não tiver o campo (versão antiga do MT5, por
+        # exemplo), check_account_gate() trata None como fail-closed, não
+        # como "margem infinita". Achado em revisão (Codex, herdr-review
+        # rodada 15, F15-02): sanitizado JÁ NESTA FRONTEIRA (não só em
+        # check_account_gate()) — um NaN/inf que escapasse até aqui viraria
+        # None em vez de vazar pra fora deste módulo (por exemplo pro
+        # JSONResponse de web/server.py, que usa allow_nan=False e
+        # devolveria 500 em vez da recusa estruturada).
+        margin_free_bruto = getattr(acc, "margin_free", None)
+        info["margin_free"] = (
+            margin_free_bruto
+            if isinstance(margin_free_bruto, (int, float)) and math.isfinite(margin_free_bruto)
+            else None
+        )
+        info["currency"] = getattr(acc, "currency", None)
         margin_mode = getattr(acc, "margin_mode", None)
         if margin_mode == getattr(mt5, "ACCOUNT_MARGIN_MODE_RETAIL_NETTING", -1):
             info["margin_mode"] = "netting"
@@ -477,8 +547,10 @@ _AMBIGUOUS_CONFIRM_DELAY_SEC = _clamp(_spec_env_number("CSS_AMBIGUOUS_CONFIRM_DE
 # um valor explícito inválido aqui cai no default via _env_number(), como
 # CATASTROPHIC_SL_PIPS caía antes do achado F-06, mas sem nunca recusar fechar.
 # Documentada em .env.example e na invariante 2 de .herdr/reviewer.md — ela é
-# a SEXTA variável tunável do sistema, deliberadamente FORA das cinco
-# gate-adas por check_execution_config() (achado P3-2, mfc-rev-2, rodada 11).
+# a SÉTIMA variável tunável do sistema, deliberadamente FORA das seis
+# gate-adas por check_execution_config() (achado P3-2, mfc-rev-2, rodada 11;
+# contagem atualizada pra sétima/seis na rodada 15, achado F15-03/P3-2, com a
+# entrada de CSS_MIN_MARGIN_FREE).
 #
 # Segunda limitação estrutural, reconhecida e deliberadamente NÃO resolvida
 # aqui (Codex, F13-1, rodada 13): este deadline é POR CHAMADA de
@@ -1059,12 +1131,31 @@ def open_portfolio_basket(currency: str, bias: str, lot: float = 0.01, deviation
 
     Antes de qualquer ordem, checa (nessa ordem): kill switch, validade da
     configuração de execução (check_execution_config — CSS_MAX_LOT,
-    CSS_MAX_CONCURRENT_BASKETS, CSS_CATASTROPHIC_SL_PIPS e os dois
-    CSS_AMBIGUOUS_CONFIRM_*), identidade e permissão da conta
-    (check_account_gate — CSS_MT5_EXPECTED_LOGIN e CSS_LIVE_TRADING),
-    idempotência (cesta desse magic já aberta hoje?), tetos de exposição e
-    colisão de símbolo com outra cesta já aberta em conta netting. Qualquer
-    uma dessas recusa a abertura inteira sem enviar nenhuma ordem.
+    CSS_MAX_CONCURRENT_BASKETS, CSS_CATASTROPHIC_SL_PIPS, os dois
+    CSS_AMBIGUOUS_CONFIRM_* e CSS_MIN_MARGIN_FREE), identidade e permissão da
+    conta e margem livre mínima, piso fixo (check_account_gate —
+    CSS_MT5_EXPECTED_LOGIN, CSS_LIVE_TRADING e o margin_free AO VIVO da conta
+    contra CSS_MIN_MARGIN_FREE), idempotência (cesta desse magic já aberta
+    hoje?), tetos de exposição, colisão de símbolo com outra cesta já aberta
+    em conta netting, preflight de símbolo/tick (tudo-ou-nada) e margem
+    AGREGADA (soma order_calc_margin() das 7 pernas já resolvidas contra uma
+    releitura fresca de margin_free — que também revalida identidade da
+    conta, achado P2-1 — recusa se não cobrir o total mais a reserva de
+    CSS_MIN_MARGIN_FREE). Qualquer uma dessas recusa a abertura inteira sem
+    enviar nenhuma ordem. Uma exceção durante o ENVIO de uma perna já não
+    conta como recusa da cesta inteira: é isolada, e — se a ordem já tinha
+    sido enviada quando a exceção aconteceu — passa pela mesma confirmação
+    de retcode ambíguo que o caminho `res is None` já usa antes de decidir
+    entre OPENED (posição confirmada no broker), UNCERTAIN (não confirmada
+    NEM num sentido nem no outro — pode estar aberta) e ERROR (confirmado
+    que não abriu, ou exceção ANTES de qualquer order_send — achados
+    P1-1/rodada 16, P2-1/rodada 17, MFC18-01/rodada 18). O retorno inclui
+    `uncertain_count`: se TODAS as pernas ficarem UNCERTAIN, `success` vem
+    False (nenhuma CONFIRMADA aberta), mas `uncertain_count > 0` avisa o
+    chamador que "recusada" seria enganoso — pode haver exposição real sem
+    confirmação. execute_phase_2105() em scripts/scheduler_daemon.py trata
+    esse caso como cesta PARCIAL (mesmo alerta externo), não como recusa
+    silenciosa.
     """
     if is_kill_switch_active():
         msg = f"Kill switch ativo ({KILL_SWITCH_FILE}) — nenhuma cesta nova será aberta."
@@ -1327,6 +1418,121 @@ def open_portfolio_basket(currency: str, bias: str, lot: float = 0.01, deviation
                 "unresolved": sorted(unresolved), "no_tick": sorted(no_tick),
                 "restricted": sorted(restricted)}
 
+    # Cálculo agregado de margem — parte 2 do item "gate de margem livre" do
+    # plano de reconciliação com o upstream. Decisão do Breno em 27/08 (via
+    # herdr-ask consulta 3 + árbitro efêmero gpt-5.6-sol, porque os dois
+    # revisores originais divergiram em QUANDO fazer isto, não SE): conta
+    # real prevista pra semanas, então implementar e validar já, em vez de
+    # adiar pro lote de recalibração do CATASTROPHIC_SL_PIPS. CSS_MIN_MARGIN_FREE
+    # (checado antes, em check_account_gate) continua sendo o piso barato e
+    # cedo — não sabe quanto a cesta exige, só que a conta não está quase
+    # zerada. Este é o cálculo REAL: quanto as 7 pernas DESTA cesta
+    # específica exigem no broker conectado agora (order_calc_margin() é
+    # agnóstico a alavancagem/corretora/símbolo — pede pro próprio broker,
+    # não estima por fora). Entra aqui, não em check_account_gate(), porque
+    # a cesta (pairs/broker_symbols/ticks) só existe a partir deste ponto —
+    # a mesma incompatibilidade que a mfc-rev-2 apontou na PRÓPRIA prescrição
+    # original dela (herdr-ask mfc-2) é a razão de não dar pra fazer isso
+    # mais cedo.
+    #
+    # Soma de 7 chamadas independentes é uma APROXIMAÇÃO, não o número exato
+    # (achado mfc-rev, consulta 3): cada order_calc_margin() avalia contra o
+    # estado atual da conta sem considerar o efeito incremental das 6
+    # anteriores, e a corretora pode aplicar redução de margem entre posições
+    # que se compensam. Erra pro lado conservador na prática comum, mas não é
+    # garantia — por isso a reserva de CSS_MIN_MARGIN_FREE soma por cima do
+    # total calculado, não substitui a checagem. Retorno None/não-finito de
+    # QUALQUER perna recusa a cesta INTEIRA, fail-closed: não tem como saber
+    # se falhou por margem insuficiente ou por outro motivo, e a política
+    # deste projeto é a mesma de sempre — na dúvida, recusa. IMPORTANTE:
+    # order_calc_margin() é Windows-only (o binding MT5 não importa neste
+    # checkout Linux) — validar manualmente no terminal real, comparando a
+    # margem prevista com a queda observada após uma execução demo
+    # controlada, ANTES de ligar CSS_LIVE_TRADING=true (ver CLAUDE.md).
+    #
+    # Limitação estrutural reconhecida, NÃO resolvida aqui (Codex,
+    # herdr-review rodada 17, achado P1): estas até 7 chamadas de
+    # order_calc_margin() são síncronas e SEM timeout, na fase 21:05
+    # (execute_phase_2105() em scripts/scheduler_daemon.py), que roda direto
+    # no laço principal do daemon — se uma travar de verdade (IPC do
+    # terminal sem devolver erro nem sucesso), a fase inteira trava com ela,
+    # e o daemon não chega no encerramento das 08:00. É a MESMA propriedade
+    # já documentada pro resto do arquivo (nenhuma chamada MT5 individual
+    # tem timeout/cancelamento — ver comentário acima de
+    # _CLOSE_WATCHDOG_DEADLINE_SEC), não uma introduzida por este bloco;
+    # a diferença é que aqui soma-se sete chamadas bloqueáveis a mais numa
+    # fase que antes tinha bem menos. Corrigir isso de verdade exigiria
+    # rodar a fase de abertura inteira numa thread com timeout (o mesmo
+    # tipo de mudança estrutural que o watchdog de FECHAMENTO já tem, mas
+    # que abrir não tem porque abrir pode ser simplesmente recusado — não
+    # há "watchdog de abertura" porque não abrir nunca é a opção insegura,
+    # diferente de não fechar) — fora de escopo desta correção pontual.
+    margem_total = 0.0
+    falha_calculo_margem = []
+    for p in pairs:
+        b_sym = broker_symbols[p["pair"]]
+        tipo_ordem = mt5.ORDER_TYPE_BUY if p["action"] == "BUY" else mt5.ORDER_TYPE_SELL
+        preco = ticks[p["pair"]]
+        try:
+            margem = mt5.order_calc_margin(tipo_ordem, b_sym, lot, preco)
+        except Exception:
+            margem = None
+        # Achado em revisão (Codex, herdr-review rodada 16, F16-03): isinstance
+        # + isfinite aceitava um retorno NEGATIVO — fora do domínio de uma
+        # margem exigida, mas reduziria margem_total e tornaria a comparação
+        # mais permissiva do que devia (ex.: -100 "sobra" margem em vez de
+        # marcar cálculo não-confiável). Fail-closed cobre não-numérico,
+        # não-finito E negativo — margem exigida nunca é negativa.
+        if (not isinstance(margem, (int, float)) or isinstance(margem, bool)
+                or not math.isfinite(margem) or margem < 0):
+            falha_calculo_margem.append(p["pair"])
+            continue
+        margem_total += margem
+
+    if falha_calculo_margem:
+        msg = (f"Cesta {ccy} recusada por inteiro — order_calc_margin() não devolveu um "
+               f"valor utilizável pra {sorted(falha_calculo_margem)}. Fail-closed: sem saber "
+               f"quanto a cesta exige de margem, nenhuma perna é enviada.")
+        print(f"[PORTFOLIO ROBOT {ccy}] {msg}")
+        return {"success": False, "error": "margin_calc_failed", "message": msg}
+
+    # Leitura FRESCA de margin_free (achado mfc-rev, consulta 3): o snapshot
+    # de check_account_gate() já tem alguns milissegundos de idade nesse
+    # ponto (resolução de símbolo + tick de 7 pares); reconsulta em vez de
+    # reusar o valor velho.
+    conta_fresca = get_account_safety_info()
+    # Achado em revisão (mfc-rev-2, herdr-review rodada 16, P2-1): a releitura
+    # acima troca a conta INTEIRA, mas só `margin_free` era usado — login,
+    # servidor e moeda do snapshot novo ficavam sem checar contra o que
+    # passou por check_account_gate() no início da função. Se o binding
+    # global apontasse pra outra conta entre os dois pontos (esta máquina
+    # roda vários terminais MT5 ao mesmo tempo), a comparação de margem
+    # seria feita contra a conta ERRADA, na moeda ERRADA, bem no último
+    # ponto antes de 7 ordens reais saírem. `close_portfolio_basket()` já
+    # revalida identidade a cada chamada pelo mesmo motivo — aqui a correção
+    # é uma linha sobre um dado que já está em mãos, sem IPC extra.
+    ident_fresca = check_account_identity(conta_fresca)
+    if not ident_fresca["allowed"]:
+        print(f"[PORTFOLIO ROBOT {ccy}] {ident_fresca['message']}")
+        return {"success": False, "error": ident_fresca["error"], "message": ident_fresca["message"]}
+
+    margin_free_fresco = conta_fresca.get("margin_free")
+    if margin_free_fresco is None:
+        msg = (f"Cesta {ccy} recusada — não foi possível reconfirmar a margem livre da conta "
+               f"antes de enviar as ordens (fail-closed).")
+        print(f"[PORTFOLIO ROBOT {ccy}] {msg}")
+        return {"success": False, "error": "margin_free_unavailable", "message": msg}
+
+    margem_exigida = margem_total + MIN_MARGIN_FREE
+    if margin_free_fresco < margem_exigida:
+        moeda = conta_fresca.get("currency") or "?"
+        msg = (f"Cesta {ccy} recusada — margem livre atual ({margin_free_fresco:.2f} {moeda}) "
+               f"não cobre a margem estimada das 7 pernas ({margem_total:.2f} {moeda}) mais a "
+               f"reserva mínima ({MIN_MARGIN_FREE:.2f} {moeda}); total exigido: "
+               f"{margem_exigida:.2f} {moeda}.")
+        print(f"[PORTFOLIO ROBOT {ccy}] {msg}")
+        return {"success": False, "error": "insufficient_aggregate_margin", "message": msg}
+
     results = []
     success_count = 0
 
@@ -1334,136 +1540,291 @@ def open_portfolio_basket(currency: str, bias: str, lot: float = 0.01, deviation
 
     for p in pairs:
         pair_sym = p["pair"]
-        broker_sym = broker_symbols[pair_sym]
-        action = p["action"]
+        # Achado em revisão (mfc-rev-2, herdr-review rodada 16, P1-1,
+        # confirmado por mfc-rev/F16-01): este laço não tinha nenhum
+        # try/except — uma exceção do binding (IPC do terminal caindo no
+        # meio do envio, por exemplo) no meio das 7 pernas propagava pra
+        # fora de open_portfolio_basket() com pernas anteriores JÁ abertas
+        # no broker. O chamador (scheduler_daemon.py) trata qualquer
+        # exceção como "recusada" (nenhuma ordem saiu), quando na verdade
+        # parte da cesta está aberta — pior que silêncio, é informação
+        # errada, e o alerta de cesta parcial (invariante 4) nunca dispara
+        # porque o resultado nunca chega como `partial`. Cada perna agora é
+        # isolada: uma exceção vira ERROR (confirmado que não abriu, se
+        # aconteceu ANTES do envio) ou UNCERTAIN (se a ordem já tinha sido
+        # enviada e não deu pra confirmar — achado MFC18-01/rodada 18, ver
+        # comentário no `except` mais abaixo) e o laço segue pras próximas
+        # pernas — open_portfolio_basket() sempre devolve um dict normal com
+        # opened_count/uncertain_count reais, e o alerta de cesta parcial que
+        # já existe dispara sozinho quando opened_count < total_pairs OU
+        # uncertain_count > 0. Só o EXECUTOR
+        # sabe quantas pernas abriram; tratar isso no daemon (alertar em
+        # todo `except`) seria alertar sem saber se alguma perna abriu.
+        # Achado em revisão (mfc-rev-2, herdr-review rodada 18, P3-1): o
+        # `except` mais abaixo cobre o CORPO INTEIRO da perna, não só
+        # order_send() — uma exceção em symbol_info_tick()/cálculo do SL,
+        # ANTES de qualquer ordem existir, não tem nada pra confirmar no
+        # broker. Sem esta flag, a confirmação rodava mesmo assim (3
+        # tentativas, até ~2s de sleep cada) só pra sempre devolver None —
+        # até 112s de bloqueio síncrono a mais na fase 21:05 no pior caso
+        # medido (8 cestas × 7 pernas todas falhando cedo).
+        ordem_enviada = False
+        try:
+            broker_sym = broker_symbols[pair_sym]
+            action = p["action"]
 
-        order_type = mt5.ORDER_TYPE_BUY if action == "BUY" else mt5.ORDER_TYPE_SELL
-        # Repuxa a cotação mais recente; se sumiu ou ficou inválida entre o
-        # preflight e agora, cai no preço do preflight (já validado por
-        # _tick_valido) e deixa o `deviation` do request absorver a
-        # diferença — melhor que abandonar a perna e deixar a cesta
-        # parcial. Achado em revisão (Codex, achado 2/4 rodada 5): a
-        # versão anterior só checava "price <= 0" nesta segunda consulta —
-        # não revalidava mercado cruzado. Um tick que ficasse cruzado
-        # bem entre o preflight e este laço (janela real, ainda que
-        # estreita) tinha o preço do lado escolhido aceito mesmo assim,
-        # alimentando order_send() e o stop catastrófico com um preço do
-        # lado errado do book. Agora usa _tick_valido() aqui também.
-        tick = mt5.symbol_info_tick(broker_sym)
-        price = (tick.ask if action == "BUY" else tick.bid) if _tick_valido(tick) else None
-        if not price:
-            price = ticks[pair_sym]
+            order_type = mt5.ORDER_TYPE_BUY if action == "BUY" else mt5.ORDER_TYPE_SELL
+            # Repuxa a cotação mais recente; se sumiu ou ficou inválida entre o
+            # preflight e agora, cai no preço do preflight (já validado por
+            # _tick_valido) e deixa o `deviation` do request absorver a
+            # diferença — melhor que abandonar a perna e deixar a cesta
+            # parcial. Achado em revisão (Codex, achado 2/4 rodada 5): a
+            # versão anterior só checava "price <= 0" nesta segunda consulta —
+            # não revalidava mercado cruzado. Um tick que ficasse cruzado
+            # bem entre o preflight e este laço (janela real, ainda que
+            # estreita) tinha o preço do lado escolhido aceito mesmo assim,
+            # alimentando order_send() e o stop catastrófico com um preço do
+            # lado errado do book. Agora usa _tick_valido() aqui também.
+            tick = mt5.symbol_info_tick(broker_sym)
+            price = (tick.ask if action == "BUY" else tick.bid) if _tick_valido(tick) else None
+            if not price:
+                price = ticks[pair_sym]
 
-        sl_price = _compute_catastrophic_sl(pair_sym, action == "BUY", price)
+            sl_price = _compute_catastrophic_sl(pair_sym, action == "BUY", price)
 
-        request = {
-            "action": mt5.TRADE_ACTION_DEAL,
-            "symbol": broker_sym,
-            "volume": float(lot),
-            "type": order_type,
-            "price": float(price),
-            "sl": float(sl_price),
-            "deviation": deviation,
-            "magic": int(magic),
-            "comment": f"CSS_{ccy}_{bias}_{pair_sym}",
-            "type_time": mt5.ORDER_TIME_GTC,
-            "type_filling": mt5.ORDER_FILLING_IOC,
-        }
+            request = {
+                "action": mt5.TRADE_ACTION_DEAL,
+                "symbol": broker_sym,
+                "volume": float(lot),
+                "type": order_type,
+                "price": float(price),
+                "sl": float(sl_price),
+                "deviation": deviation,
+                "magic": int(magic),
+                "comment": f"CSS_{ccy}_{bias}_{pair_sym}",
+                "type_time": mt5.ORDER_TIME_GTC,
+                "type_filling": mt5.ORDER_FILLING_IOC,
+            }
 
-        res = mt5.order_send(request)
-        if res and res.retcode == mt5.TRADE_RETCODE_DONE:
-            success_count += 1
-            results.append({
-                "pair": pair_sym,
-                "action": action,
-                "lot": lot,
-                "ticket": res.order,
-                "entry_price": res.price or price,
-                "status": "OPENED",
-                "message": "Ordem executada com sucesso"
-            })
-            print(f"  [+] {pair_sym} {action} {lot} @ {res.price or price:.5f} | Ticket: {res.order}")
-        else:
-            # Retry SÓ quando a falha é inequivocamente "não executou".
-            # Um timeout/erro de conexão é AMBÍGUO: a ordem pode ter sido
-            # preenchida no servidor e só a resposta ter se perdido — reenviar
-            # nesse caso dobra o volume da perna. Nesses casos, confirma no
-            # broker antes de decidir.
-            retcode = res.retcode if res else None
-            ambiguous = (res is None or retcode in _ambiguous_retcodes())
-            if ambiguous:
-                confirmed_volume = _confirm_position_after_ambiguous_retcode(broker_sym, magic)
-                if confirmed_volume:
-                    success_count += 1
-                    # Reporta o volume REAL confirmado no broker, não o lote
-                    # pedido — um DONE_PARTIAL abre menos do que foi pedido, e
-                    # reportar o pedido como se fosse o executado escondia a
-                    # exposição real da cesta (achado em revisão).
-                    partial_note = ""
-                    if abs(confirmed_volume - lot) > 1e-9:
-                        partial_note = (f" — ATENÇÃO: volume confirmado ({confirmed_volume}) "
-                                         f"é diferente do lote pedido ({lot}); possível preenchimento parcial")
-                    results.append({
-                        "pair": pair_sym, "action": action, "lot": confirmed_volume,
-                        "entry_price": price, "status": "OPENED",
-                        "message": f"Resposta ambígua ({retcode}), mas posição confirmada no broker "
-                                   f"(volume real: {confirmed_volume}){partial_note}"})
-                    print(f"  [+] {pair_sym} {action}: resposta ambígua, posição CONFIRMADA no broker "
-                          f"(volume {confirmed_volume}){partial_note}")
-                    continue
-                # Não confirmada aberta mesmo após várias tentativas — NUNCA
-                # reenviar. "Não vista após N tentativas" não é o mesmo que
-                # "confirmado que não abriu", e reenviar às cegas pode dobrar
-                # uma perna que só ainda não propagou no broker (bug real,
-                # achado em revisão — ver docs da reconciliação com o upstream).
-                results.append({
-                    "pair": pair_sym, "action": action, "status": "ERROR",
-                    "error_code": retcode,
-                    "message": "Resposta ambígua e não confirmada aberta — "
-                               "NÃO reenviado (evita dobrar a perna). Revisar manualmente."})
-                print(f"  [!] {pair_sym} {action}: resposta ambígua ({retcode}), não confirmada "
-                      f"— não reenviado. REVISAR MANUALMENTE.")
-                continue
-
-            # Fallback de filling: alcançado pra qualquer rejeição NÃO
-            # ambígua (retcode ambíguo já foi resolvido/recusado acima, sem
-            # chegar aqui) — não filtra por retcode específico de modo de
-            # preenchimento, tenta de novo com ORDER_FILLING_RETURN pra
-            # qualquer rejeição não ambígua.
-            request["type_filling"] = mt5.ORDER_FILLING_RETURN
-            res2 = mt5.order_send(request)
-            if res2 and res2.retcode == mt5.TRADE_RETCODE_DONE:
+            ordem_enviada = True
+            res = mt5.order_send(request)
+            if res and res.retcode == mt5.TRADE_RETCODE_DONE:
                 success_count += 1
                 results.append({
                     "pair": pair_sym,
                     "action": action,
                     "lot": lot,
-                    "ticket": res2.order,
-                    "entry_price": res2.price or price,
+                    "ticket": res.order,
+                    "entry_price": res.price or price,
                     "status": "OPENED",
-                    "message": "Ordem executada com sucesso (RETURN)"
+                    "message": "Ordem executada com sucesso"
                 })
-                print(f"  [+] {pair_sym} {action} {lot} @ {res2.price or price:.5f} | Ticket: {res2.order}")
+                print(f"  [+] {pair_sym} {action} {lot} @ {res.price or price:.5f} | Ticket: {res.order}")
             else:
-                # Usa a resposta do REENVIO (res2), não da tentativa original
-                # (res) — reportar o erro da 1ª tentativa quando quem falhou
-                # foi a 2ª confunde o diagnóstico. Nota: se res2 também vier
-                # com um retcode ambíguo, ele NÃO passa por confirmação (só a
-                # 1ª tentativa passa) — fica ERROR mesmo que possa ter
-                # executado; não há um 3º envio automático, então não há
-                # risco de dobrar, só de um falso ERROR. Ver docs da
-                # reconciliação com o upstream.
-                err_code = res2.retcode if res2 else "N/A"
-                err_desc = res2.comment if res2 else "Falha de envio"
+                # Retry SÓ quando a falha é inequivocamente "não executou".
+                # Um timeout/erro de conexão é AMBÍGUO: a ordem pode ter sido
+                # preenchida no servidor e só a resposta ter se perdido — reenviar
+                # nesse caso dobra o volume da perna. Nesses casos, confirma no
+                # broker antes de decidir.
+                retcode = res.retcode if res else None
+                ambiguous = (res is None or retcode in _ambiguous_retcodes())
+                if ambiguous:
+                    confirmed_volume = _confirm_position_after_ambiguous_retcode(broker_sym, magic)
+                    if confirmed_volume:
+                        success_count += 1
+                        # Reporta o volume REAL confirmado no broker, não o lote
+                        # pedido — um DONE_PARTIAL abre menos do que foi pedido, e
+                        # reportar o pedido como se fosse o executado escondia a
+                        # exposição real da cesta (achado em revisão).
+                        partial_note = ""
+                        if abs(confirmed_volume - lot) > 1e-9:
+                            partial_note = (f" — ATENÇÃO: volume confirmado ({confirmed_volume}) "
+                                             f"é diferente do lote pedido ({lot}); possível preenchimento parcial")
+                        results.append({
+                            "pair": pair_sym, "action": action, "lot": confirmed_volume,
+                            "entry_price": price, "status": "OPENED",
+                            "message": f"Resposta ambígua ({retcode}), mas posição confirmada no broker "
+                                       f"(volume real: {confirmed_volume}){partial_note}"})
+                        print(f"  [+] {pair_sym} {action}: resposta ambígua, posição CONFIRMADA no broker "
+                              f"(volume {confirmed_volume}){partial_note}")
+                        continue
+                    # Não confirmada aberta mesmo após várias tentativas — NUNCA
+                    # reenviar. "Não vista após N tentativas" não é o mesmo que
+                    # "confirmado que não abriu", e reenviar às cegas pode dobrar
+                    # uma perna que só ainda não propagou no broker (bug real,
+                    # achado em revisão — ver docs da reconciliação com o upstream).
+                    #
+                    # status UNCERTAIN, não ERROR (achado MFC18-01, herdr-review
+                    # rodada 18, Codex): ERROR aqui significaria "confirmado que
+                    # NÃO abriu", mas o que se sabe de verdade é só "não
+                    # confirmado" — o broker pode ter aceitado a ordem e a
+                    # consulta de confirmação é que falhou em enxergar. Se TODAS
+                    # as pernas caírem neste ramo, success_count fica em 0 e a
+                    # cesta inteira voltaria "recusada" pro chamador — pior que
+                    # silêncio, informação errada, quando pode haver exposição
+                    # real sem confirmação nenhuma. UNCERTAIN é o sinal que o
+                    # scheduler (execute_phase_2105) usa pra tratar isso como
+                    # cesta PARCIAL/alertável mesmo com success=False.
+                    results.append({
+                        "pair": pair_sym, "action": action, "status": "UNCERTAIN",
+                        "error_code": retcode,
+                        "message": "Resposta ambígua e NÃO CONFIRMADA — pode estar aberta ou não; "
+                                   "NÃO reenviado (evita dobrar a perna). Revisar manualmente."})
+                    print(f"  [!] {pair_sym} {action}: resposta ambígua ({retcode}), NÃO CONFIRMADA "
+                          f"(pode estar aberta) — não reenviado. REVISAR MANUALMENTE.")
+                    continue
+
+                # Fallback de filling: alcançado pra qualquer rejeição NÃO
+                # ambígua (retcode ambíguo já foi resolvido/recusado acima, sem
+                # chegar aqui) — não filtra por retcode específico de modo de
+                # preenchimento, tenta de novo com ORDER_FILLING_RETURN pra
+                # qualquer rejeição não ambígua.
+                request["type_filling"] = mt5.ORDER_FILLING_RETURN
+                res2 = mt5.order_send(request)
+                if res2 and res2.retcode == mt5.TRADE_RETCODE_DONE:
+                    success_count += 1
+                    results.append({
+                        "pair": pair_sym,
+                        "action": action,
+                        "lot": lot,
+                        "ticket": res2.order,
+                        "entry_price": res2.price or price,
+                        "status": "OPENED",
+                        "message": "Ordem executada com sucesso (RETURN)"
+                    })
+                    print(f"  [+] {pair_sym} {action} {lot} @ {res2.price or price:.5f} | Ticket: {res2.order}")
+                else:
+                    # Usa a resposta do REENVIO (res2), não da tentativa original
+                    # (res) — reportar o erro da 1ª tentativa quando quem falhou
+                    # foi a 2ª confunde o diagnóstico.
+                    #
+                    # Achado em revisão (Codex + mfc-rev-2, herdr-review rodada
+                    # 19, P1/P1-1, confirmado pelos dois independentemente):
+                    # res2 (o REENVIO) é tão capaz de vir None/ambíguo quanto a
+                    # 1ª tentativa (res) — DONE_PARTIAL, TIMEOUT, CONNECTION,
+                    # PLACED são retcodes reais de qualquer order_send(), não
+                    # só do primeiro. Antes desta correção, esse caso caía
+                    # direto em ERROR sem perguntar ao broker — o comentário
+                    # antigo chamava isso de "só um falso ERROR", mas depois da
+                    # rodada 18 (estado UNCERTAIN) ERROR passou a significar
+                    # "confirmado que NÃO abriu": um res2 ambíguo não confirmado
+                    # é exatamente a informação que UNCERTAIN existe pra
+                    # carregar, não um ERROR. mfc-rev-2 mediu: num broker que
+                    # só aceita ORDER_FILLING_RETURN, as 7 pernas passam por
+                    # AQUI sempre — não é canto raro, é o caminho normal desse
+                    # tipo de corretora. NÃO reenvia uma 3ª vez (mesma doutrina
+                    # de sempre — reenviar às cegas pode dobrar uma perna que
+                    # só ainda não confirmou).
+                    retcode2 = res2.retcode if res2 else None
+                    ambiguous2 = (res2 is None or retcode2 in _ambiguous_retcodes())
+                    if ambiguous2:
+                        confirmed_volume2 = _confirm_position_after_ambiguous_retcode(broker_sym, magic)
+                        if confirmed_volume2:
+                            success_count += 1
+                            results.append({
+                                "pair": pair_sym, "action": action, "lot": confirmed_volume2,
+                                "entry_price": price, "status": "OPENED",
+                                "message": f"Reenvio com resposta ambígua ({retcode2}), mas posição "
+                                           f"CONFIRMADA no broker (volume real: {confirmed_volume2})."})
+                            print(f"  [+] {pair_sym} {action}: reenvio com resposta ambígua, "
+                                  f"posição CONFIRMADA no broker (volume {confirmed_volume2}).")
+                            continue
+                        results.append({
+                            "pair": pair_sym, "action": action, "status": "UNCERTAIN",
+                            "error_code": retcode2,
+                            "message": "Reenvio com resposta ambígua e NÃO CONFIRMADA — pode estar "
+                                       "aberta ou não. NÃO reenviado de novo. Revisar manualmente."})
+                        print(f"  [!] {pair_sym} {action}: reenvio com resposta ambígua ({retcode2}), "
+                              f"NÃO CONFIRMADA (pode estar aberta) — revisar manualmente.")
+                        continue
+
+                    err_code = res2.retcode if res2 else "N/A"
+                    err_desc = res2.comment if res2 else "Falha de envio"
+                    results.append({
+                        "pair": pair_sym,
+                        "action": action,
+                        "status": "ERROR",
+                        "error_code": err_code,
+                        "message": err_desc
+                    })
+                    print(f"  [-] {pair_sym} {action} Falhou: {err_code} - {err_desc}")
+        except Exception as e:
+            # Achado em revisão (mfc-rev-2, herdr-review rodada 17, P2-1 —
+            # resíduo da própria correção da rodada 16/P1-1): uma EXCEÇÃO em
+            # order_send() é estritamente mais ambígua que `res is None` (a
+            # ordem pode ter chegado ao servidor e só a resposta ter se
+            # perdido) — tratá-la direto como ERROR, sem perguntar ao broker,
+            # corre o mesmo risco que a confirmação de retcode ambíguo já
+            # existe pra evitar: o alerta de cesta parcial diz "revisar
+            # manualmente", o operador abre a perna "faltante" na mão, e ela
+            # estava aberta o tempo todo — dobra a perna (a versão humana do
+            # bug que a doutrina de não-reenviar automático já impede).
+            # `broker_symbols.get(...)` porque a exceção pode ter acontecido
+            # ANTES de `broker_sym` ser atribuído; um segundo try/except
+            # protege a própria confirmação — se ela TAMBÉM falhar (mesma
+            # instabilidade que causou a exceção original), o resultado é
+            # "não confirmado", não um crash novo.
+            broker_sym_confirmacao = broker_symbols.get(pair_sym)
+            confirmed_volume = None
+            # Só há o que confirmar se a ordem chegou a ser enviada (achado
+            # P3-1 acima) — sem isso, uma exceção ANTES de order_send()
+            # (symbol_info_tick, cálculo do SL) gastava 3 tentativas de
+            # positions_get() só pra sempre devolver None.
+            if ordem_enviada and broker_sym_confirmacao:
+                try:
+                    confirmed_volume = _confirm_position_after_ambiguous_retcode(
+                        broker_sym_confirmacao, magic)
+                except Exception:
+                    confirmed_volume = None
+            if confirmed_volume:
+                success_count += 1
                 results.append({
                     "pair": pair_sym,
-                    "action": action,
-                    "status": "ERROR",
-                    "error_code": err_code,
-                    "message": err_desc
+                    "action": p.get("action"),
+                    "lot": confirmed_volume,
+                    "status": "OPENED",
+                    "message": f"Exceção durante o envio ({e}), mas posição CONFIRMADA "
+                               f"no broker (volume real: {confirmed_volume}).",
                 })
-                print(f"  [-] {pair_sym} {action} Falhou: {err_code} - {err_desc}")
+                print(f"  [+] {pair_sym}: exceção durante o envio, mas posição CONFIRMADA "
+                      f"no broker (volume {confirmed_volume}).")
+            elif ordem_enviada:
+                # status UNCERTAIN, não ERROR (achado MFC18-01, herdr-review
+                # rodada 18, Codex): a ordem FOI enviada e a exceção impediu
+                # saber o resultado; a tentativa de confirmação também não
+                # achou nada — mas "não achou" não é "confirmado que não
+                # abriu" (a mesma distinção do ramo de retcode ambíguo acima).
+                results.append({
+                    "pair": pair_sym,
+                    "action": p.get("action"),
+                    "status": "UNCERTAIN",
+                    "message": f"Exceção durante o envio ({e}) e NÃO CONFIRMADA — pode estar "
+                               f"aberta ou não. Revisar manualmente.",
+                })
+                print(f"  [!] {pair_sym}: exceção durante o envio — {e}. NÃO CONFIRMADA "
+                      f"(pode estar aberta), cesta segue com o restante das pernas.")
+            else:
+                # A exceção aconteceu ANTES de qualquer order_send() (ex.:
+                # symbol_info_tick, cálculo do SL) — a ordem nunca saiu, então
+                # isto É um ERROR de verdade (confirmado que não abriu), não
+                # um estado incerto.
+                results.append({
+                    "pair": pair_sym,
+                    "action": p.get("action"),
+                    "status": "ERROR",
+                    "message": f"Exceção inesperada ao processar a perna (antes do envio): {e}",
+                })
+                print(f"  [!] {pair_sym}: exceção inesperada antes do envio — {e}. "
+                      f"Perna NÃO enviada, cesta segue com o restante das pernas.")
 
+    # uncertain_count (achado MFC18-01, herdr-review rodada 18): quantas
+    # pernas ficaram sem confirmação nenhuma (podem estar abertas ou não) —
+    # separado de opened_count (confirmado aberto) e do resto de `results`
+    # que virou ERROR (confirmado que NÃO abriu). O scheduler
+    # (execute_phase_2105) usa isto pra não classificar como "recusada" uma
+    # cesta que, apesar de success=False, pode ter exposição real sem
+    # ninguém saber.
+    uncertain_count = sum(1 for r in results if r.get("status") == "UNCERTAIN")
     return {
         "success": success_count > 0,
         "currency": ccy,
@@ -1471,6 +1832,7 @@ def open_portfolio_basket(currency: str, bias: str, lot: float = 0.01, deviation
         "magic": magic,
         "opened_count": success_count,
         "total_pairs": len(pairs),
+        "uncertain_count": uncertain_count,
         "results": results
     }
 
