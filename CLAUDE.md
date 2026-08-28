@@ -68,6 +68,44 @@ python -m pytest tests/test_portfolio_safety.py -q   # execution safety gates
 compare its computed scores against the live dashboard engine), but patches the file-write
 step so it never touches `data/portfolio_signals_live.json` on disk.
 
+### Isolated MT5 instance for `scripts/backtest_canonical.py` (read-only, historical)
+
+`scripts/backtest_canonical.py` needs a connected MT5 terminal to fetch historical
+rates/CSS scores, but it never sends orders or writes to `data/` — running it against the
+LIVE `mfc` terminal (`css-mt5-mfc.service`) is safe in principle, but a dedicated, isolated
+portable instance avoids any doubt and any accidental interference with the 21:05/08:00
+live schedule. One was set up 2026-08-28 on the same machine that runs the live scheduler
+(`192.168.0.125`, WSL host): `D:\MetaTradersWSL\mfc-backtest\terminal64.exe`, logged into
+the same demo account (`198819543`, `Exness-MT5Trial11`) as the live instance — copied
+binaries + `Config/` (login/servers) from the live instance, but NOT `Bases/` (locked by
+the live process while it's running; the new instance re-downloads its own history on
+connect, so no shared file dependency). Confirmed safe: launching it produced zero log
+activity on the live instance's side, and the live instance kept trading normally
+throughout.
+
+To run a backtest against it (from a shell on that machine, WSL side):
+
+```bash
+cd ~/Devs/miqueias/MFC
+export CSS_MT5_TERMINAL_PATH='D:\MetaTradersWSL\mfc-backtest\terminal64.exe'
+export PYTHONPATH='.'
+export WSLENV="CSS_MT5_TERMINAL_PATH:PYTHONPATH:$WSLENV"   # WSLENV does NOT
+# propagate custom vars to Windows processes by default — must be listed explicitly,
+# plain (no /p or /l flag: the value is already Windows-path-shaped, translating it
+# would corrupt it).
+/mnt/c/WINDOWS/py.exe -3.12 scripts/backtest_canonical.py 45
+```
+
+`CSS_MT5_TERMINAL_PATH` set as a real OS env var always wins over `.env`
+(`web/css_service.py::_load_dotenv_if_present`), so this overrides the live path for this
+one invocation without touching the committed `.env`. Baseline result (45 nights,
+2026-08-28): 270 baskets, 28.9% profitable nights, gross PnL $147.90 ($3.29/night), net
+PnL **-$395.43** (-$8.79/night) after spread+swap (~$12.07/night average cost) — gross
+signal is barely positive and transaction cost erases it; only AUD was net-profitable per
+currency, GBP was the worst by far. This instance is left running for reuse in later
+reconciliation-plan items (6: 5-TF shadow-mode validation) — don't tear it down without
+checking whether ongoing work depends on it.
+
 ## Reviewer colleagues
 
 If you're running as `mfc-exec` inside a Herdr workspace, `mfc-rev` (Codex)
