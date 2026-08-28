@@ -182,3 +182,45 @@ Violação de qualquer item abaixo é achado P0 ou P1, mesmo que os testes passe
   símbolo, cold start simultâneo sem lock de arquivo) — risco medido e
   aceito desde a rodada 3 do achado 1**, não decisão desta rodada. Ver
   comentário em `_detect_mt5_symbol_family()` em `web/css_service.py`.
+
+- **Threshold de região/box (`agents/triad_analyzer.py::REGION_ZONA_PARADA`)
+  congelado em +/-0.20 — item 3 do plano de reconciliação, decisão de
+  27/08.** O upstream (Miquéias) mexeu nesse valor em commits recentes, mas
+  nem toda mudança do lado dele era tuning (correção factual, mfc-rev-2,
+  herdr-review rodada 20, sobre a análise original desta sessão): dos 3
+  commits que tocam `agents/triad_analyzer.py`, `544d660`/`ef6a6f6` SÃO
+  tuning de alvo móvel (+/-0.20 original -> banda +/-0.01 -> banda alargada
+  +/-0.04) — sinal de valor ainda não estabilizado do lado dele, correto
+  ignorar. `220f0a3` NÃO mexe em threshold — arredonda o score pra 2 casas
+  antes de comparar, corrigindo um descasamento real entre número exibido e
+  região classificada (caso real citado: CAD no MN1). Nosso +/-0.20 já era o
+  valor real em uso nas três implementações (docs/MATHEMATICAL_MODELS.md,
+  `mt5/css.mql5` `inp_levelCrossValue`, `CSS.pine` `boxLevel`) — a mudança
+  desta sessão foi só extrair os ~20 literais soltos que existiam no arquivo
+  pra uma constante nomeada (refactor puro, comportamento idêntico,
+  verificado por 166.347 casos incluindo vizinhança de ponto flutuante,
+  degenerados e `np.float32`, zero divergência) e congelar com testes de
+  fronteira (`tests/test_triad_analyzer.py`). Não é achado um revisor
+  encontrar o valor "desatualizado" em relação à faixa que o upstream está
+  testando agora — é o oposto do que a decisão pede. Reabrir só com
+  evidência nova (ex.: o Breno decidir migrar pra alguma forma de banda de
+  tolerância).
+
+- **P3-2 (mfc-rev-2, herdr-review rodada 20) — score exibido e região
+  classificada podem discordar nas bordas; PRÉ-EXISTENTE, NÃO corrigido,
+  fora do escopo do item 3.** A classificação de região usa `val_curr` cru;
+  `score_str` mostra só 2 casas decimais. Na faixa de ~0,005 em torno de
+  cada limiar os dois discordam (ex.: score real 0.19999 exibe "+0.20" mas
+  classifica `BOX_SUPERIOR`, não `ZONA_PARADA_VERDE`) — medido em dado real
+  (`data/css_standard.json`): 135 pontos (0,61%) afetados no limiar de 0.20,
+  67 no de 0.50, 148 no de 0.05. É exatamente o que o commit upstream
+  `220f0a3` corrigiu do lado dele (arredondando pra 2 casas ANTES de
+  comparar). Não é achado de segurança de execução (nenhuma decisão de
+  abrir/recusar cesta depende disto — é dado de dashboard/relatório
+  diário), mas é uma inconsistência real de leitura humana vs. máquina que
+  precisa de decisão do Breno (duas saídas discutidas: adotar o
+  `round(val_curr, 2)` do upstream, que move as fronteiras efetivas em
+  0,005 e exige refazer a prova de equivalência; ou manter o valor cru e
+  exibir mais casas decimais, que preserva o congelamento sem mexer em
+  fronteira nenhuma). Não reabra como achado repetido — é pendência
+  conhecida, registrada aqui e no plano de reconciliação.
