@@ -119,7 +119,12 @@ work done. The same pair can also weigh in on an open design question
 *before* you build something — given the safety stakes here, prefer asking
 first over reviewing after; see the `herdr-ask` skill for that case.
 Requires `HERDR_ENV=1`; if that's unset, you're not in a Herdr-managed pane
-and none of this applies.
+and none of this applies. Never use your own CLI's native sub-agent
+mechanism (e.g. Codex's `agents`/`pipeline_reviewer`, Claude's `Agent` tool)
+as a substitute for this — those spawn ephemeral, invisible processes
+outside Herdr with no pane and no persistent identity, which is especially
+dangerous here given real orders reach a live market. Every review round,
+including an extra or "final" one, goes back through `herdr-review`.
 
 ## Live MT5 execution (branch `fase-1-hibrido`)
 
