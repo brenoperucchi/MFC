@@ -3522,9 +3522,23 @@ class TestProvenanceStamping(unittest.TestCase):
 
     def _gen(self, **kwargs):
         """Gera o payload SEM tocar em data/portfolio_signals_live.json nem na
-        pasta do MT5 — o teste não pode reescrever o sinal real do operador."""
+        pasta do MT5 — o teste não pode reescrever o sinal real do operador.
+
+        Relógio fixado numa QUINTA-feira meio-dia (herdr-review rodada 22,
+        mfc-rev-2, P3-1): `generate_and_save_daily_signals()` lê
+        `datetime.now()` e bloqueia tudo no fim de semana (`is_weekend`) —
+        sem fixar a data, este teste falhava sempre que a suíte rodasse
+        sábado/domingo ou sexta após 20h, e o par negativo
+        (`test_signals_blocked_when_caller_omits_provenance`) passava pelo
+        motivo ERRADO nesses dias (bloqueado por fim de semana, não por
+        procedência) — o controle positivo do par ficava sem proteção
+        justamente quando mais importava. Mesmo padrão de
+        `patch.object(daemon, "datetime")` já usado nos testes do
+        scheduler."""
         with patch.object(pe, "_atomic_write_json", lambda *a, **k: None), \
-             patch.object(pe, "get_mt5_files_dir", lambda: None):
+             patch.object(pe, "get_mt5_files_dir", lambda: None), \
+             patch.object(pe, "datetime") as fake_dt:
+            fake_dt.now.return_value = datetime(2026, 8, 27, 12, 0, 0)  # quinta-feira
             return pe.generate_and_save_daily_signals(
                 currencies_data=[{"symbol": "CAD", "trade_bias": "COMPRA", "triads": {}}],
                 **kwargs)
