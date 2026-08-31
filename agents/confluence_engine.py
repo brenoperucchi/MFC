@@ -1,15 +1,113 @@
 """
-MOTOR DE CONFLUÊNCIA MULTI-AGENTE CSS — OPERAÇÕES ALICATE 3-TF (D1, H4, H1)
+MOTOR DE CONFLUÊNCIA MULTI-AGENTE CSS — MATRIZ INSTITUCIONAL 5-TF
 Especialista em operações curtas e intraday baseadas no Fechamento de Alicate (Scissor / Pincer Convergence).
-Hierarquia de pesos 3-TF:
-  - D1 (40%): Contexto Direcional e Permissão do Dia
-  - H4 (35%): Estrutura e Momentum da Sessão
-  - H1 (25%): Gatilho Imediato e Ponto de Ignição
+Hierarquia de pesos 5-TF:
+  - D1 (3.0): Contexto Direcional e Permissão do Dia
+  - H4 (2.0): Estrutura e Momentum da Sessão
+  - W1/MN1 (1.5 cada): soberania macro e maturação
+  - H1 (1.0): Gatilho Imediato e Ponto de Ignição
 """
+
+from datetime import datetime, timedelta, timezone
 
 from agents.macro_analyzer import analyze_macro_currency
 from agents.operational_analyzer import analyze_operational_currency
-from agents.triad_analyzer import analyze_tf_triad
+from agents.triad_analyzer import (
+    REGION_EQUILIBRIO,
+    REGION_ZONA_PARADA,
+)
+
+
+# A maturação temporal precisa usar sempre a mesma referência entre live e
+# backtest. Datetimes sem fuso são aceitos apenas como horário BRT explícito;
+# nenhum chamador pode omitir o instante.
+BRT = timezone(timedelta(hours=-3), name="BRT")
+
+
+def _normalize_ref_dt(ref_dt):
+    """Normaliza um instante de referência para BRT.
+
+    O contrato do motor é explícito: ``None`` é erro, datetime ingênuo é
+    interpretado como BRT e datetime com fuso é convertido para BRT. Isso
+    evita que ``datetime.now()`` esconda diferenças entre live, backtest e
+    máquinas com fusos distintos.
+    """
+    if ref_dt is None:
+        raise TypeError("ref_dt é obrigatório e deve representar um instante BRT")
+    if not isinstance(ref_dt, datetime):
+        raise TypeError("ref_dt deve ser datetime")
+    if ref_dt.tzinfo is None:
+        return ref_dt.replace(tzinfo=BRT)
+    return ref_dt.astimezone(BRT)
+
+
+def _get_tf_maturity(tf_name, ref_dt):
+    """Calcula a maturação progressiva da barra usando um instante BRT."""
+    ref_dt = _normalize_ref_dt(ref_dt)
+
+    if tf_name in ("D1", "H4", "H1"):
+        return 1.00
+
+    if tf_name == "W1":
+        return {
+            0: 0.20,
+            1: 0.40,
+            2: 0.60,
+            3: 0.80,
+        }.get(ref_dt.weekday(), 1.00)
+
+    if tf_name == "MN1":
+        return round(min(1.00, max(0.20, ref_dt.day / 30.0)), 2)
+
+    return 1.00
+
+
+def _calculate_tf_vector(tf_name, triad):
+    """Calcula o vetor direcional usando a taxonomia local congelada.
+
+    A implementação de referência do upstream usa buffers ±0,16/±0,04.
+    Aqui a região é deliberadamente ancorada nas constantes locais
+    ``REGION_ZONA_PARADA`` (±0,20) e ``REGION_EQUILIBRIO`` (±0,05), para que
+    a matriz nova não altere silenciosamente o contrato da Tríade Analítica.
+    O limiar ``abs_diff >= 0,05`` abaixo é intensidade de variação, não uma
+    segunda definição da zona de equilíbrio.
+    """
+    score = float(triad.get("score", 0.0))
+    diff = float(triad.get("diff", 0.0))
+    abs_diff = abs(diff)
+
+    if score >= REGION_ZONA_PARADA:
+        if diff <= -0.03:
+            return -2.0
+        if diff < 0:
+            return -1.5
+        if diff > 0:
+            return +1.5
+        return -0.5
+
+    if score <= -REGION_ZONA_PARADA:
+        if diff >= +0.03:
+            return +2.0
+        if diff > 0:
+            return +1.5
+        if diff < 0:
+            return -1.5
+        return +0.5
+
+    if -REGION_EQUILIBRIO <= score <= REGION_EQUILIBRIO:
+        if diff > 0.002:
+            return +0.40
+        if diff < -0.002:
+            return -0.40
+        return 0.0
+
+    if abs_diff >= 0.05:
+        return +1.0 if diff > 0 else -1.0
+    if diff > 0.002:
+        return +0.5
+    if diff < -0.002:
+        return -0.5
+    return 0.0
 
 
 def detect_tf_alicate(b_score, b_diff, q_score, q_diff):
@@ -51,38 +149,113 @@ def detect_tf_alicate(b_score, b_diff, q_score, q_diff):
     return None
 
 
-def evaluate_currency_confluence(ccy, mn_s, w1_s, d1_s, h4_s, h1_s):
+def evaluate_currency_confluence(ccy, mn_s, w1_s, d1_s, h4_s, h1_s, ref_dt):
+    """Avalia a matriz institucional 5-TF para uma moeda.
+
+    ``ref_dt`` é obrigatório na prática (``None`` gera erro) e representa o
+    instante da decisão em BRT. O motor mantém a decisão por moeda separada
+    do ranking de pares, que continua em ``evaluate_28_pairs_confluence``.
+    """
+    ref_dt = _normalize_ref_dt(ref_dt)
     macro = analyze_macro_currency(ccy, mn_s, w1_s, d1_s)
     op = analyze_operational_currency(ccy, h4_s, h1_s, macro)
-    
-    d1_curr = float(d1_s[-1]) if len(d1_s) > 0 else 0.0
-    h4_curr = float(h4_s[-1]) if len(h4_s) > 0 else 0.0
-    h1_curr = float(h1_s[-1]) if len(h1_s) > 0 else 0.0
-    
-    # Pontuação consolidada 3-TF: D1 (40%) + H4 (35%) + H1 (25%)
-    score_3tf = (d1_curr * 0.40) + (h4_curr * 0.35) + (h1_curr * 0.25)
-    
-    d1_power = macro["d1_triad"].get("diff", 0.0)
-    h4_power = op["h4_triad"].get("diff", 0.0)
-    h1_power = op["h1_triad"].get("diff", 0.0)
-    
+
+    triads = {
+        "MN1": macro["mn_triad"],
+        "W1": macro["w1_triad"],
+        "D1": macro["d1_triad"],
+        "H4": op["h4_triad"],
+        "H1": op["h1_triad"],
+    }
+    weights = {
+        "D1": 3.0,
+        "H4": 2.0,
+        "W1": 1.5,
+        "MN1": 1.5,
+        "H1": 1.0,
+    }
+
+    base_vectors = {tf: _calculate_tf_vector(tf, triads[tf]) for tf in triads}
+    maturities = {tf: _get_tf_maturity(tf, ref_dt) for tf in triads}
+
+    macro_bias = round(
+        base_vectors["MN1"] * maturities["MN1"]
+        + base_vectors["W1"] * maturities["W1"],
+        3,
+    )
+
+    penalties = {tf: 1.0 for tf in triads}
+    is_counter_flow_d1 = False
+    is_counter_flow_h4 = False
+    if macro_bias > 0.30:
+        for tf in ("D1", "H4", "H1"):
+            if base_vectors[tf] < 0:
+                penalties[tf] = 0.40
+                is_counter_flow_d1 |= tf == "D1"
+                is_counter_flow_h4 |= tf == "H4"
+    elif macro_bias < -0.30:
+        for tf in ("D1", "H4", "H1"):
+            if base_vectors[tf] > 0:
+                penalties[tf] = 0.40
+                is_counter_flow_d1 |= tf == "D1"
+                is_counter_flow_h4 |= tf == "H4"
+
+    vectors = {
+        tf: round(base_vectors[tf] * maturities[tf] * penalties[tf], 3)
+        for tf in triads
+    }
+    weighted_score = sum(vectors[tf] * weights[tf] for tf in weights)
+    norm_score = round((weighted_score / 13.5) * 10.0, 2)
+
+    up_tfs = [tf for tf, value in vectors.items() if value > 0]
+    dn_tfs = [tf for tf, value in vectors.items() if value < 0]
+    flat_tfs = [tf for tf, value in vectors.items() if value == 0]
+    d1_vec = vectors["D1"]
+    h4_vec = vectors["H4"]
+    h1_vec = vectors["H1"]
+
     confluence_state = "EQUILÍBRIO"
-    final_verdict = "AGUARDAR ALINHAMENTO"
+    final_verdict = "AGUARDAR DEFINIÇÃO"
     trade_bias = "NEUTRO"
-    
-    if score_3tf >= 0.10:
-        confluence_state = "CONFLUÊNCIA DE ALTA (FLUXO COMPRADOR 3-TF)"
-        final_verdict = "COMPRA (BUSCANDO TOPO DO BOX)"
+
+    if macro_bias > 0.30 and (is_counter_flow_d1 or is_counter_flow_h4) and h1_vec > 0:
         trade_bias = "COMPRA"
-    elif score_3tf <= -0.10:
-        confluence_state = "CONFLUÊNCIA DE QUEDA (FLUXO VENDEDOR 3-TF)"
-        final_verdict = "VENDA (BUSCANDO FUNDO DO BOX)"
+        confluence_state = "RETOMADA DE FORÇA NO SUPORTE (PULLBACK ENCERRADO)"
+        final_verdict = "COMPRA NA RETOMADA (ALINHADO COM MACRO)"
+    elif macro_bias < -0.30 and (is_counter_flow_d1 or is_counter_flow_h4) and h1_vec < 0:
         trade_bias = "VENDA"
+        confluence_state = "RETOMADA DE FRAQUEZA NA RESISTÊNCIA (REPIQUE ENCERRADO)"
+        final_verdict = "VENDA NA RETOMADA (ALINHADO COM MACRO)"
+    elif norm_score <= -1.5 or (
+        d1_vec < 0 and (h4_vec < 0 or macro_bias < -0.30) and len(dn_tfs) >= 3
+    ):
+        trade_bias = "VENDA"
+        if len(dn_tfs) == 5:
+            confluence_state = "CONFLUÊNCIA TOTAL DE QUEDA (5-TF ALINHADOS)"
+            final_verdict = "VENDA FORTE (FLUXO INSTITUCIONAL COMPLETO)"
+        elif len(dn_tfs) >= 3:
+            confluence_state = f"CONFLUÊNCIA DE QUEDA ({len(dn_tfs)}/5 TIMEFRAMES)"
+            final_verdict = "VENDA (BUSCANDO FUNDO DO BOX)"
+        else:
+            confluence_state = "QUEDA ANCORADA PELO DIÁRIO (D1/H4)"
+            final_verdict = "VENDA (PRESSÃO VENDEDORA)"
+    elif norm_score >= +1.5 or (
+        d1_vec > 0 and (h4_vec > 0 or macro_bias > 0.30) and len(up_tfs) >= 3
+    ):
+        trade_bias = "COMPRA"
+        if len(up_tfs) == 5:
+            confluence_state = "CONFLUÊNCIA TOTAL DE ALTA (5-TF ALINHADOS)"
+            final_verdict = "COMPRA FORTE (FLUXO INSTITUCIONAL COMPLETO)"
+        elif len(up_tfs) >= 3:
+            confluence_state = f"CONFLUÊNCIA DE ALTA ({len(up_tfs)}/5 TIMEFRAMES)"
+            final_verdict = "COMPRA (BUSCANDO TOPO DO BOX)"
+        else:
+            confluence_state = "ALTA ANCORADA PELO DIÁRIO (D1/H4)"
+            final_verdict = "COMPRA (PRESSÃO COMPRADORA)"
     else:
         confluence_state = "BOX DE EQUILÍBRIO (TESTE DO 0)"
         final_verdict = "AGUARDAR DEFINIÇÃO"
-        trade_bias = "NEUTRO"
-        
+
     return {
         "ccy": ccy,
         "macro": macro,
@@ -92,7 +265,17 @@ def evaluate_currency_confluence(ccy, mn_s, w1_s, d1_s, h4_s, h1_s):
         "trade_bias": trade_bias,
         "has_divergence": op["has_divergence"],
         "divergence_alert": op["divergence_alert"],
-        "score_total": round(score_3tf, 2)
+        "score_total": norm_score,
+        "weighted_score": round(weighted_score, 3),
+        "macro_bias": macro_bias,
+        "base_vectors": base_vectors,
+        "vectors": vectors,
+        "maturities": maturities,
+        "penalties": penalties,
+        "aligned_up_count": len(up_tfs),
+        "aligned_dn_count": len(dn_tfs),
+        "aligned_flat_count": len(flat_tfs),
+        "ref_dt_brt": ref_dt.isoformat(),
     }
 
 

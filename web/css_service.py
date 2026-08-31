@@ -61,7 +61,11 @@ def _load_dotenv_if_present(env_path=None):
 
 _load_dotenv_if_present()
 
-from agents.confluence_engine import evaluate_currency_confluence, evaluate_28_pairs_confluence
+from agents.confluence_engine import (
+    BRT,
+    evaluate_currency_confluence,
+    evaluate_28_pairs_confluence,
+)
 from agents.triad_analyzer import analyze_tf_triad
 
 # Tentar importar MetaTrader5
@@ -654,13 +658,33 @@ TIMEFRAMES_CONFIG = [
     ("H1", 200)
 ]
 
-def calc_atr_sma(high, low, close, period=100):
+# O pipeline de decisão só aceita um ponto quando há uma interseção temporal
+# comum mínima entre todos os 28 pares. Isso precisa ser igual ao aquecimento
+# mínimo usado pelo backtest para não servir um snapshot parcial como live.
+MIN_COMMON_HISTORY_BARS = 30
+ATR_PERIOD = 100
+STANDARD_ATR_OFFSET = 10
+
+
+def required_full_history_bars(count, mode="standard"):
+    """Retorna o histórico necessário para toda a série exibida ser válida.
+
+    No modo padrão o ATR é lido em ``pos - 10``. Portanto, não basta ter a
+    janela de 100 barras disponível na última observação: a primeira posição
+    retornada também precisa ter ATR cheio. O modo gaussiano não aplica esse
+    deslocamento, mas mantém a mesma regra geral com seu próprio aquecimento.
+    """
+    offset = STANDARD_ATR_OFFSET if mode != "gauss" else 0
+    return int(count) + ATR_PERIOD + offset - 1
+
+
+def calc_atr_sma(high, low, close, period=100, min_periods=1):
     tr = np.zeros(len(close))
     tr[0] = high[0] - low[0]
     for i in range(1, len(close)):
         tr[i] = max(high[i] - low[i], abs(high[i] - close[i-1]), abs(low[i] - close[i-1]))
     tr_series = pd.Series(tr)
-    atr = tr_series.rolling(window=period, min_periods=1).mean().values
+    atr = tr_series.rolling(window=period, min_periods=min_periods).mean().values
     return atr
 
 def calc_lwma(series_values, period=21):
@@ -704,16 +728,36 @@ def normalize_score_tanh(value, sensitivity=1.0, max_bound=2.0, use_tanh=True):
         x = (value * sensitivity) / max_bound
         return float(np.tanh(x) * max_bound)
 
-def calculate_full_css(tf_val, count=120, mode="standard"):
+def calculate_full_css(tf_val, count=120, mode="standard", return_quality=False):
     if not MT5_AVAILABLE:
-        return None, None, None
+        return (None, None, None, {"status": "unavailable"}) if return_quality else (None, None, None)
+
+    required_history = required_full_history_bars(count, mode)
+    quality = {
+        "status": "clean",
+        "requested_history_bars": int(count),
+        "required_full_history_bars": required_history,
+        "short_history_pairs": [],
+        "common_history_bars": 0,
+        "returned_history_bars": 0,
+    }
+
+    def _result(res, times, pair_slopes):
+        if return_quality:
+            return res, times, pair_slopes, quality
+        return res, times, pair_slopes
         
     pair_dfs = {}
     for sym in ALL_28_PAIRS:
         # Consulta pelo nome da corretora (pode ter sufixo, ex.: EURUSDm),
         # mas indexa pelo nome lógico — todo o resto do sistema usa o lógico.
         rates = mt5.copy_rates_from_pos(to_broker_symbol(sym), tf_val, 0, count + 150)
-        if rates is None or len(rates) < 120:
+        # A máscara mínima permite reconstruir o histórico, mas a qualidade
+        # numérica só é "clean" quando o ATR(100) e o deslocamento de 10
+        # posições têm janela cheia em TODAS as posições exibidas. O chamador
+        # live recebe o marcador abaixo e cai no fallback/cache em vez de usar
+        # um score truncado sem aviso.
+        if rates is None or len(rates) < MIN_COMMON_HISTORY_BARS:
             continue
         df = pd.DataFrame(rates)
         df['time'] = pd.to_datetime(df['time'], unit='s')
@@ -721,7 +765,17 @@ def calculate_full_css(tf_val, count=120, mode="standard"):
         pair_dfs[sym] = df
         
     if not pair_dfs:
-        return None, None, None
+        quality["status"] = "incomplete"
+        return _result(None, None, None)
+
+    # Um timeframe com 27/28 pares não é um snapshot válido: a média por
+    # moeda e, portanto, o score normalizado mudariam silenciosamente. Exigir
+    # a cobertura completa faz o chamador cair no cache/fallback controlado.
+    missing_pairs = sorted(set(ALL_28_PAIRS) - set(pair_dfs))
+    if missing_pairs:
+        quality["status"] = "incomplete"
+        quality["missing_pairs"] = missing_pairs
+        return _result(None, None, None)
         
     common_index = None
     for sym, df in pair_dfs.items():
@@ -730,10 +784,33 @@ def calculate_full_css(tf_val, count=120, mode="standard"):
         else:
             common_index = common_index.intersection(df.index)
             
-    if common_index is None or len(common_index) == 0:
-        return None, None, None
-        
+    if common_index is None or len(common_index) < MIN_COMMON_HISTORY_BARS:
+        quality["status"] = "incomplete"
+        quality["common_history_bars"] = len(common_index) if common_index is not None else 0
+        return _result(None, None, None)
+
+    quality["common_history_bars"] = len(common_index)
     common_index = common_index[-count:]
+    quality["returned_history_bars"] = len(common_index)
+    # ``count`` é a quantidade mínima declarada para o snapshot. A interseção
+    # pode estar suficientemente aquecida para o ATR e ainda assim ter menos
+    # barras que o consumidor solicitou; isso não é um snapshot completo e
+    # deve permanecer utilizável apenas para diagnóstico exploratório.
+    if len(common_index) < count:
+        quality["status"] = "degraded"
+    # A quantidade bruta de barras pode esconder um início desalinhado da
+    # interseção comum. Medir a primeira posição efetivamente exibida fecha
+    # tanto esse caso quanto a faixa cega ``120 <= len < count + 109`` do
+    # modo padrão.
+    for sym, df in pair_dfs.items():
+        idx_map = {t: i for i, t in enumerate(df.index)}
+        first_pos = idx_map.get(common_index[0]) if len(common_index) else None
+        if first_pos is None or first_pos < required_history - count:
+            quality["short_history_pairs"].append(sym)
+    quality["short_history_pairs"] = sorted(quality["short_history_pairs"])
+    if quality["short_history_pairs"]:
+        quality["status"] = "degraded"
+
     pair_slopes = {}
     occurrences = {c: 0 for c in CURRENCIES}
     
@@ -750,7 +827,7 @@ def calculate_full_css(tf_val, count=120, mode="standard"):
 
         if mode == "gauss":
             # MODO GAUSS: Nadaraya-Watson Envelope + Raw ATR(100)
-            atr_arr = calc_atr_sma(highs, lows, closes, 100)
+            atr_arr = calc_atr_sma(highs, lows, closes, ATR_PERIOD, min_periods=ATR_PERIOD)
             nwe_arr = calc_nwe_gaussian(closes, lookback=95, bandwidth=8.0)
             
             for t in common_index:
@@ -758,14 +835,18 @@ def calculate_full_css(tf_val, count=120, mode="standard"):
                 if pos <= 0:
                     slopes.append(0.0)
                     continue
-                atr = atr_arr[pos] if pos < len(atr_arr) and atr_arr[pos] > 0 else 0.0001
+                atr_value = atr_arr[pos] if pos < len(atr_arr) else np.nan
+                atr = atr_value if np.isfinite(atr_value) and atr_value > 0 else 0.0
+                if atr <= 0:
+                    slopes.append(0.0)
+                    continue
                 nwe0 = nwe_arr[pos]
                 nwe1 = nwe_arr[pos - 1] if pos > 0 else nwe0
                 sl = (nwe0 - nwe1) / atr
                 slopes.append(sl)
         else:
             # MODO PADRÃO: TMA / LWMA + ATR(100)/10
-            atr_arr = calc_atr_sma(highs, lows, closes, 100)
+            atr_arr = calc_atr_sma(highs, lows, closes, ATR_PERIOD, min_periods=ATR_PERIOD)
             lwma_arr = calc_lwma(closes, 21)
             
             for t in common_index:
@@ -783,7 +864,7 @@ def calculate_full_css(tf_val, count=120, mode="standard"):
                 dblTma = ma0
                 dblPrev = (ma1 * 231.0 + close0 * 20.0) / 251.0
                 
-                sl = (dblTma - dblPrev) / atr if atr > 0 else 0.0
+                sl = (dblTma - dblPrev) / atr if np.isfinite(atr) and atr > 0 else 0.0
                 slopes.append(sl)
             
         base, quote = sym[:3], sym[3:6]
@@ -803,7 +884,7 @@ def calculate_full_css(tf_val, count=120, mode="standard"):
             css_res[c] = normalize_score_tanh(css_res[c], sensitivity=1.0, max_bound=2.0, use_tanh=True)
             
     time_strs = [t.strftime("%Y-%m-%d %H:%M") for t in common_index]
-    return css_res, time_strs, pair_slopes
+    return _result(css_res, time_strs, pair_slopes)
 
 
 def detect_currency_crossovers(charts_dict):
@@ -1056,11 +1137,12 @@ class CSSDataEngine:
                 if mode == "gauss":
                     self.cache_gauss = res
                     self.last_update_gauss = now_ts
-                    self._save_to_disk(DB_GAUSS_FILE, res)
                 else:
                     self.cache_standard = res
                     self.last_update_standard = now_ts
-                    self._save_to_disk(DB_STANDARD_FILE, res)
+                # Fallback é uma resposta de sessão, não um snapshot válido
+                # para persistir. Nunca sobrescrever o último snapshot
+                # durável com dados simulados/incompletos.
                 return res
             # Cache em memória servido com a conexão CAÍDA agora: seja qual for
             # a origem dele, não é dado live neste instante.
@@ -1069,9 +1151,28 @@ class CSSDataEngine:
         tf_data_raw = {}
         tf_charts = {}
         tf_pair_charts = {}
+        snapshot_quality = {
+            "status": "clean",
+            "required_full_history_bars": {
+                tf_name: required_full_history_bars(count, mode)
+                for tf_name, count in TIMEFRAMES_CONFIG
+            },
+            "timeframes": {},
+        }
         for tf_name, count in TIMEFRAMES_CONFIG:
             tf_val = get_tf_constant(tf_name)
-            res, times, pair_slopes = calculate_full_css(tf_val, count, mode=mode)
+            calculated = calculate_full_css(
+                tf_val, count, mode=mode, return_quality=True
+            )
+            if len(calculated) == 4:
+                res, times, pair_slopes, quality = calculated
+            else:  # compatibilidade com adaptadores de teste/integrações antigas
+                res, times, pair_slopes = calculated
+                quality = {"status": "clean"}
+            if quality.get("status") != "clean":
+                snapshot_quality["status"] = "degraded"
+                snapshot_quality["timeframes"][tf_name] = quality
+                continue
             if res is not None:
                 tf_data_raw[tf_name] = (res, times)
                 # Formatar para frontend
@@ -1086,16 +1187,54 @@ class CSSDataEngine:
                     formatted_pair_slopes[sym] = [round(float(v), 3) for v in sl]
                 tf_pair_charts[tf_name] = formatted_pair_slopes
 
-        if not tf_data_raw:
-            # Conectou, mas nenhum copy_rates voltou — os dados servidos aqui
-            # são de outro momento, não do agora. Mesmo tratamento.
+        required_timeframes = {tf_name for tf_name, _ in TIMEFRAMES_CONFIG}
+        if set(tf_data_raw) != required_timeframes:
+            # Conectou, mas o snapshot está incompleto — não misturar TFs de
+            # momentos diferentes nem indexar um timeframe ausente. O mesmo
+            # caminho controlado de cache/fallback vale para zero ou alguns
+            # timeframes indisponíveis.
+            missing_timeframes = sorted(required_timeframes - set(tf_data_raw))
+            self.last_error = (
+                "Snapshot CSS incompleto; timeframes ausentes: "
+                + ", ".join(missing_timeframes)
+            )
+            snapshot_quality["status"] = "incomplete"
+            snapshot_quality["missing_timeframes"] = missing_timeframes
             if not cached:
-                return _stamp_provenance(self._generate_fallback_data(mode=mode), False)
-            return _stamp_provenance(cached, False)
+                result = _stamp_provenance(
+                    self._generate_fallback_data(mode=mode), False
+                )
+                result["snapshot_quality"] = snapshot_quality
+                if mode == "gauss":
+                    self.cache_gauss = result
+                    self.last_update_gauss = now_ts
+                else:
+                    self.cache_standard = result
+                    self.last_update_standard = now_ts
+                # Um snapshot incompleto não pode virar a fonte durável do
+                # próximo processo; mantê-lo apenas no cache desta sessão
+                # força a recuperação do snapshot anterior ou novo fallback.
+                return result
+
+            # Mesmo um cache antigo precisa atualizar o relógio: esta
+            # tentativa já produziu uma resposta segura e, sem isso, cada
+            # requisição ignorando o throttle repetiria cinco consultas MT5.
+            result = _stamp_provenance(cached, False)
+            result["snapshot_quality"] = snapshot_quality
+            if mode == "gauss":
+                self.cache_gauss = result
+                self.last_update_gauss = now_ts
+            else:
+                self.cache_standard = result
+                self.last_update_standard = now_ts
+            return result
 
         # Confluence and Triad per currency
         ccy_confluence_results = {}
         currency_cards = []
+        # Captura única por snapshot: MN1/W1 precisam usar a mesma maturação
+        # para todas as moedas, e o motor recebe o instante explicitamente.
+        reference_dt = datetime.now(BRT)
         for c in CURRENCIES:
             mn_s = tf_data_raw["MN1"][0][c]
             w1_s = tf_data_raw["W1"][0][c]
@@ -1103,7 +1242,9 @@ class CSSDataEngine:
             h4_s = tf_data_raw["H4"][0][c]
             h1_s = tf_data_raw["H1"][0][c]
             
-            conf = evaluate_currency_confluence(c, mn_s, w1_s, d1_s, h4_s, h1_s)
+            conf = evaluate_currency_confluence(
+                c, mn_s, w1_s, d1_s, h4_s, h1_s, ref_dt=reference_dt
+            )
             ccy_confluence_results[c] = conf
             
             # Triade for each timeframe

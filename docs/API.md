@@ -9,30 +9,49 @@ A plataforma disponibiliza uma API REST síncrona/assíncrona de alta performanc
 ### `GET /api/css/all`
 Retorna todos os dados calculados do CSS para as 8 moedas em todos os 5 timeframes, além das séries históricas dos 28 pares cambiais.
 
-* **Cache:** TTL de 60 segundos.
+* **Cache:** recálculo limitado a uma vez a cada 3 segundos por modo
+  (`standard`/`gauss`); respostas de cache/fallback carregam
+  `mt5_connected: false`.
 * **Exemplo de Resposta:**
 ```json
 {
   "timestamp": "2026-08-19 19:15:00",
   "mt5_connected": true,
-  "currencies": ["USD", "EUR", "GBP", "CHF", "JPY", "AUD", "CAD", "NZD"],
-  "timeframes": ["MN1", "W1", "D1", "H4", "H1"],
-  "data": {
+  "engine_mode": "standard",
+  "currencies": [
+    {
+      "symbol": "USD",
+      "h1_score": -0.15,
+      "h4_score": -0.20,
+      "d1_score": -0.27,
+      "total_score": -1.42,
+      "trade_bias": "VENDA"
+    }
+  ],
+  "charts": {
     "MN1": {
-      "USD": [-0.15, -0.20, -0.27],
-      "EUR": [0.10, 0.22, 0.33]
+      "times": ["2026-08-18 00:00"],
+      "series": {"USD": [-0.15], "EUR": [0.10]}
     }
   },
   "pair_charts": {
-    "USD": {
-      "H1": {
-        "EURUSD": [1.0850, 1.0870, 1.0910],
-        "GBPUSD": [1.2950, 1.2980, 1.3020]
-      }
+    "MN1": {
+      "EURUSD": [0.25],
+      "GBPUSD": [0.40]
     }
-  }
+  },
+  "pairs": [],
+  "crossovers": {},
+  "colors": {},
+  "flags": {}
 }
 ```
+
+No mesmo payload, cada item de `currencies` expõe `total_score` como o score
+normalizado da matriz institucional 5-TF: `weighted_score / 13.5 * 10`, sem
+clamp nesta etapa do Port A. Esse campo não deve ser comparado diretamente ao
+`total_score` dos itens de `pairs`, que continua sendo o score do ranking de
+pares em escala própria.
 
 ---
 
