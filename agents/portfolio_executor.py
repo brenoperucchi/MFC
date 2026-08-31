@@ -981,7 +981,17 @@ class CostModel:
         Nenhuma das duas muda o número devolvido — continua somando 0.0
         pras pernas afetadas, nunca lança, nunca atrasa a cesta. Só expõe
         quem quiser saber se o custo é medição completa, parcial, ou
-        completa-mas-sem-swap-modelado."""
+        completa-mas-sem-swap-modelado.
+
+        Também grava a decomposição do total nos dois termos que o compõem
+        (achado do árbitro efêmero, herdr-ask mfc-5, 2026-08-28 — sem isso
+        não dava pra saber, a partir do backtest, se o custo medido é
+        sobretudo spread ou sobretudo swap):
+        - self.last_basket_spread: spread ida+volta (positivo = custo).
+        - self.last_basket_swap: swap com sinal invertido (positivo =
+          custo), mesma convenção do valor total devolvido — a identidade
+          last_basket_spread + last_basket_swap == retorno desta chamada
+          sempre vale."""
         spread = swap = 0.0
         degraded = set()
         swap_unmodeled = set()

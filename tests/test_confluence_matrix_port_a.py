@@ -353,7 +353,8 @@ class TestPortAVectors(unittest.TestCase):
         summaries = [
             {
                 "engines": {"port": {
-                    "bruto": 10.0, "custo": 2.0, "liquido": 8.0,
+                    "bruto": 10.0, "custo": 2.0, "spread": 1.5, "swap": 0.5,
+                    "liquido": 8.0,
                     "baskets": 1, "degraded_baskets": 0,
                     "swap_unmodeled_baskets": 0, "skipped_missing_price": 0,
                 }},
@@ -361,7 +362,8 @@ class TestPortAVectors(unittest.TestCase):
             },
             {
                 "engines": {"port": {
-                    "bruto": 10.0, "custo": 6.0, "liquido": 4.0,
+                    "bruto": 10.0, "custo": 6.0, "spread": 1.5, "swap": 4.5,
+                    "liquido": 4.0,
                     "baskets": 1, "degraded_baskets": 0,
                     "swap_unmodeled_baskets": 0, "skipped_missing_price": 0,
                 }},
@@ -372,6 +374,16 @@ class TestPortAVectors(unittest.TestCase):
 
         assert aggregate["by_engine"]["port"]["custo"] == {
             "min": 2.0, "max": 6.0, "mean": 4.0
+        }
+        # Achado herdr-review mfc-62 (MFC62-02/`mfc-rev`): a decomposição
+        # spread/swap precisa sobreviver à agregação de runs=N igual às
+        # outras métricas de custo — spread é constante entre as duas
+        # passadas (mesmas pernas, mesmo lote), só swap varia.
+        assert aggregate["by_engine"]["port"]["spread"] == {
+            "min": 1.5, "max": 1.5, "mean": 1.5
+        }
+        assert aggregate["by_engine"]["port"]["swap"] == {
+            "min": 0.5, "max": 4.5, "mean": 2.5
         }
         assert aggregate["by_engine"]["port"]["liquido"] == {
             "min": 4.0, "max": 8.0, "mean": 6.0

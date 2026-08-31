@@ -4042,6 +4042,58 @@ class TestCostModel(unittest.TestCase):
         self.assertEqual(model.last_basket_degraded, set())
         print("[✓] Nenhuma perna degradada no caminho feliz — sem falso positivo")
 
+    def test_basket_spread_and_swap_decomposition_sums_to_total_with_debit_swap(self):
+        """Achado herdr-review mfc-62 (MFC62-07/`mfc-rev`, P3-4/`mfc-rev-2`):
+        last_basket_spread/last_basket_swap (herdr-ask mfc-5) nunca tinham
+        asserção direta — os testes existentes cobrem o retorno de leg() e
+        os flags de degradação/swap-não-modelado, mas nenhum garante que a
+        decomposição nova continua batendo com o total se um dos dois sinais
+        for invertido, o spread parar de dobrar, ou um dos campos ficar
+        stale. Swap negativo (débito, BUY com swap_long<0) tem que virar
+        last_basket_swap POSITIVO — mesma convenção de sinal do total
+        (positivo = custo)."""
+        fake_mt5 = MagicMock()
+        fake_mt5.SYMBOL_SWAP_MODE_POINTS = 1
+        fake_mt5.symbol_info.return_value = SimpleNamespace(
+            trade_contract_size=100000, point=0.0001,
+            swap_long=-3.0, swap_short=1.0, swap_mode=1)
+        fake_mt5.symbol_info_tick.return_value = SimpleNamespace(ask=1.1002, bid=1.1000)
+        with patch.object(pe, "mt5", fake_mt5), \
+             patch.object(pe, "to_broker_symbol", lambda p: p + "m"):
+            model = pe.CostModel(0.01)
+            total = model.basket("CAD", "BUY")
+        self.assertAlmostEqual(
+            model.last_basket_spread + model.last_basket_swap, total, places=9)
+        self.assertGreater(model.last_basket_spread, 0.0)
+        self.assertGreater(
+            model.last_basket_swap, 0.0,
+            "swap_long negativo (débito) tem que virar custo positivo")
+        print(f"[✓] last_basket_spread ({model.last_basket_spread:.4f}) + "
+              f"last_basket_swap ({model.last_basket_swap:.4f}) == total ({total:.4f})")
+
+    def test_basket_spread_and_swap_decomposition_sums_to_total_with_credit_swap(self):
+        """Mesma identidade do teste acima, agora com swap_long positivo
+        (crédito) — tem que virar last_basket_swap NEGATIVO (reduz o custo
+        total), não só zero ou positivo por engano de sinal."""
+        fake_mt5 = MagicMock()
+        fake_mt5.SYMBOL_SWAP_MODE_POINTS = 1
+        fake_mt5.symbol_info.return_value = SimpleNamespace(
+            trade_contract_size=100000, point=0.0001,
+            swap_long=4.0, swap_short=-1.0, swap_mode=1)
+        fake_mt5.symbol_info_tick.return_value = SimpleNamespace(ask=1.1002, bid=1.1000)
+        with patch.object(pe, "mt5", fake_mt5), \
+             patch.object(pe, "to_broker_symbol", lambda p: p + "m"):
+            model = pe.CostModel(0.01)
+            total = model.basket("CAD", "BUY")
+        self.assertAlmostEqual(
+            model.last_basket_spread + model.last_basket_swap, total, places=9)
+        self.assertGreater(model.last_basket_spread, 0.0)
+        self.assertLess(
+            model.last_basket_swap, 0.0,
+            "swap_long positivo (crédito) tem que reduzir o custo total")
+        print(f"[✓] last_basket_spread ({model.last_basket_spread:.4f}) + "
+              f"last_basket_swap ({model.last_basket_swap:.4f}) == total ({total:.4f})")
+
 
 class TestMeasureAndLogBasketCost(unittest.TestCase):
     """measure_and_log_basket_cost() — dado empírico próprio, acrescentado a

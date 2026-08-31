@@ -564,6 +564,14 @@ def _pass_summary(pass_result, engine_names):
             "baskets": current["baskets"],
             "bruto": round(current["pnl"], 2),
             "custo": round(current["cost"], 2),
+            # spread/swap — achado herdr-review mfc-62 (MFC62-02/`mfc-rev`):
+            # a decomposição (herdr-ask mfc-5) já era acumulada em stats
+            # durante a passada, mas não sobrevivia até o JSON persistido —
+            # só cost_observation_digests (um hash) ficava gravado, sem
+            # permitir recuperar se o custo veio sobretudo de spread ou de
+            # swap depois que a passada termina.
+            "spread": round(current["spread"], 2),
+            "swap": round(current["swap"], 2),
             "liquido": round(current["pnl"] - current["cost"], 2),
             "active_signals": sum(active[name].values()),
             "degraded_baskets": current["degraded_baskets"],
@@ -593,7 +601,7 @@ def _aggregate_pass_summaries(pass_summaries, engine_names):
     aggregate = {}
     for name in engine_names:
         aggregate[name] = {}
-        for metric in ("bruto", "custo", "liquido", "baskets",
+        for metric in ("bruto", "custo", "spread", "swap", "liquido", "baskets",
                        "degraded_baskets", "swap_unmodeled_baskets",
                        "skipped_missing_price"):
             values = [summary["engines"][name][metric] for summary in pass_summaries]
