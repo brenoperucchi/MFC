@@ -224,3 +224,72 @@ Violação de qualquer item abaixo é achado P0 ou P1, mesmo que os testes passe
   exibir mais casas decimais, que preserva o congelamento sem mexer em
   fronteira nenhuma). Não reabra como achado repetido — é pendência
   conhecida, registrada aqui e no plano de reconciliação.
+
+- **Decisões de "nunca adotar" do upstream (Miquéias) — item 9 do plano de
+  reconciliação, registrado 2026-08-29.** Cada um destes já foi discutido e
+  decidido em rodadas anteriores desta sessão; um revisor futuro lendo os
+  commits do upstream (ou uma reconciliação futura) NÃO deve reabrir nenhum
+  como achado novo sem evidência que mude a premissa original:
+
+  - **EA abrindo cesta sozinho (`InpEaOpensBasket=true` / janela tolerante
+    21:05–21:59 no `.mq5` dele que dispara ordem sozinha).** Decidido
+    definitivamente 24/08 (achado P0, dois abridores concorrentes se
+    mesclado sem desativar): Python decide e abre, EA fica só guardião.
+    Nunca reativar essa flag no merge. O CONCEITO da janela tolerante (evitar
+    perder a noite por atraso) é bom e foi adotado — mas só do lado que
+    decide abrir (Python via `scripts/scheduler_daemon.py`), nunca
+    literalmente o EA dele abrindo sozinho.
+
+  - **`get_broker_gmt_offset()` do upstream (`web/real_portfolio_audit.py`
+    equivalente lado dele) — "morta e errada nos dois lados" (item 12 do
+    levantamento original, herdr-ask 27/08).** Não confundir com a correção
+    de fuso do item de conflito #3 (EA mede offset sozinho via
+    `TimeTradeServer()-TimeGMT()`, já resolvido e válido nos dois lados) —
+    esta função é uma peça morta separada. **Nota separada, não fica
+    resolvida só por não adotar**: do NOSSO lado ela também tem bug próprio
+    (cai no default `3`/Tickmill quando o símbolo não resolve, mas a conta
+    em uso é Exness) — precisa de correção independente, registrada aqui
+    pra não ser perdida.
+
+  - **Sampler intraday em background do upstream
+    (`start_intraday_background_sampler()`, `web/server.py:288-360` dele).**
+    Thread nova que força atualização CSS e consulta sessão real
+    (`positions_get()`) periodicamente — um ator de concorrência novo
+    tocando o binding MT5 global, sem dono/lock explícito. A classificação
+    "UI, fora de escopo" NÃO se aplica (achado do mfc-rev, herdr-ask 27/08):
+    ela consulta MT5/entrega sinal, não é só visual. Excluir ou isolar sob
+    um dono explícito ANTES de qualquer merge — bloqueador, não item de
+    fila.
+
+  - **Fan-out de sinais pra todos os terminais MT5
+    (`agents/portfolio_executor.py:637-662` dele).** Grava
+    `CSS_Portfolio_Signals.json` em TODO diretório de terminal que encontrar,
+    não só no terminal dedicado ao MFC. Nesta máquina especificamente
+    (vários terminais MT5, contas diferentes, rodando ao mesmo tempo), isso
+    pode acordar um EA ou uma conta errada. Mesma classificação do sampler
+    acima: risco de execução disfarçado de UI, excluir/restringir a um dono
+    explícito antes de qualquer merge.
+
+  - **Retcode `PLACED` aceito direto como sucesso (item de conflito #7,
+    `agents/portfolio_executor.py`/`.mq5` dele).** Nossa arquitetura
+    (consultar o broker antes de decidir sucesso) é a correta — a
+    documentação oficial do MT5 distingue `PLACED` de `DONE` e alerta que
+    sucesso de `OrderSend()` não implica execução confirmada. **Nota**: isso
+    não significa que nossa implementação estava livre de bug equivalente —
+    foi corrigido no item 2 do plano de reconciliação (estado `UNCERTAIN`,
+    commit `4d2ef88`) depois de rodadas de revisão apontarem gaps reais do
+    nosso lado também.
+
+  - **Endpoint de validação de bias/lote sem autenticação, clamp até 0.50
+    lote (item de conflito #9, `web/server.py` dele).** Nosso modelo (auth
+    via `CSS_PORTFOLIO_API_KEY` + validação dentro do executor, teto real
+    0.01) é o correto. Nunca adotar o clamp deles como está — permite até
+    50× nosso teto de lote sem nenhuma autenticação.
+
+  - **Kill switch único liquidando tudo indiscriminadamente (semântica
+    original do `CSS_KILL_SWITCH.txt` dele em `FILE_COMMON`, item de
+    conflito #4).** Nunca um arquivo só com dois significados (pausar
+    abertura vs. liquidar posições) — é exatamente o que causa "esqueci a
+    flag armada" virar liquidação em terminal errado. Combinado só com
+    nomes/escopos distintos (`PAUSE_OPEN` local vs. `EMERGENCY_FLATTEN`
+    explícito), não como veio do upstream.
