@@ -43,6 +43,7 @@ _PROVENANCE_SOURCE_FILES = (
     "web/history_tracker.py",
     "scripts/backtest_canonical.py",
     "scripts/backtest_engine_compare.py",
+    "scripts/measure_composition_effect.py",
     "scripts/_backtest_results_log.py",
 )
 

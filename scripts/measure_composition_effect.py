@@ -53,6 +53,35 @@ from scripts._backtest_results_log import append_result
 
 EXCLUDED_PAIR = "GBPNZD"  # corte pré-registrado: razão_custo >= 1.0 (herdr-ask mfc-6)
 
+# Pares canônicos usados pra montar rates_dict (achado herdr-review mfc-62,
+# P3-1/`mfc-rev-2`) — os mesmos 7 que CostModel._usd_rate() tenta pra
+# conversão de qualquer moeda não-USD. Mesmo padrão de
+# scripts/measure_spread_per_pair.py::_build_rates_dict (P3-2 da rodada 22).
+_USD_CROSS_PAIRS = ("EURUSD", "GBPUSD", "AUDUSD", "NZDUSD", "USDCAD", "USDCHF", "USDJPY")
+
+
+def _build_rates_dict(prices, at_dt):
+    """rates_dict pra convert_pnl_to_usd(): preço dos 7 pares canônicos
+    *USD/USD* no instante `at_dt`, lido da MESMA série histórica H1 que mede
+    o movimento — sem isso, convert_pnl_to_usd() cai na tabela hardcoded de
+    web/history_tracker.py pra qualquer par de cotação não-USD (achado
+    herdr-review mfc-62, P3-1/`mfc-rev-2`: o `rates_source` gravado no
+    journal afirmava 'historical_h1_prices' pra essa conversão, mas o
+    código não passava rates_dict — divergência entre metadado e
+    comportamento real, não erro de valor)."""
+    rates = {}
+    for pair in _USD_CROSS_PAIRS:
+        ser = prices.get(pair)
+        if ser is None:
+            continue
+        try:
+            p = float(ser.asof(at_dt))
+        except Exception:
+            continue
+        if p > 0:
+            rates[pair] = p
+    return rates
+
 
 def _legs_pnl_and_cost(legs, prices, srv_dt, exit_srv, costs, lot=LOT):
     """PnL bruto + custo por perna, usando um `CostModel` COMPARTILHADO
@@ -61,6 +90,7 @@ def _legs_pnl_and_cost(legs, prices, srv_dt, exit_srv, costs, lot=LOT):
     se QUALQUER perna não tiver preço, pra descartar a noite JUNTA nas duas
     variantes (MFC22-06/P3-3)."""
     per_leg = {}
+    rates = _build_rates_dict(prices, exit_srv)
     for leg in legs:
         ser = prices.get(leg["pair"])
         if ser is None:
@@ -72,7 +102,7 @@ def _legs_pnl_and_cost(legs, prices, srv_dt, exit_srv, costs, lot=LOT):
             return None
         if not (p_in > 0 and p_out > 0):
             return None
-        pnl, _ = convert_pnl_to_usd(leg["pair"], leg["action"], p_in, p_out, lot)
+        pnl, _ = convert_pnl_to_usd(leg["pair"], leg["action"], p_in, p_out, lot, rates_dict=rates)
         spread, swap = costs.leg(leg["pair"], leg["action"], lot)
         cost = spread * 2.0 - swap
         # Proxy de degradação: CostModel.leg() devolve exatamente (0.0, 0.0)
@@ -156,9 +186,6 @@ def compare_composition(days=45, log_note=None):
             removed = per_leg.get(EXCLUDED_PAIR)
             if removed is not None:
                 gross_removed, cost_removed, _ = removed
-                removed_leg_gross_total += gross_removed
-                removed_leg_cost_total += cost_removed
-                removed_leg_gross_per_basket.append(gross_removed)
                 legs_cut = [leg for leg in legs_full if leg["pair"] != EXCLUDED_PAIR]
                 per_leg_cut = _legs_pnl_and_cost(
                     legs_cut, prices, srv_dt, exit_srv, costs
@@ -166,6 +193,16 @@ def compare_composition(days=45, log_note=None):
                 if per_leg_cut is None:
                     skipped_missing_price += 1
                     continue
+                # Só acumula as estatísticas da perna removida DEPOIS de
+                # confirmar que a variante reduzida também tem preço pras 6
+                # pernas — achado herdr-review mfc-62 (P3-3/`mfc-rev-2`): a
+                # ordem anterior incrementava esses totais ANTES desta
+                # checagem, então uma cesta descartada (preço faltando na
+                # variante reduzida) ainda contribuía pros totais/média da
+                # perna removida, mesmo saindo das duas colunas comparadas.
+                removed_leg_gross_total += gross_removed
+                removed_leg_cost_total += cost_removed
+                removed_leg_gross_per_basket.append(gross_removed)
                 # Recalcula a variante reduzida de forma independente. A
                 # igualdade esperada abaixo é uma checagem de sanidade real,
                 # não a identidade algébrica gross_full - removed.
@@ -280,7 +317,15 @@ def compare_composition(days=45, log_note=None):
                 "variants": list(variants),
             },
             "rates_source": "historical_h1_prices; live CostModel tick for spread/swap",
-            "cost_snapshot": "live tick sampled once per evaluated night",
+            # Achado herdr-review mfc-62 (MFC62-03/`mfc-rev`): CostModel é
+            # compartilhado por NOITE (garante que as duas variantes usem o
+            # mesmo tick pras pernas em comum), mas CostModel.leg() consulta
+            # o MT5 na primeira ocorrência de cada chave (pair, action, lot)
+            # e cacheia daí em diante — não é uma fotografia simultânea de
+            # todos os pares, é uma leitura sequencial por chave distinta ao
+            # longo da noite, compartilhada entre as duas colunas.
+            "cost_snapshot": "live tick sampled once per distinct (pair, action, lot) key, "
+                              "shared across both variants within the same night",
             "affected_baskets": affected_baskets,
             "degraded_baskets": degraded_baskets,
             "skipped_missing_price": skipped_missing_price,
