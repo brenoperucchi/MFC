@@ -20,15 +20,49 @@ continuava toda verde, porque nenhum teste tocava a LIGAÇÃO. Isto testa as
 duas separadamente.
 """
 import io
+import json
+import os
+import tempfile
 import unittest
 from contextlib import redirect_stdout
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
+import numpy as np
 import pandas as pd
 
 import scripts.backtest_canonical as bc
+import scripts.fetch_histdata_mn1_warmup as fetch_histdata_mn1_warmup
+
+
+def _h1_times_covering_one_night(days=1):
+    """Série H1 horária que cobre com folga a entrada E a saída que
+    `bc.run(days=days)` vai calcular sozinho — usada pelos smoke tests de
+    `run()` que mockam `evaluate_at` mas NÃO mockam `is_market_session_valid`
+    (ela roda de verdade dentro de `run()`, ver MFC21-02).
+
+    Achado (herdr-review rodada 22, mfc-rev-2, P2-1): a versão anterior
+    construía `h1_times` só com `pd.date_range(end=pd.Timestamp.now(),
+    periods=48, freq='h')` — terminando EXATAMENTE agora. Como `exit_srv`
+    pode cair depois de "agora" dependendo da hora do dia em que a suíte
+    roda (a conversão BRT->servidor soma horas), a checagem de sessão válida
+    via `_market_gap_hours` via de vez em quando não achava nenhuma barra
+    perto o suficiente de `exit_srv` e `run()` descartava a única noite da
+    fixture — os dois testes que dependem disso ficavam vermelhos
+    especificamente conforme a hora do relógio, não o dia da semana. Aqui a
+    série é ancorada nos mesmos cálculos que `run()` faz internamente
+    (`_brt_to_server`, `ENTRY_HOUR_BRT`), com folga de warmup antes da
+    entrada e depois da saída — determinístico, não depende de que horas são
+    agora."""
+    now = datetime.now()
+    brt_day = (now - timedelta(days=days)).replace(
+        hour=bc.ENTRY_HOUR_BRT, minute=0, second=0, microsecond=0)
+    srv_dt = bc._brt_to_server(brt_day)
+    exit_srv = srv_dt + timedelta(hours=11)
+    start = srv_dt - timedelta(hours=40)
+    end = exit_srv + timedelta(hours=2)
+    return pd.Series(pd.date_range(start=start, end=end, freq="h"))
 
 
 class TestTallyCostQuality(unittest.TestCase):
@@ -149,15 +183,18 @@ class TestRunWiresCostQualityIntoSummary(unittest.TestCase):
             self.lot = lot
             self.last_basket_degraded = set()
             self.last_basket_swap_unmodeled = set()
+            self.last_basket_spread = 0.0
+            self.last_basket_swap = 0.0
 
         def basket(self, ccy, bias, leg_lots=None):
             self.last_basket_degraded = {"USDCAD"}
             self.last_basket_swap_unmodeled = set()
+            self.last_basket_spread = 2.0
+            self.last_basket_swap = 0.5
             return 2.5
 
     def _run_one_night_one_basket(self):
-        now = pd.Timestamp.now()
-        h1_times = pd.Series(pd.date_range(end=now, periods=48, freq="h"))
+        h1_times = _h1_times_covering_one_night(days=1)
         fake_series = {tf: {"times": h1_times, "scores": {}} for tf in bc.TFS}
 
         class _FakePriceSeries:
@@ -166,7 +203,7 @@ class TestRunWiresCostQualityIntoSummary(unittest.TestCase):
 
         fake_prices = {pair: _FakePriceSeries() for pair in bc.ALL_28_PAIRS}
 
-        def fake_evaluate_at(series, entry_server_dt):
+        def fake_evaluate_at(series, entry_server_dt, ref_dt):
             return {"USD": {"trade_bias": "COMPRA"}}
 
         buf = io.StringIO()
@@ -204,8 +241,7 @@ class TestRunWiresCostQualityIntoSummary(unittest.TestCase):
                 self.last_basket_swap_unmodeled = {"USDCAD"}
                 return 2.5
 
-        now = pd.Timestamp.now()
-        h1_times = pd.Series(pd.date_range(end=now, periods=48, freq="h"))
+        h1_times = _h1_times_covering_one_night(days=1)
         fake_series = {tf: {"times": h1_times, "scores": {}} for tf in bc.TFS}
 
         class _FakePriceSeries:
@@ -242,8 +278,7 @@ class TestRunWiresCostQualityIntoSummary(unittest.TestCase):
                 self.last_basket_swap_unmodeled = set()
                 return 2.5
 
-        now = pd.Timestamp.now()
-        h1_times = pd.Series(pd.date_range(end=now, periods=48, freq="h"))
+        h1_times = _h1_times_covering_one_night(days=1)
         fake_series = {tf: {"times": h1_times, "scores": {}} for tf in bc.TFS}
 
         class _FakePriceSeries:
@@ -264,6 +299,237 @@ class TestRunWiresCostQualityIntoSummary(unittest.TestCase):
         output = buf.getvalue()
         self.assertNotIn("cesta(s) tiveram ao menos uma perna sem símbolo/", output)
         print("[✓] sem cesta degradada, o aviso não aparece — controle negativo do teste acima")
+
+
+def _month_start_ts(year, month):
+    return int(datetime(year, month, 1, tzinfo=timezone.utc).timestamp())
+
+
+def _monthly_rates(n_months, start_year, start_month, close=1.0):
+    """Barras MN1 sintéticas, uma por mês, começando em start_year/start_month."""
+    dtype = [("time", "i8"), ("open", "f8"), ("high", "f8"), ("low", "f8"), ("close", "f8")]
+    rows = np.zeros(n_months, dtype=dtype)
+    year, month = start_year, start_month
+    for i in range(n_months):
+        rows[i] = (_month_start_ts(year, month), close, close + 0.01, close - 0.01, close)
+        month += 1
+        if month > 12:
+            month = 1
+            year += 1
+    return rows
+
+
+def _sequential_months(start_year, start_month, count):
+    year, month = start_year, start_month
+    keys = []
+    for _ in range(count):
+        keys.append(f"{year:04d}-{month:02d}")
+        month += 1
+        if month > 12:
+            month = 1
+            year += 1
+    return keys
+
+
+class TestHistdataMn1WarmupCache(unittest.TestCase):
+    """_load_histdata_warmup_months: leitura pura do cache gerado por
+    scripts/fetch_histdata_mn1_warmup.py, sem MT5."""
+
+    def test_returns_empty_list_without_cache_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.object(bc, "HISTDATA_WARMUP_DIR", tmp):
+                rows, gaps = bc._load_histdata_warmup_months("gbpjpy")
+        self.assertEqual(rows, [])
+        self.assertEqual(gaps, [])
+
+    def test_parses_and_sorts_chronologically(self):
+        months = {
+            "2013-05": {"open": 1.10, "high": 1.20, "low": 1.00, "close": 1.15, "n": 10},
+            "2012-01": {"open": 2.00, "high": 2.10, "low": 1.90, "close": 2.05, "n": 5},
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            with open(os.path.join(tmp, "eurgbp.json"), "w", encoding="utf-8") as f:
+                json.dump(months, f)
+            with patch.object(bc, "HISTDATA_WARMUP_DIR", tmp):
+                rows, gaps = bc._load_histdata_warmup_months("EURGBP")  # maiúsculas -> minúsculas
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(rows[0][0], datetime(2012, 1, 1, tzinfo=timezone.utc))
+        self.assertEqual(rows[1][0], datetime(2013, 5, 1, tzinfo=timezone.utc))
+        self.assertEqual(rows[0][4], 2.05)  # close de 2012-01
+        # 2012-02..2013-04 ausentes entre os dois meses do fixture (15 buracos)
+        self.assertEqual(len(gaps), 15)
+        self.assertEqual(gaps[0], "2012-02")
+        self.assertEqual(gaps[-1], "2013-04")
+
+    def test_returns_no_gaps_for_a_contiguous_cache(self):
+        months = {f"2012-{m:02d}": {"open": 1.0, "high": 1.0, "low": 1.0, "close": 1.0} for m in range(1, 13)}
+        with tempfile.TemporaryDirectory() as tmp:
+            with open(os.path.join(tmp, "eurgbp.json"), "w", encoding="utf-8") as f:
+                json.dump(months, f)
+            with patch.object(bc, "HISTDATA_WARMUP_DIR", tmp):
+                rows, gaps = bc._load_histdata_warmup_months("eurgbp")
+        self.assertEqual(len(rows), 12)
+        self.assertEqual(gaps, [])
+
+
+class TestFindGaps(unittest.TestCase):
+    """fetch_histdata_mn1_warmup.find_gaps: achado herdr-review mfc-61
+    (P2-1) — não existia nenhuma checagem de contiguidade em lugar nenhum do
+    pipeline; a "correção" do gap real do AUDJPY (2010-2021) só adicionou
+    meses na PONTA, sem fechar o buraco no meio, e nada detectou."""
+
+    def test_empty_dict_has_no_gaps(self):
+        self.assertEqual(fetch_histdata_mn1_warmup.find_gaps({}), [])
+
+    def test_contiguous_range_has_no_gaps(self):
+        months = {f"2020-{m:02d}": {} for m in range(1, 13)}
+        self.assertEqual(fetch_histdata_mn1_warmup.find_gaps(months), [])
+
+    def test_detects_gap_in_the_middle(self):
+        months = {"2020-01": {}, "2020-02": {}, "2020-05": {}, "2020-06": {}}
+        self.assertEqual(
+            fetch_histdata_mn1_warmup.find_gaps(months), ["2020-03", "2020-04"],
+        )
+
+    def test_detects_real_audjpy_gap_reproduced_from_the_versioned_cache(self):
+        """Regressão direta do achado: o cache versionado de AUDJPY (2026-08-31)
+        tem 11 meses de 2012 genuinamente ausentes na HistData.com (confirmado
+        rebaixando o zip de 2012 -- só tinha outubro). find_gaps() precisa
+        continuar detectando isso."""
+        months = {
+            "2011-11": {}, "2011-12": {}, "2012-10": {}, "2013-01": {}, "2013-02": {},
+        }
+        gaps = fetch_histdata_mn1_warmup.find_gaps(months)
+        self.assertIn("2012-01", gaps)
+        self.assertIn("2012-09", gaps)
+        self.assertIn("2012-11", gaps)
+        self.assertIn("2012-12", gaps)
+        self.assertEqual(len(gaps), 11)
+
+
+class TestLoadMn1SeriesWithWarmup(unittest.TestCase):
+    """load_mn1_series_with_warmup: só o prefixo antigo pode vir da
+    HistData.com — nunca as barras recentes/decisórias, nunca sobrepondo o
+    que a Exness já tem."""
+
+    def _run(self, exness_rates, warmup_months=None, count=60):
+        with tempfile.TemporaryDirectory() as tmp:
+            if warmup_months is not None:
+                with open(os.path.join(tmp, "eurusd.json"), "w", encoding="utf-8") as f:
+                    json.dump(warmup_months, f)
+            fake_mt5 = MagicMock()
+            fake_mt5.copy_rates_from_pos.return_value = exness_rates
+            with patch.object(bc, "HISTDATA_WARMUP_DIR", tmp), \
+                 patch.object(bc, "ALL_28_PAIRS", ["EURUSD"]), \
+                 patch.object(bc, "CURRENCIES", ["EUR", "USD"]), \
+                 patch.object(bc, "to_broker_symbol", side_effect=lambda p: p), \
+                 patch.object(bc, "MT5_AVAILABLE", True), \
+                 patch.object(bc, "mt5", fake_mt5), \
+                 patch.object(bc, "get_tf_constant", return_value=1):
+                return bc.load_mn1_series_with_warmup(count=count)
+
+    def test_stays_degraded_when_exness_alone_is_short_and_no_cache_exists(self):
+        """Controle negativo: sem cache de aquecimento, o comportamento é
+        idêntico ao calculate_full_css original — 59 barras continuam
+        degradadas."""
+        exness_rates = _monthly_rates(59, 2021, 9)
+        res, times, quality, warmup_used = self._run(exness_rates, warmup_months=None)
+        self.assertEqual(quality["status"], "degraded")
+        self.assertEqual(quality["short_history_pairs"], ["EURUSD"])
+        self.assertEqual(warmup_used, {})
+
+    def test_returns_unavailable_without_raising_when_mt5_is_not_available(self):
+        """Achado herdr-review mfc-61 (MFC61-02/`mfc-rev`): calculate_full_css()
+        devolve quality=unavailable sem desreferenciar mt5 quando
+        MT5_AVAILABLE é falso; a API nova precisa do mesmo comportamento
+        fail-closed em vez de AttributeError."""
+        with patch.object(bc, "MT5_AVAILABLE", False), \
+             patch.object(bc, "mt5", None):
+            res, times, quality, warmup_used = bc.load_mn1_series_with_warmup(count=60)
+        self.assertIsNone(res)
+        self.assertIsNone(times)
+        self.assertEqual(quality["status"], "unavailable")
+        self.assertEqual(warmup_used, {})
+
+    def test_reports_histdata_warmup_gaps_in_quality_for_audit(self):
+        """Achado herdr-review mfc-61 (P2-1, `mfc-rev` e `mfc-rev-2`,
+        confirmado pelos dois): um buraco no meio do cache de aquecimento
+        precisa ficar visível na proveniência, mesmo quando não é grave o
+        bastante pra derrubar o status pra degraded."""
+        exness_rates = _monthly_rates(59, 2021, 9)
+        warmup_keys = _sequential_months(2012, 1, 116)
+        warmup_months = {
+            key: {"open": 1.0, "high": 1.01, "low": 0.99, "close": 1.0, "n": 100}
+            for key in warmup_keys
+        }
+        # buraco no meio, longe da ponta usada pela Exness
+        del warmup_months["2015-06"]
+        del warmup_months["2015-07"]
+        res, times, quality, warmup_used = self._run(exness_rates, warmup_months)
+        self.assertEqual(quality["histdata_warmup_gaps"], {"EURUSD": ["2015-06", "2015-07"]})
+
+    def test_reaches_clean_status_when_warmup_fills_the_deficit(self):
+        """59 barras da Exness (2021-09..2026-08) precisam de 169 pro
+        aquecimento do ATR(100)+offset-10 (count=60) — faltam 110. O cache
+        cobre 2012-01..2021-08 (116 meses, folga de 6), estritamente ANTES
+        do primeiro mês da Exness."""
+        exness_rates = _monthly_rates(59, 2021, 9)
+        warmup_keys = _sequential_months(2012, 1, 116)
+        warmup_months = {
+            key: {"open": 1.0, "high": 1.01, "low": 0.99, "close": 1.0, "n": 100}
+            for key in warmup_keys
+        }
+        res, times, quality, warmup_used = self._run(exness_rates, warmup_months)
+        self.assertIsNotNone(res)
+        self.assertEqual(quality["status"], "clean")
+        self.assertEqual(quality["short_history_pairs"], [])
+        self.assertEqual(warmup_used, {"EURUSD": 116})
+        self.assertEqual(len(times), 60)
+
+    def test_warmup_month_coinciding_with_exness_start_is_never_used(self):
+        """Um mês de aquecimento que coincide com (ou é posterior a) o
+        primeiro mês real da Exness precisa ser descartado — só o prefixo
+        estritamente ANTERIOR pode vir de fora. (30 meses de Exness, não 3 —
+        abaixo de MIN_COMMON_HISTORY_BARS=30 o par nem entra em pair_dfs, o
+        que mascararia o que este teste quer provar.)"""
+        exness_rates = _monthly_rates(30, 2021, 9, close=1.0)
+        warmup_months = {
+            "2021-09": {"open": 9.0, "high": 9.1, "low": 8.9, "close": 9.0, "n": 1},  # coincide, deve ser ignorado
+            "2021-08": {"open": 2.0, "high": 2.1, "low": 1.9, "close": 2.0, "n": 1},  # anterior, deve entrar
+        }
+        res, times, quality, warmup_used = self._run(exness_rates, warmup_months)
+        self.assertEqual(warmup_used, {"EURUSD": 1})  # só 2021-08 entrou
+
+    def test_default_load_series_never_touches_histdata_warmup(self):
+        """load_series() sem o flag continua 100% calculate_full_css — o
+        caminho novo só existe quando use_histdata_mn1_warmup=True."""
+        fake_quality = {"status": "clean"}
+        with patch.object(bc, "load_mn1_series_with_warmup") as warmup_fn, \
+             patch.object(
+                 bc, "calculate_full_css",
+                 return_value=({"EUR": [0.1]}, ["2026-01-01 00:00"], None, fake_quality),
+             ), \
+             patch.object(bc, "get_tf_constant", return_value=1):
+            series = bc.load_series()
+        warmup_fn.assert_not_called()
+        self.assertIn("MN1", series)
+
+    def test_load_series_uses_warmup_path_only_for_mn1_when_flag_enabled(self):
+        fake_quality = {"status": "clean"}
+        with patch.object(
+                 bc, "load_mn1_series_with_warmup",
+                 return_value=({"EUR": [0.1]}, ["2026-01-01 00:00"], dict(fake_quality), {"EURUSD": 5}),
+             ) as warmup_fn, \
+             patch.object(
+                 bc, "calculate_full_css",
+                 return_value=({"EUR": [0.1]}, ["2026-01-01 00:00"], None, dict(fake_quality)),
+             ) as calc_fn, \
+             patch.object(bc, "get_tf_constant", return_value=1):
+            series = bc.load_series(use_histdata_mn1_warmup=True)
+        warmup_fn.assert_called_once_with(bc.TF_COUNTS["MN1"])
+        # calculate_full_css só pros outros 4 TFs (W1, D1, H4, H1), nunca MN1
+        self.assertEqual(calc_fn.call_count, len(bc.TFS) - 1)
+        self.assertEqual(series["MN1"]["quality"]["histdata_warmup_months_used"], {"EURUSD": 5})
 
 
 if __name__ == "__main__":
