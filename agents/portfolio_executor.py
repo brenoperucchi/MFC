@@ -807,6 +807,14 @@ class CostModel:
         self._swap_unmodeled = {}    # (pair, action, lot) -> motivo: swap fora de pontos
         self.last_basket_degraded = set()        # pernas SEM dado na ÚLTIMA basket()
         self.last_basket_swap_unmodeled = set()  # pernas com swap não modelado na ÚLTIMA
+        # Decomposição do custo total da ÚLTIMA basket() nos dois termos que
+        # o compõem (achado do árbitro efêmero, herdr-ask mfc-5, 2026-08-28:
+        # sem isso não dá pra saber se o pedágio de custo medido no backtest
+        # é sobretudo spread ou sobretudo swap — cada resposta aponta pra
+        # uma alavanca diferente). Mesma convenção de sinal do valor total
+        # devolvido por basket(): positivo = custo.
+        self.last_basket_spread = 0.0
+        self.last_basket_swap = 0.0
 
     def _usd_rate(self, quote):
         if quote in self._rate:
@@ -990,6 +998,8 @@ class CostModel:
                 swap_unmodeled.add(p["pair"])
         self.last_basket_degraded = degraded
         self.last_basket_swap_unmodeled = swap_unmodeled
+        self.last_basket_spread = spread * 2.0
+        self.last_basket_swap = -swap  # swap negativo vira custo positivo, mesma convenção do total
         return spread * 2.0 - swap  # swap negativo vira custo positivo
 
 
