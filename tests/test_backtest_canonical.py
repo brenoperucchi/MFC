@@ -391,11 +391,16 @@ class TestFindGaps(unittest.TestCase):
             fetch_histdata_mn1_warmup.find_gaps(months), ["2020-03", "2020-04"],
         )
 
-    def test_detects_real_audjpy_gap_reproduced_from_the_versioned_cache(self):
-        """Regressão direta do achado: o cache versionado de AUDJPY (2026-08-31)
-        tem 11 meses de 2012 genuinamente ausentes na HistData.com (confirmado
-        rebaixando o zip de 2012 -- só tinha outubro). find_gaps() precisa
-        continuar detectando isso."""
+    def test_detects_the_shape_of_the_original_audjpy_gap(self):
+        """Regressão do formato do achado original (achado herdr-review mfc-62,
+        MFC62-01/`mfc-rev`: a versão anterior deste teste afirmava testar 'o
+        cache versionado', mas montava meses sintéticos — não lia
+        data/histdata_mn1_warmup/audjpy.json, então uma reversão do arquivo
+        real não seria pega aqui). Isto continua sendo só um teste de
+        find_gaps() em isolamento, com o formato do buraco original (11 meses
+        de 2012 ausentes, confirmado rebaixando o zip de 2012 -- só tinha
+        outubro). A proteção contra REGRESSÃO do arquivo real está em
+        TestAudjpyWarmupCacheIsGapFree, abaixo."""
         months = {
             "2011-11": {}, "2011-12": {}, "2012-10": {}, "2013-01": {}, "2013-02": {},
         }
@@ -405,6 +410,38 @@ class TestFindGaps(unittest.TestCase):
         self.assertIn("2012-11", gaps)
         self.assertIn("2012-12", gaps)
         self.assertEqual(len(gaps), 11)
+
+
+class TestAudjpyWarmupCacheIsGapFree(unittest.TestCase):
+    """Regressão direta sobre o ARTEFATO versionado (achado herdr-review
+    mfc-62, MFC62-01/`mfc-rev`) — carrega data/histdata_mn1_warmup/audjpy.json
+    de verdade, não uma reprodução sintética. Se alguém reintroduzir o buraco
+    de 2012 (ou qualquer outro) nesse arquivo, isto tem que ficar vermelho."""
+
+    def _load(self):
+        path = os.path.join(bc.HISTDATA_WARMUP_DIR, "audjpy.json")
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+
+    def test_no_internal_gaps(self):
+        months = self._load()
+        self.assertEqual(fetch_histdata_mn1_warmup.find_gaps(months), [])
+
+    def test_covers_2010_through_2021_with_144_consecutive_months(self):
+        months = self._load()
+        self.assertEqual(len(months), 144)
+        self.assertEqual(min(months), "2010-01")
+        self.assertEqual(max(months), "2021-12")
+
+    def test_the_2012_months_filled_via_dukascopy_are_present_and_valid(self):
+        months = self._load()
+        for m in range(1, 13):
+            key = f"2012-{m:02d}"
+            self.assertIn(key, months)
+            bar = months[key]
+            self.assertTrue(bar["low"] <= bar["open"] <= bar["high"])
+            self.assertTrue(bar["low"] <= bar["close"] <= bar["high"])
+            self.assertGreater(bar["low"], 0)
 
 
 class TestLoadMn1SeriesWithWarmup(unittest.TestCase):
@@ -452,10 +489,11 @@ class TestLoadMn1SeriesWithWarmup(unittest.TestCase):
         self.assertEqual(warmup_used, {})
 
     def test_reports_histdata_warmup_gaps_in_quality_for_audit(self):
-        """Achado herdr-review mfc-61 (P2-1, `mfc-rev` e `mfc-rev-2`,
-        confirmado pelos dois): um buraco no meio do cache de aquecimento
-        precisa ficar visível na proveniência, mesmo quando não é grave o
-        bastante pra derrubar o status pra degraded."""
+        """Achado herdr-review mfc-62 (P2-2, `mfc-rev-2`): um buraco real no
+        meio do cache de aquecimento precisa ficar visível na proveniência
+        E degradar o status — antes (mfc-61) só ficava registrado sem
+        afetar `require_clean`, o que deixava o caso real do AUDJPY
+        (11 meses de 2012 ausentes) passar como `status=clean`."""
         exness_rates = _monthly_rates(59, 2021, 9)
         warmup_keys = _sequential_months(2012, 1, 116)
         warmup_months = {
@@ -467,6 +505,33 @@ class TestLoadMn1SeriesWithWarmup(unittest.TestCase):
         del warmup_months["2015-07"]
         res, times, quality, warmup_used = self._run(exness_rates, warmup_months)
         self.assertEqual(quality["histdata_warmup_gaps"], {"EURUSD": ["2015-06", "2015-07"]})
+        self.assertEqual(quality["warmup_gap_pairs"], ["EURUSD"])
+        self.assertEqual(quality["status"], "degraded")
+
+    def test_seam_gap_between_warmup_cache_end_and_exness_start_is_detected(self):
+        """Achado herdr-review mfc-62 (P2-1, `mfc-rev-2`): um cache
+        internamente contíguo mas que TERMINA antes do mês imediatamente
+        anterior ao início da Exness deixa um buraco exatamente na emenda —
+        invisível pro find_gaps() interno do cache (que só olha min..max
+        dele) e pras contagens de posição (`short_history_pairs`).
+        Hoje isso não é alcançável com a profundidade fixa atual da Exness,
+        mas protege contra uma Exness com janela rolante (achado explícito
+        do revisor: "não consigo distinguir de data de início fixa neste
+        checkout")."""
+        exness_rates = _monthly_rates(59, 2021, 9)
+        # contíguo, mas termina em 2021-06 -- faltam 2021-07 e 2021-08 antes
+        # do início real da Exness (2021-09)
+        warmup_keys = _sequential_months(2012, 1, 114)
+        warmup_months = {
+            key: {"open": 1.0, "high": 1.01, "low": 0.99, "close": 1.0, "n": 100}
+            for key in warmup_keys
+        }
+        res, times, quality, warmup_used = self._run(exness_rates, warmup_months)
+        self.assertEqual(
+            quality["histdata_warmup_gaps"], {"EURUSD": ["2021-07", "2021-08"]},
+        )
+        self.assertEqual(quality["warmup_gap_pairs"], ["EURUSD"])
+        self.assertEqual(quality["status"], "degraded")
 
     def test_reaches_clean_status_when_warmup_fills_the_deficit(self):
         """59 barras da Exness (2021-09..2026-08) precisam de 169 pro

@@ -144,14 +144,17 @@ def load_mn1_series_with_warmup(count):
     Retorna (res, times, quality, warmup_months_used); `warmup_months_used`
     é {par: nº de meses da HistData usados} para registro de proveniência —
     vazio quando nenhum par precisou de aquecimento externo.
-    `quality["histdata_warmup_gaps"]` (achado herdr-review mfc-61, P2-1,
-    confirmado por `mfc-rev` e `mfc-rev-2`) registra, por par, os meses
-    ausentes DENTRO do intervalo do cache usado — antes não havia nenhuma
-    checagem de contiguidade, então um cache com buraco no meio (caso real:
-    AUDJPY, 11 meses de 2012 genuinamente ausentes na HistData.com, não um
-    erro de fetch) produzia `status=clean` do mesmo jeito que um cache
-    íntegro; agora o buraco fica visível na proveniência mesmo quando não é
-    grave o bastante pra derrubar `first_pos` abaixo do requisito.
+    `quality["histdata_warmup_gaps"]`/`quality["warmup_gap_pairs"]` (achado
+    herdr-review mfc-61 P2-1 + mfc-62 P2-1/P2-2, `mfc-rev`/`mfc-rev-2`)
+    registram, por par, os meses ausentes na FATIA de cache efetivamente
+    concatenada (`warmup_rows`, não o cache inteiro) — incluindo um buraco
+    exatamente NA EMENDA entre o fim do cache e o início da Exness, que a
+    versão anterior (mfc-61) não detectava. A mfc-61 só registrava o buraco
+    na proveniência sem afetar `status`; um cache descontínuo (caso real:
+    AUDJPY antes da fusão Dukascopy, 11 meses de 2012 ausentes) passava como
+    `status=clean` e virava evidência OOS elegível mesmo assim (mfc-62
+    P2-2). Agora `warmup_gap_pairs` não-vazio degrada `status` pra
+    `degraded`, do mesmo jeito que `short_history_pairs`.
     """
     if not MT5_AVAILABLE or mt5 is None:
         # Mesmo comportamento fail-closed de calculate_full_css() nesse
@@ -170,6 +173,7 @@ def load_mn1_series_with_warmup(count):
         "common_history_bars": 0,
         "returned_history_bars": 0,
         "histdata_warmup_gaps": {},
+        "warmup_gap_pairs": [],
     }
     warmup_months_used = {}
     pair_dfs = {}
@@ -181,10 +185,41 @@ def load_mn1_series_with_warmup(count):
         df["time"] = pd.to_datetime(df["time"], unit="s", utc=True)
         earliest_exness = df["time"].min()
 
-        all_warmup_rows, warmup_gaps = _load_histdata_warmup_months(sym)
+        all_warmup_rows, _full_cache_gaps = _load_histdata_warmup_months(sym)
         warmup_rows = [row for row in all_warmup_rows if row[0] < earliest_exness]
-        if warmup_gaps:
-            quality["histdata_warmup_gaps"][sym] = warmup_gaps
+        if warmup_rows:
+            # Achado herdr-review mfc-62 (P2-1/P2-2, `mfc-rev-2`): os gaps
+            # precisam ser medidos na FATIA efetivamente usada (warmup_rows),
+            # não no cache inteiro (all_warmup_rows/_full_cache_gaps acima,
+            # que pode acusar buraco fora do prefixo consumido, ou deixar de
+            # acusar um buraco NA EMENDA entre o fim do cache e o início da
+            # Exness — nenhum dos dois é o que a série concatenada realmente
+            # contém). Um buraco aqui agora DEGRADA o status (abaixo), em vez
+            # de só ficar registrado sem afetar o gate `require_clean`.
+            used_months = {
+                f"{ts.year:04d}-{ts.month:02d}" for ts, *_ in warmup_rows
+            }
+            internal_gaps = fetch_histdata_mn1_warmup.find_gaps(used_months)
+            # Meses faltantes na EMENDA: do mês seguinte ao último do cache
+            # até o mês imediatamente anterior ao início da Exness
+            # (inclusive) — pode ser mais de um mês, ao contrário de só
+            # checar "o mês seguinte bate com o início da Exness?".
+            exness_y, exness_m = earliest_exness.year, earliest_exness.month
+            boundary_y, boundary_m = (
+                (exness_y - 1, 12) if exness_m == 1 else (exness_y, exness_m - 1)
+            )
+            seam_y, seam_m = warmup_rows[-1][0].year, warmup_rows[-1][0].month
+            seam_y, seam_m = (seam_y + 1, 1) if seam_m == 12 else (seam_y, seam_m + 1)
+            seam_gaps = []
+            while (seam_y, seam_m) <= (boundary_y, boundary_m):
+                seam_gaps.append(f"{seam_y:04d}-{seam_m:02d}")
+                seam_y, seam_m = (
+                    (seam_y + 1, 1) if seam_m == 12 else (seam_y, seam_m + 1)
+                )
+            slice_gaps = list(internal_gaps) + seam_gaps
+            if slice_gaps:
+                quality["histdata_warmup_gaps"][sym] = sorted(slice_gaps)
+                quality["warmup_gap_pairs"].append(sym)
         if warmup_rows:
             warmup_df = pd.DataFrame(
                 warmup_rows, columns=["time", "open", "high", "low", "close"],
@@ -232,6 +267,9 @@ def load_mn1_series_with_warmup(count):
             quality["short_history_pairs"].append(sym)
     quality["short_history_pairs"] = sorted(quality["short_history_pairs"])
     if quality["short_history_pairs"]:
+        quality["status"] = "degraded"
+    quality["warmup_gap_pairs"] = sorted(quality["warmup_gap_pairs"])
+    if quality["warmup_gap_pairs"]:
         quality["status"] = "degraded"
 
     pair_slopes = {}
