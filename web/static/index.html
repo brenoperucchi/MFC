@@ -789,6 +789,23 @@
                         </div>
                     </div>
 
+                    <div class="equity-chart-wrapper" style="margin-bottom: 16px;">
+                        <div class="equity-chart-header">
+                            <div>
+                                <span style="font-weight: 700; font-family: var(--font-display); color: #FFF; font-size: 13px;">📈 Evolução do Líquido por Motor</span>
+                                <span style="font-size: 11px; color: var(--text-muted); display: block;">Eixo X = # da execução (journal_seq) — até 10 por vez</span>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <button class="action-btn secondary-btn" id="btnBacktestChartOlder" title="Ver execuções mais antigas" style="font-size: 11px; padding: 3px 9px;">←</button>
+                                <span id="backtestChartRangeLabel" style="font-size: 10.5px; color: var(--text-muted); font-family: var(--font-mono); white-space: nowrap;"></span>
+                                <button class="action-btn secondary-btn" id="btnBacktestChartNewer" title="Ver execuções mais recentes" style="font-size: 11px; padding: 3px 9px;">→</button>
+                            </div>
+                        </div>
+                        <div style="height: 200px; width: 100%; position: relative;">
+                            <canvas id="backtestPnlCanvas"></canvas>
+                        </div>
+                    </div>
+
                     <div class="track-sessions-wrapper" style="margin-bottom: 16px;">
                         <div class="track-sessions-header">
                             <span style="font-weight: 700; font-family: var(--font-display); color: #FFF; font-size: 13px;">📜 Histórico de Execuções</span>

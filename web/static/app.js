@@ -2432,6 +2432,7 @@ function setupTrackRecordModal() {
     }
 
     setupBacktestTriggerForm();
+    setupBacktestChartPagination();
 
     // 2. Filtro de Moeda na Aba de Auditoria
     const currSelector = document.getElementById("trackCurrencySelector");
@@ -2638,7 +2639,10 @@ async function loadBacktestHistory() {
         const res = await fetch("/api/backtest-history?limit=100");
         if (!res.ok) throw new Error("Erro ao buscar histórico de backtest");
         const data = await res.json();
-        renderBacktestHistoryTable(data.entries || []);
+        state.backtestHistoryEntries = data.entries || [];
+        state.backtestChartPageOffset = 0; // sempre volta pros mais recentes ao recarregar
+        renderBacktestHistoryTable(state.backtestHistoryEntries);
+        renderBacktestPnlChart();
     } catch (err) {
         console.error("Erro ao carregar histórico de backtest:", err);
         tbody.textContent = "";
@@ -2696,7 +2700,19 @@ function renderBacktestHistoryTable(entries) {
 
         const commitCell = addCell(entry.code_commit ? entry.code_commit.slice(0, 8) + (entry.worktree_dirty ? " ⚠️" : "") : "-");
 
-        const descCell = addCell(entry.note || "-");
+        // Descrição truncada na tabela (achado do Breno olhando a UI real —
+        // texto completo espremia a linha) — o marcador [web-trigger:...] é
+        // ruído pra leitura humana aqui (o badge 🌐 já cobre essa informação);
+        // o texto completo (com marcador) continua no title/tooltip, e o
+        // painel de detalhe (clique na linha) sempre mostra o note bruto.
+        const rawNote = entry.note || "";
+        const markerMatch = rawNote.match(/^\[web-trigger:[a-f0-9]+\]\s*/);
+        const humanNote = markerMatch ? rawNote.slice(markerMatch[0].length) : rawNote;
+        const MAX_DESC_CHARS = 50;
+        const truncatedNote = humanNote.length > MAX_DESC_CHARS
+            ? humanNote.slice(0, MAX_DESC_CHARS).trimEnd() + "…"
+            : humanNote;
+        const descCell = addCell(truncatedNote || "-", rawNote || undefined);
         if (entry.is_web_trigger) {
             const badge = document.createElement("span");
             badge.textContent = " 🌐";
@@ -2745,6 +2761,168 @@ function renderBacktestHistoryTable(entries) {
         qualityCell.className = "text-center";
 
         tbody.appendChild(tr);
+    });
+}
+
+// Cores por motor — nomes fixos ganham cor estável; qualquer motor futuro
+// (não cadastrado aqui) cicla pela paleta de fallback em vez de quebrar.
+const BACKTEST_ENGINE_COLORS = {
+    "3tf_baseline": "#94A3B8",
+    "5tf_port_a": "#00E5FF",
+    "5tf_upstream": "#FFB020",
+    "3tf_vector": "#FF3B30",
+};
+const BACKTEST_ENGINE_FALLBACK_COLORS = ["#2ECC71", "#9932CC", "#3872FF", "#D2B48C"];
+
+function backtestEngineColor(name, index) {
+    if (BACKTEST_ENGINE_COLORS[name]) return BACKTEST_ENGINE_COLORS[name];
+    return BACKTEST_ENGINE_FALLBACK_COLORS[index % BACKTEST_ENGINE_FALLBACK_COLORS.length];
+}
+
+// Janela de paginação do gráfico — até 10 execuções por vez, mais recentes
+// primeiro por padrão; state.backtestChartPageOffset conta quantas das mais
+// recentes ficam ESCONDIDAS (0 = mostrando as 10 últimas).
+function getBacktestChartWindow() {
+    const all = (state.backtestHistoryEntries || [])
+        .slice()
+        .sort((a, b) => (a.journal_seq || 0) - (b.journal_seq || 0));
+    const pageSize = 10;
+    const offset = state.backtestChartPageOffset || 0;
+    const end = Math.max(0, all.length - offset);
+    const start = Math.max(0, end - pageSize);
+    return { entries: all.slice(start, end), start, end, total: all.length };
+}
+
+function setupBacktestChartPagination() {
+    const btnOlder = document.getElementById("btnBacktestChartOlder");
+    const btnNewer = document.getElementById("btnBacktestChartNewer");
+    if (btnOlder) {
+        btnOlder.addEventListener("click", () => {
+            state.backtestChartPageOffset = (state.backtestChartPageOffset || 0) + 10;
+            renderBacktestPnlChart();
+        });
+    }
+    if (btnNewer) {
+        btnNewer.addEventListener("click", () => {
+            state.backtestChartPageOffset = Math.max((state.backtestChartPageOffset || 0) - 10, 0);
+            renderBacktestPnlChart();
+        });
+    }
+}
+
+function renderBacktestPnlChart() {
+    const canvas = document.getElementById("backtestPnlCanvas");
+    if (!canvas) return;
+    const { entries: pts, start, end, total } = getBacktestChartWindow();
+
+    const label = document.getElementById("backtestChartRangeLabel");
+    if (label) {
+        label.textContent = pts.length
+            ? `#${pts[0].journal_seq} – #${pts[pts.length - 1].journal_seq} (${total} no total)`
+            : "Sem execuções ainda";
+    }
+    const btnOlder = document.getElementById("btnBacktestChartOlder");
+    const btnNewer = document.getElementById("btnBacktestChartNewer");
+    if (btnOlder) btnOlder.disabled = start <= 0;
+    if (btnNewer) btnNewer.disabled = (state.backtestChartPageOffset || 0) <= 0;
+
+    const ctx = canvas.getContext("2d");
+    const rect = canvas.parentElement.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    ctx.scale(dpr, dpr);
+    const width = rect.width;
+    const height = rect.height;
+    ctx.clearRect(0, 0, width, height);
+    if (pts.length < 1) return;
+
+    const padding = { top: 20, bottom: 28, left: 60, right: 110 };
+    const chartW = Math.max(10, width - padding.left - padding.right);
+    const chartH = Math.max(10, height - padding.top - padding.bottom);
+
+    const engineNames = Array.from(new Set(pts.flatMap(e => Object.keys(e.engines || {}))));
+
+    let allVals = [0];
+    pts.forEach(e => engineNames.forEach(name => {
+        const m = e.engines && e.engines[name];
+        if (m && typeof m.liquido === "number") allVals.push(m.liquido);
+    }));
+    let minVal = Math.min(...allVals, 0);
+    let maxVal = Math.max(...allVals, 0);
+    const range = (maxVal - minVal) || 1;
+    minVal -= range * 0.12;
+    maxVal += range * 0.12;
+
+    const n = pts.length;
+    const getX = (i) => n > 1 ? padding.left + (i / (n - 1)) * chartW : padding.left + chartW / 2;
+    const getY = (val) => padding.top + chartH * (1 - (val - minVal) / (maxVal - minVal));
+
+    const y0 = getY(0);
+    ctx.save();
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.15)";
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    ctx.moveTo(padding.left, y0);
+    ctx.lineTo(width - padding.right, y0);
+    ctx.stroke();
+    ctx.restore();
+
+    engineNames.forEach((name, idx) => {
+        const color = backtestEngineColor(name, idx);
+        const seriesPts = pts
+            .map((e, i) => {
+                const m = e.engines && e.engines[name];
+                return (m && typeof m.liquido === "number") ? { i, val: m.liquido } : null;
+            })
+            .filter(Boolean);
+        if (!seriesPts.length) return;
+
+        if (seriesPts.length >= 2) {
+            ctx.save();
+            ctx.beginPath();
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 2.2;
+            ctx.shadowColor = color;
+            ctx.shadowBlur = 4;
+            seriesPts.forEach((p, k) => {
+                const x = getX(p.i);
+                const y = getY(p.val);
+                if (k === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+            });
+            ctx.stroke();
+            ctx.restore();
+        }
+
+        ctx.save();
+        ctx.fillStyle = color;
+        seriesPts.forEach(p => {
+            ctx.beginPath();
+            ctx.arc(getX(p.i), getY(p.val), 2.6, 0, Math.PI * 2);
+            ctx.fill();
+        });
+        ctx.restore();
+
+        const lastPt = seriesPts[seriesPts.length - 1];
+        ctx.save();
+        ctx.fillStyle = color;
+        ctx.font = "bold 9.5px JetBrains Mono";
+        ctx.textAlign = "left";
+        ctx.fillText(`${name} (${fmtBacktestMoney(lastPt.val)})`, getX(lastPt.i) + 6, getY(lastPt.val) + 3);
+        ctx.restore();
+    });
+
+    ctx.fillStyle = "#94A3B8";
+    ctx.font = "10px JetBrains Mono";
+    ctx.textAlign = "right";
+    ctx.fillText(fmtBacktestMoney(maxVal), padding.left - 8, padding.top + 5);
+    ctx.fillText(fmtBacktestMoney(minVal), padding.left - 8, height - padding.bottom);
+    ctx.fillText("$0", padding.left - 8, y0 + 3);
+
+    ctx.textAlign = "center";
+    pts.forEach((e, i) => {
+        ctx.fillText(`#${e.journal_seq}`, getX(i), height - 8);
     });
 }
 
