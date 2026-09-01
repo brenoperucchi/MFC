@@ -17,6 +17,7 @@ from scripts.backtest_engine_compare import (
     _normalize_window_end,
     _aggregate_pass_summaries,
     _data_snapshot_digest,
+    _engine_summary,
     _overall_quality_status,
     _quality_status,
     compare,
@@ -391,6 +392,32 @@ class TestPortAVectors(unittest.TestCase):
         assert aggregate["paired_net_delta_per_night_mean"] == {
             "min": 4.0, "max": 8.0, "mean": 6.0, "n_runs": 2
         }
+
+    def test_engine_summary_includes_spread_and_swap_in_the_main_record(self):
+        """Achado herdr-review mfc-63 (MFC63-01/`mfc-rev`): a correção
+        anterior (fe0f1ba) levou spread/swap até _pass_summary()/
+        runs_summary, mas o registro PRINCIPAL de compare() (o objeto
+        "engines" que qualquer consumidor comum lê, não o aninhado em
+        runs_summary) era montado por um bloco inline SEPARADO que
+        continuava sem os dois campos — o teste de _aggregate_pass_summaries
+        acima nunca cobria esse segundo caminho. _engine_summary() foi
+        extraída pra ficar testável do mesmo jeito que _pass_summary()."""
+        stats = {
+            "port": {
+                "pnl": 10.0, "cost": 4.0, "spread": 3.0, "swap": 1.0,
+                "baskets": 2, "nights_with_baskets": 1, "wins": 1,
+                "basket_wins": 2, "net_per_basket": [3.0, 3.0],
+                "degraded_baskets": 0, "swap_unmodeled_baskets": 0,
+                "skipped_missing_price": 0,
+            }
+        }
+        active_signal_counts = {"port": {"EUR": 2, "USD": 0}}
+        summary = _engine_summary("port", stats, active_signal_counts)
+        assert summary["spread"] == 3.0
+        assert summary["swap"] == 1.0
+        assert summary["custo"] == 4.0
+        assert summary["liquido"] == 6.0
+        assert summary["active_signals"] == 2
 
     def test_unmodeled_swap_is_not_reported_as_clean(self):
         stats = {

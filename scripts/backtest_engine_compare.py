@@ -625,6 +625,44 @@ def _aggregate_pass_summaries(pass_summaries, engine_names):
         },
     }
 
+def _engine_summary(name, stats, active_signal_counts):
+    """Resumo persistível de um engine no registro PRINCIPAL de compare()
+    — distinto de _pass_summary() (que resume uma ÚNICA passada de custo
+    dentro de runs_summary). Extraída de dentro de compare() como achado
+    herdr-review mfc-63 (MFC63-01/`mfc-rev`): a correção anterior (fe0f1ba)
+    levou spread/swap até _pass_summary()/runs_summary, mas este era um
+    SEGUNDO dict "engines", construído inline em compare() a partir da
+    ÚLTIMA passada de `stats` — o que qualquer consumidor do registro
+    PRINCIPAL lê continuava com custo total sem a decomposição. Extrair pra
+    função pura torna isto testável do mesmo jeito que _pass_summary() já é,
+    em vez de só a função de agregação."""
+    current = stats[name]
+    net_mean, net_stderr = _mean_stderr(current["net_per_basket"])
+    return {
+        "baskets": current["baskets"],
+        "reconstructed_baskets": current["baskets"],
+        "active_signals": sum(active_signal_counts[name].values()),
+        "bruto": round(current["pnl"], 2),
+        "custo": round(current["cost"], 2),
+        "spread": round(current["spread"], 2),
+        "swap": round(current["swap"], 2),
+        "liquido": round(current["pnl"] - current["cost"], 2),
+        "noite_pct": round(
+            (current["wins"] / current["nights_with_baskets"] * 100)
+            if current["nights_with_baskets"] else 0.0, 1),
+        "cesta_pct": round(
+            (current["basket_wins"] / current["baskets"] * 100)
+            if current["baskets"] else 0.0, 1),
+        "net_per_basket_mean": round(net_mean, 3) if net_mean is not None else None,
+        "net_per_basket_stderr": round(net_stderr, 3) if net_stderr is not None else None,
+        "net_per_basket_n": len(current["net_per_basket"]),
+        "degraded_baskets": current["degraded_baskets"],
+        "swap_unmodeled_baskets": current["swap_unmodeled_baskets"],
+        "skipped_missing_price": current["skipped_missing_price"],
+        "quality_status": _quality_status(current),
+    }
+
+
 ENGINES = {
     "3tf_baseline": _run_3tf,
     "5tf_port_a": _run_port_a,
@@ -1209,29 +1247,8 @@ def compare(days=45, engine_names=None, runs=1, log_note=None, end_brt=None,
             "execution": producer_provenance["execution"],
             "agree_pct": round(agree / total_calls * 100, 1) if total_calls else None,
             "engines": {
-                name: {
-                    "baskets": stats[name]["baskets"],
-                    "reconstructed_baskets": stats[name]["baskets"],
-                    "active_signals": sum(active_signal_counts[name].values()),
-                    "bruto": round(stats[name]["pnl"], 2),
-                    "custo": round(stats[name]["cost"], 2),
-                    "liquido": round(stats[name]["pnl"] - stats[name]["cost"], 2),
-                    "noite_pct": round(
-                        (stats[name]["wins"] / stats[name]["nights_with_baskets"] * 100)
-                        if stats[name]["nights_with_baskets"] else 0.0, 1),
-                    "cesta_pct": round(
-                        (stats[name]["basket_wins"] / stats[name]["baskets"] * 100)
-                        if stats[name]["baskets"] else 0.0, 1),
-                    "net_per_basket_mean": round(_mean_stderr(stats[name]["net_per_basket"])[0], 3)
-                    if _mean_stderr(stats[name]["net_per_basket"])[0] is not None else None,
-                    "net_per_basket_stderr": round(_mean_stderr(stats[name]["net_per_basket"])[1], 3)
-                    if _mean_stderr(stats[name]["net_per_basket"])[1] is not None else None,
-                    "net_per_basket_n": len(stats[name]["net_per_basket"]),
-                    "degraded_baskets": stats[name]["degraded_baskets"],
-                    "swap_unmodeled_baskets": stats[name]["swap_unmodeled_baskets"],
-                    "skipped_missing_price": stats[name]["skipped_missing_price"],
-                    "quality_status": _quality_status(stats[name]),
-                } for name in engine_names
+                name: _engine_summary(name, stats, active_signal_counts)
+                for name in engine_names
             },
             "runs_summary": runs_summary,
         }
