@@ -1798,6 +1798,15 @@ window.openDeepDive = function(target) {
     });
 
     const modal = document.getElementById("deepDiveModal");
+    // Achado testando /deep_dive/{CCY}: o caminho de moeda única deixava
+    // "hidden" no lugar e só adicionava "active" — uma classe que não
+    // existe em nenhuma regra de .modal-backdrop no CSS, então o modal
+    // nunca aparecia pra uma moeda (só funcionava pro caso de PAR, que
+    // corretamente remove "hidden" mais acima nesta mesma função). Bug
+    // pré-existente, não introduzido por esta sessão — só ficou visível
+    // agora porque o roteamento por URL passou a chamar este caminho de
+    // fora, onde antes só era clicado a partir de um elemento já visível.
+    modal.classList.remove("hidden");
     modal.classList.add("active");
 
     setTimeout(() => {
