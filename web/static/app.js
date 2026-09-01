@@ -225,12 +225,17 @@ function setupEventListeners() {
 // carregamento direto/refresh também funciona, não só navegação interna.
 // ============================================================
 
+// matrixModal FICOU DE FORA de propósito: achado testando as rotas — o
+// próprio botão que abriria (#btnOpenMatrixModal) não existe em
+// index.html, então setupMatrixModal() nunca conecta os handlers (nem de
+// abrir, nem de fechar) e o modal é código morto hoje, prévio a esta
+// sessão. Rotear pra um modal que ninguém consegue abrir seria enganoso;
+// não tentei "consertar" isso aqui por não ser o que foi pedido.
 const MODAL_ROUTES = [
     { modalId: "trackRecordModal", path: "/track_record" },
     { modalId: "crossoversModal", path: "/crossovers" },
     { modalId: "pairsModal", path: "/pairs" },
     { modalId: "historyModal", path: "/history" },
-    { modalId: "matrixModal", path: "/matrix" },
     { modalId: "deepDiveModal", path: "/deep_dive" },
 ];
 
@@ -270,7 +275,6 @@ function syncUrlWithUiState() {
 const MODAL_OPEN_BUTTON_IDS = {
     pairsModal: "btnOpenPairsModal",
     historyModal: "btnOpenHistoryModal",
-    matrixModal: "btnOpenMatrixModal",
     crossoversModal: "btnOpenCrossoversModal",
 };
 
@@ -291,7 +295,24 @@ function applyRouteFromLocation() {
             const tabBtn = document.querySelector(`.track-nav-tab[data-tab="${tabKey}"]`);
             if (tabBtn) tabBtn.click();
         } else if (route.modalId === "deepDiveModal") {
-            if (second && typeof window.openDeepDive === "function") window.openDeepDive(second.toUpperCase());
+            // openDeepDive() sai sem fazer nada se state.data ainda não
+            // carregou (achado testando a rota: um carregamento direto de
+            // /deep_dive/AUD chega ANTES do fetchData() inicial terminar)
+            // — tenta de novo por alguns segundos em vez de desistir na
+            // primeira, mesmo padrão de retry já usado em openDeepDive()
+            // pros próprios gráficos (requestAnimationFrame + setTimeout
+            // escalonado).
+            if (second) {
+                const ccy = second.toUpperCase();
+                const tryOpenDeepDive = (attemptsLeft) => {
+                    if (state.data && typeof window.openDeepDive === "function") {
+                        window.openDeepDive(ccy);
+                    } else if (attemptsLeft > 0) {
+                        setTimeout(() => tryOpenDeepDive(attemptsLeft - 1), 300);
+                    }
+                };
+                tryOpenDeepDive(10);
+            }
         } else {
             const btnId = MODAL_OPEN_BUTTON_IDS[route.modalId];
             const btn = btnId && document.getElementById(btnId);
