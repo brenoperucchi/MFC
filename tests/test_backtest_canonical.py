@@ -533,6 +533,37 @@ class TestLoadMn1SeriesWithWarmup(unittest.TestCase):
         self.assertEqual(quality["warmup_gap_pairs"], ["EURUSD"])
         self.assertEqual(quality["status"], "degraded")
 
+    def test_gap_outside_the_used_slice_does_not_degrade_status(self):
+        """Achado herdr-review mfc-63 (P3-3/`mfc-rev-2`): a correção do
+        P2-1/P2-2 mudou a medição de gaps do cache INTEIRO pra fatia
+        efetivamente concatenada (`warmup_rows`, filtrada por
+        `row[0] < earliest_exness`). Os testes anteriores só cobrem a
+        direção "detectar e degradar" — nenhum prova que um buraco em meses
+        do cache que o filtro DESCARTA (por serem >= earliest_exness) não
+        aciona nada. Sem este teste, uma regressão que voltasse a medir
+        gaps sobre o cache inteiro (ou medisse sobre os dois ao mesmo
+        tempo) passaria despercebida e reintroduziria o falso positivo que
+        a própria correção existe pra eliminar."""
+        exness_rates = _monthly_rates(59, 2021, 9)
+        # cache vai até 2022-12 (bem além do que a Exness precisa, que
+        # começa em 2021-09) -- 2022-03/2022-04 removidos, mas esses meses
+        # nunca entram em warmup_rows (row[0] >= earliest_exness).
+        warmup_keys = _sequential_months(2012, 1, 132)  # 2012-01..2022-12
+        warmup_months = {
+            key: {"open": 1.0, "high": 1.01, "low": 0.99, "close": 1.0, "n": 100}
+            for key in warmup_keys
+        }
+        del warmup_months["2022-03"]
+        del warmup_months["2022-04"]
+        res, times, quality, warmup_used = self._run(exness_rates, warmup_months)
+        self.assertEqual(quality["histdata_warmup_gaps"], {})
+        self.assertEqual(quality["warmup_gap_pairs"], [])
+        self.assertEqual(quality["status"], "clean")
+        # confirma que o filtro realmente descartou o rabo pós-Exness --
+        # se warmup_used incluísse os meses de 2022, o buraco estaria
+        # DENTRO da fatia usada e este teste não provaria nada.
+        self.assertEqual(warmup_used, {"EURUSD": 116})  # só 2012-01..2021-08
+
     def test_reaches_clean_status_when_warmup_fills_the_deficit(self):
         """59 barras da Exness (2021-09..2026-08) precisam de 169 pro
         aquecimento do ATR(100)+offset-10 (count=60) — faltam 110. O cache
