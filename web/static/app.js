@@ -2359,7 +2359,7 @@ async function loadReportContent(dateStr) {
 }
 
 // ==========================================================================
-// TRACK RECORD & AUDITORIA MULTI-PORTFÓLIO (3 ABAS & MASTER-DETAIL)
+// TRACK RECORD & AUDITORIA MULTI-PORTFÓLIO (4 ABAS & MASTER-DETAIL)
 // ==========================================================================
 
 function setupTrackRecordModal() {
@@ -2368,8 +2368,9 @@ function setupTrackRecordModal() {
     const btnClose = document.getElementById("btnCloseTrackRecordModal");
     const btnRecalc = document.getElementById("btnRecalculateTrackRecord");
 
-    state.activeTrackTab = "live"; // 'live', 'audit', 'analytics'
+    state.activeTrackTab = "live"; // 'live', 'audit', 'analytics', 'backtests'
     state.livePollingTimer = null;
+    state.backtestStatusPollingTimer = null;
 
     if (btnOpen && modal) {
         btnOpen.addEventListener("click", () => {
@@ -2383,6 +2384,7 @@ function setupTrackRecordModal() {
         btnClose.addEventListener("click", () => {
             modal.classList.add("hidden");
             stopLivePolling();
+            stopBacktestStatusPolling();
         });
     }
 
@@ -2391,11 +2393,12 @@ function setupTrackRecordModal() {
             if (e.target === modal) {
                 modal.classList.add("hidden");
                 stopLivePolling();
+                stopBacktestStatusPolling();
             }
         });
     }
 
-    // 1. Alternância das 3 Abas Principais
+    // 1. Alternância das Abas Principais
     const trackModal = document.getElementById("trackRecordModal");
     if (trackModal) {
         trackModal.querySelectorAll(".track-nav-tab").forEach(tab => {
@@ -2419,10 +2422,16 @@ function setupTrackRecordModal() {
                     const pane = document.getElementById("paneAnalytics");
                     if (pane) pane.classList.add("active");
                     if (state.trackRecordData) renderAnalyticsTab(state.trackRecordData);
+                } else if (targetTab === "backtests") {
+                    const pane = document.getElementById("paneBacktests");
+                    if (pane) pane.classList.add("active");
+                    loadBacktestHistory();
                 }
             });
         });
     }
+
+    setupBacktestTriggerForm();
 
     // 2. Filtro de Moeda na Aba de Auditoria
     const currSelector = document.getElementById("trackCurrencySelector");
@@ -2483,6 +2492,339 @@ async function fetchLiveSessionData() {
         }
     } catch (err) {
         console.error("Erro no polling da sessão ao vivo:", err);
+    }
+}
+
+// ============================================================
+// ACOMPANHAMENTO DE BACKTEST (REGRESSION TRACKING) — 4ª aba do modal de
+// track-record. Ver docs/plans/eventual-stargazing-bear.md (consulta
+// herdr-ask mfc-13). Toda string vinda do journal (note, nomes de engine
+// etc.) é setada via textContent, NUNCA interpolada em innerHTML — este é
+// o primeiro texto livre digitado por humano renderizado nesta UI, e o
+// resto do arquivo usa innerHTML sem escapar (só números/moeda até aqui).
+// A chave de API vai em sessionStorage (some ao fechar a aba), nunca
+// localStorage — é uma chave dedicada (CSS_BACKTEST_API_KEY), mas ainda
+// assim não deve virar um segredo durável no navegador.
+// ============================================================
+
+const BACKTEST_API_KEY_STORAGE_KEY = "css_backtest_api_key";
+
+function getBacktestApiKey() {
+    try {
+        return sessionStorage.getItem(BACKTEST_API_KEY_STORAGE_KEY) || "";
+    } catch (err) {
+        return "";
+    }
+}
+
+function setBacktestApiKey(value) {
+    try {
+        sessionStorage.setItem(BACKTEST_API_KEY_STORAGE_KEY, value);
+    } catch (err) {
+        // sessionStorage indisponível (aba privada/bloqueio) — segue sem persistir
+    }
+}
+
+function fmtBacktestMoney(value) {
+    if (typeof value !== "number" || !isFinite(value)) return "n/a";
+    return (value >= 0 ? "+$" : "-$") + Math.abs(value).toFixed(2);
+}
+
+function setupBacktestTriggerForm() {
+    const keyInput = document.getElementById("backtestTriggerApiKey");
+    if (keyInput) {
+        keyInput.value = getBacktestApiKey();
+        keyInput.addEventListener("input", () => setBacktestApiKey(keyInput.value));
+    }
+
+    const btn = document.getElementById("btnTriggerBacktest");
+    if (!btn) return;
+    btn.addEventListener("click", async () => {
+        const descInput = document.getElementById("backtestTriggerDescription");
+        const runsInput = document.getElementById("backtestTriggerRuns");
+        const msgEl = document.getElementById("backtestTriggerStatusMsg");
+        const description = (descInput && descInput.value || "").trim();
+        const runs = parseInt((runsInput && runsInput.value) || "2", 10);
+        const apiKey = getBacktestApiKey();
+
+        if (description.length < 3) {
+            if (msgEl) msgEl.textContent = "Descrição precisa ter pelo menos 3 caracteres.";
+            return;
+        }
+
+        btn.disabled = true;
+        if (msgEl) msgEl.textContent = "Disparando...";
+        try {
+            const res = await fetch("/api/backtest-history/trigger", {
+                method: "POST",
+                headers: { "Content-Type": "application/json", "X-Css-Api-Key": apiKey },
+                body: JSON.stringify({ description, runs }),
+            });
+            const body = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                if (msgEl) msgEl.textContent = `Erro (${res.status}): ${body.detail || "falha ao disparar"}`;
+                btn.disabled = false;
+                return;
+            }
+            if (msgEl) msgEl.textContent = `Iniciado (run_id=${body.run_id}). Acompanhando...`;
+            startBacktestStatusPolling();
+        } catch (err) {
+            if (msgEl) msgEl.textContent = "Erro de rede ao disparar.";
+            btn.disabled = false;
+        }
+    });
+}
+
+function startBacktestStatusPolling() {
+    stopBacktestStatusPolling();
+    pollBacktestStatus();
+    state.backtestStatusPollingTimer = setInterval(pollBacktestStatus, 3000);
+}
+
+function stopBacktestStatusPolling() {
+    if (state.backtestStatusPollingTimer) {
+        clearInterval(state.backtestStatusPollingTimer);
+        state.backtestStatusPollingTimer = null;
+    }
+}
+
+async function pollBacktestStatus() {
+    const msgEl = document.getElementById("backtestTriggerStatusMsg");
+    const btn = document.getElementById("btnTriggerBacktest");
+    try {
+        const res = await fetch("/api/backtest-history/trigger/status", {
+            headers: { "X-Css-Api-Key": getBacktestApiKey() },
+        });
+        if (!res.ok) {
+            stopBacktestStatusPolling();
+            if (btn) btn.disabled = false;
+            return;
+        }
+        const status = await res.json();
+        if (status.status === "running" && msgEl) {
+            msgEl.textContent = "Status: em andamento...";
+        }
+        if (status.status !== "running") {
+            stopBacktestStatusPolling();
+            if (btn) btn.disabled = false;
+            if (msgEl) {
+                if (status.status === "done") {
+                    msgEl.textContent = `Concluído — journal_seq=${status.new_journal_seq != null ? status.new_journal_seq : "?"}`;
+                } else if (status.status === "failed") {
+                    msgEl.textContent = `Falhou: ${status.error || ("returncode=" + status.returncode)}`;
+                } else if (status.status === "interrupted") {
+                    // Achado P3-1 (herdr-review mfc-66, mfc-rev-2): antes caía
+                    // no "else" mudo — o operador via a tela limpar sem saber
+                    // que a execução foi interrompida (ex.: watchdog de janela
+                    // crítica). log_tail continua disponível na mesma resposta.
+                    msgEl.textContent = "Interrompida (ex.: watchdog de janela crítica) — veja o log.";
+                } else if (status.status === "skipped") {
+                    msgEl.textContent = `Pulada: ${status.reason || "condição mudou antes de rodar"}`;
+                } else {
+                    msgEl.textContent = "";
+                }
+            }
+            loadBacktestHistory();
+        }
+    } catch (err) {
+        console.error("Erro no polling do status do backtest:", err);
+    }
+}
+
+async function loadBacktestHistory() {
+    const tbody = document.getElementById("backtestsHistoryTableBody");
+    if (!tbody) return;
+    try {
+        const res = await fetch("/api/backtest-history?limit=100");
+        if (!res.ok) throw new Error("Erro ao buscar histórico de backtest");
+        const data = await res.json();
+        renderBacktestHistoryTable(data.entries || []);
+    } catch (err) {
+        console.error("Erro ao carregar histórico de backtest:", err);
+        tbody.textContent = "";
+        const tr = document.createElement("tr");
+        const td = document.createElement("td");
+        td.colSpan = 11;
+        td.className = "loading-cell";
+        td.textContent = "Erro ao carregar histórico.";
+        tr.appendChild(td);
+        tbody.appendChild(tr);
+    }
+}
+
+function renderBacktestHistoryTable(entries) {
+    const tbody = document.getElementById("backtestsHistoryTableBody");
+    if (!tbody) return;
+    tbody.textContent = "";
+
+    if (!entries.length) {
+        const tr = document.createElement("tr");
+        const td = document.createElement("td");
+        td.colSpan = 11;
+        td.className = "loading-cell";
+        td.textContent = "Nenhuma execução registrada ainda.";
+        tr.appendChild(td);
+        tbody.appendChild(tr);
+        return;
+    }
+
+    entries.forEach(entry => {
+        const tr = document.createElement("tr");
+        tr.style.cursor = "pointer";
+        tr.addEventListener("click", () => selectBacktestEntry(entry.journal_seq));
+
+        const addCell = (text) => {
+            const td = document.createElement("td");
+            td.textContent = text;
+            tr.appendChild(td);
+            return td;
+        };
+
+        addCell(entry.journal_seq != null ? String(entry.journal_seq) : "-");
+        addCell(entry.recorded_at_utc ? new Date(entry.recorded_at_utc).toLocaleString("pt-BR") : "-");
+        addCell(entry.market_open_at_run === false ? "🌙 fechado" : (entry.market_open_at_run === true ? "🟢 aberto" : "-"));
+
+        const roleCell = addCell(entry.sample_role || "-");
+        if (entry.sample_role === "oos_disjoint") {
+            roleCell.style.color = "#FFD700";
+            roleCell.style.fontWeight = "800";
+        }
+
+        const win = entry.window || {};
+        addCell(win.days ? `${win.days}d / ${win.nights_evaluated != null ? win.nights_evaluated : "?"}n` : "-");
+
+        const commitCell = addCell(entry.code_commit ? entry.code_commit.slice(0, 8) + (entry.worktree_dirty ? " ⚠️" : "") : "-");
+
+        const descCell = addCell(entry.note || "-");
+        if (entry.is_web_trigger) {
+            const badge = document.createElement("span");
+            badge.textContent = " 🌐";
+            badge.title = "Disparado pela web";
+            descCell.appendChild(badge);
+        }
+
+        const engineNames = Object.keys(entry.engines || {});
+        const brutoText = engineNames.map(name => {
+            const m = entry.engines[name] || {};
+            return `${name}: ${fmtBacktestMoney(m.bruto)} (${m.baskets != null ? m.baskets : 0})`;
+        }).join(" | ") || "-";
+        addCell(brutoText);
+
+        const paired = entry.paired_net_delta_per_night || {};
+        addCell(paired.mean != null
+            ? `${fmtBacktestMoney(paired.mean)} ± ${paired.stderr != null ? fmtBacktestMoney(paired.stderr) : "n/a"} (n=${paired.n != null ? paired.n : 0})`
+            : "-");
+
+        const liquidoText = engineNames.map(name => {
+            const m = entry.engines[name] || {};
+            return `${name}: ${fmtBacktestMoney(m.liquido)}`;
+        }).join(" | ") || "-";
+        addCell(liquidoText);
+
+        const qualityCell = addCell(
+            entry.quality_status === "clean" ? "✅" :
+            entry.quality_status === "partial_model" ? "⚠️" :
+            entry.quality_status === "degraded" ? "❌" : "-"
+        );
+        qualityCell.className = "text-center";
+
+        tbody.appendChild(tr);
+    });
+}
+
+async function selectBacktestEntry(journalSeq) {
+    if (journalSeq == null) return;
+    try {
+        const res = await fetch(`/api/backtest-history/${journalSeq}`);
+        if (!res.ok) return;
+        const entry = await res.json();
+        renderBacktestDetailPanel(entry);
+    } catch (err) {
+        console.error("Erro ao carregar detalhe do backtest:", err);
+    }
+}
+
+function renderBacktestDetailPanel(entry) {
+    const panel = document.getElementById("backtestDetailPanel");
+    if (!panel) return;
+    panel.textContent = "";
+    panel.style.display = "flex";
+
+    const title = document.createElement("div");
+    title.style.fontWeight = "800";
+    title.style.fontFamily = "var(--font-display)";
+    title.style.color = "#FFF";
+    title.textContent = `📋 Detalhe da execução #${entry.journal_seq != null ? entry.journal_seq : "-"}`;
+    panel.appendChild(title);
+
+    const note = document.createElement("div");
+    note.style.fontSize = "12px";
+    note.style.color = "var(--text-secondary)";
+    note.textContent = entry.note || "(sem descrição)";
+    panel.appendChild(note);
+
+    const engines = entry.engines || {};
+    Object.keys(engines).forEach(name => {
+        const m = engines[name] || {};
+        const row = document.createElement("div");
+        row.style.fontFamily = "var(--font-mono)";
+        row.style.fontSize = "11.5px";
+        row.style.color = "var(--text-secondary)";
+        row.textContent =
+            `${name}: cestas=${m.baskets != null ? m.baskets : 0} bruto=${fmtBacktestMoney(m.bruto)} custo=${fmtBacktestMoney(m.custo)} ` +
+            `spread=${fmtBacktestMoney(m.spread)} swap=${fmtBacktestMoney(m.swap)} liquido=${fmtBacktestMoney(m.liquido)} ` +
+            `noite%=${m.noite_pct != null ? m.noite_pct : "-"} cesta%=${m.cesta_pct != null ? m.cesta_pct : "-"} qualidade=${m.quality_status || "-"}`;
+        panel.appendChild(row);
+    });
+
+    const limitations = entry.limitations;
+    if (Array.isArray(limitations) && limitations.length) {
+        const limTitle = document.createElement("div");
+        limTitle.style.fontSize = "11px";
+        limTitle.style.fontWeight = "700";
+        limTitle.style.color = "var(--text-muted)";
+        limTitle.textContent = "Limitações:";
+        panel.appendChild(limTitle);
+        limitations.forEach(text => {
+            const li = document.createElement("div");
+            li.style.fontSize = "11px";
+            li.style.color = "var(--text-muted)";
+            li.textContent = `• ${text}`;
+            panel.appendChild(li);
+        });
+    }
+
+    const runsSummary = entry.runs_summary;
+    if (runsSummary && runsSummary.aggregate) {
+        const runsTitle = document.createElement("div");
+        runsTitle.style.fontSize = "11px";
+        runsTitle.style.fontWeight = "700";
+        runsTitle.style.color = "var(--text-muted)";
+        runsTitle.textContent = `Faixa observada em ${runsSummary.reported_pass != null ? runsSummary.reported_pass : "?"} passadas:`;
+        panel.appendChild(runsTitle);
+        const byEngine = (runsSummary.aggregate && runsSummary.aggregate.by_engine) || {};
+        Object.keys(byEngine).forEach(name => {
+            const agg = byEngine[name] || {};
+            const liquido = agg.liquido || {};
+            const row = document.createElement("div");
+            row.style.fontFamily = "var(--font-mono)";
+            row.style.fontSize = "11px";
+            row.style.color = "var(--text-muted)";
+            row.textContent = `${name}: líquido min=${fmtBacktestMoney(liquido.min)} max=${fmtBacktestMoney(liquido.max)} média=${fmtBacktestMoney(liquido.mean)}`;
+            panel.appendChild(row);
+        });
+    }
+
+    const provenance = entry.producer_provenance;
+    if (provenance) {
+        const provRow = document.createElement("div");
+        provRow.style.fontSize = "10.5px";
+        provRow.style.color = "var(--text-muted)";
+        provRow.style.fontFamily = "var(--font-mono)";
+        const terminalPath = provenance.terminal && provenance.terminal.observed_path;
+        const ordersSent = provenance.execution && provenance.execution.orders_sent;
+        provRow.textContent = `Terminal observado: ${terminalPath || "-"} | orders_sent=${ordersSent}`;
+        panel.appendChild(provRow);
     }
 }
 

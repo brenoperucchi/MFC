@@ -447,33 +447,39 @@ def _canonical_windows_path(value):
 
 
 def _assert_oos_terminal_configuration():
-    """Recusa OOS antes de qualquer conexão se o terminal não é o dedicado."""
+    """Recusa a execução antes de qualquer conexão se o terminal não é o
+    dedicado (mfc-backtest) — chamada tanto pra oos_disjoint quanto pra
+    qualquer execução com MFC_BACKTEST_TERMINAL_ISOLATED=1 (ver `compare()`;
+    achado 2 da consulta herdr-ask mfc-13, docs/plans/eventual-stargazing-bear.md:
+    antes só rodava pra oos_disjoint, deixando o disparo web — sempre
+    exploratory — sem essa verificação)."""
     if os.environ.get("MFC_BACKTEST_TERMINAL_ISOLATED") != "1":
-        raise RuntimeError("janela OOS exige MFC_BACKTEST_TERMINAL_ISOLATED=1")
+        raise RuntimeError("execução isolada exige MFC_BACKTEST_TERMINAL_ISOLATED=1")
     expected_path = _canonical_windows_path(MT5_PATH)
     if (ntpath.basename(expected_path) != "terminal64.exe"
             or ntpath.basename(ntpath.dirname(expected_path)) != "mfc-backtest"):
         raise RuntimeError(
-            "OOS exige CSS_MT5_TERMINAL_PATH apontando para a instância mfc-backtest"
+            "execução isolada exige CSS_MT5_TERMINAL_PATH apontando para a instância mfc-backtest"
         )
 
 
 def _assert_oos_terminal_runtime():
-    """Confere caminho observado e conta demo depois do initialize do MT5."""
+    """Confere caminho observado e conta demo depois do initialize do MT5 —
+    mesma extensão de escopo de `_assert_oos_terminal_configuration` acima."""
     if not MT5_AVAILABLE or mt5 is None:
-        raise RuntimeError("OOS exige MT5 disponível")
+        raise RuntimeError("execução isolada exige MT5 disponível")
     terminal_info = mt5.terminal_info()
     observed_path = getattr(terminal_info, "path", None) if terminal_info else None
     expected_dir = _canonical_windows_path(ntpath.dirname(MT5_PATH))
     if _canonical_windows_path(observed_path) != expected_dir:
         raise RuntimeError(
-            "OOS conectado a terminal diferente do caminho dedicado: "
+            "conectado a terminal diferente do caminho dedicado: "
             f"observado={observed_path!r}, esperado={ntpath.dirname(MT5_PATH)!r}"
         )
     account = mt5.account_info()
     demo_mode = getattr(mt5, "ACCOUNT_TRADE_MODE_DEMO", None)
     if account is None or demo_mode is None or getattr(account, "trade_mode", None) != demo_mode:
-        raise RuntimeError("OOS exige conta demo observada no terminal dedicado")
+        raise RuntimeError("execução isolada exige conta demo observada no terminal dedicado")
     return terminal_info, account
 
 
@@ -937,6 +943,18 @@ def compare(days=45, engine_names=None, runs=1, log_note=None, end_brt=None,
         raise ValueError("runs deve ser inteiro positivo")
     if sample_role not in {"exploratory", "oos_disjoint"}:
         raise ValueError("sample_role deve ser exploratory ou oos_disjoint")
+    # Veto do lado do executor (achado 2, docs/plans/eventual-stargazing-bear.md,
+    # consulta herdr-ask mfc-13): o disparo web nunca deveria conseguir pedir
+    # oos_disjoint (o endpoint não repassa sample_role), mas esta checagem é
+    # a segunda linha de defesa — mesmo que um caminho futuro comece a
+    # aceitar sample_role vindo de fora, MFC_BACKTEST_WEB_TRIGGER=1 (setado
+    # só por scripts/run_isolated_backtest.py) recusa antes de qualquer
+    # conexão MT5.
+    if sample_role == "oos_disjoint" and os.environ.get("MFC_BACKTEST_WEB_TRIGGER") == "1":
+        raise RuntimeError(
+            "MFC_BACKTEST_WEB_TRIGGER=1 proíbe sample_role=oos_disjoint — "
+            "o holdout OOS nunca é disparável pela web"
+        )
     if sample_role == "oos_disjoint" and end_brt is None:
         raise ValueError("oos_disjoint exige end_brt explícito")
     window_end = _normalize_window_end(end_brt)
@@ -961,12 +979,22 @@ def compare(days=45, engine_names=None, runs=1, log_note=None, end_brt=None,
             print(f"[-] Motor desconhecido: {name!r}. Disponíveis: {list(ENGINES)}")
             return 1
 
-    if sample_role == "oos_disjoint":
+    # Achado 2 (consulta herdr-ask mfc-13): a asserção de terminal isolado
+    # ficava restrita a sample_role=="oos_disjoint" — o disparo web usa
+    # sample_role="exploratory" e nunca era verificado, apesar de também
+    # precisar rodar só contra o terminal mfc-backtest. Passa a valer sempre
+    # que MFC_BACKTEST_TERMINAL_ISOLATED=1 estiver setado, independente do
+    # papel — a função em si já exige essa mesma variável internamente.
+    terminal_isolation_required = (
+        sample_role == "oos_disjoint"
+        or os.environ.get("MFC_BACKTEST_TERMINAL_ISOLATED") == "1"
+    )
+    if terminal_isolation_required:
         _assert_oos_terminal_configuration()
     if not ensure_mt5():
         print("[-] MT5 não conectado — abortando comparação; não usar dados degradados.")
         return 1
-    if sample_role == "oos_disjoint":
+    if terminal_isolation_required:
         _assert_oos_terminal_runtime()
     contract_snapshot = check_contract_size_consistency(
         strict=sample_role == "oos_disjoint"

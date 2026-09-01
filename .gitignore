@@ -55,3 +55,7 @@ data/.tmp_*
 # qualquer momento; os agregados mensais (data/histdata_mn1_warmup/*.json)
 # são o artefato versionado de verdade.
 data/histdata_mn1_warmup/.raw_cache/
+
+# Estado efêmero do trigger de backtest via web (status.json + log do
+# subprocesso) — scripts/run_isolated_backtest.py, docs/plans/eventual-stargazing-bear.md
+data/backtest_trigger/

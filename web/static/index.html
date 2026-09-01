@@ -486,9 +486,13 @@
                     <span class="tab-icon">📈</span>
                     <span class="tab-label">CURVA DE CAPITAL & ANALYTICS</span>
                 </button>
+                <button class="track-nav-tab" id="tabBtnBacktests" data-tab="backtests">
+                    <span class="tab-icon">🧪</span>
+                    <span class="tab-label">ACOMPANHAMENTO DE BACKTEST</span>
+                </button>
             </div>
 
-            <!-- MODAL BODY WITH 3 TAB CONTENTS -->
+            <!-- MODAL BODY WITH 4 TAB CONTENTS -->
             <div class="modal-body" style="padding: 16px 24px; height: calc(100% - 110px); overflow-y: auto;">
                 
                 <!-- ============================================================ -->
@@ -756,6 +760,69 @@
                             </div>
                         </div>
                     </div>
+                </div>
+
+                <!-- ============================================================ -->
+                <!-- TAB 4: ACOMPANHAMENTO DE BACKTEST (REGRESSION TRACKING) -->
+                <!-- ============================================================ -->
+                <div class="track-tab-pane" id="paneBacktests">
+                    <div class="track-sessions-wrapper" style="margin-bottom: 16px;">
+                        <div class="track-sessions-header">
+                            <span style="font-weight: 700; font-family: var(--font-display); color: #FFF; font-size: 13px;">🧪 Disparar Novo Acompanhamento</span>
+                            <span style="font-size: 11px; color: var(--text-muted);">Janela fixa de 45 dias, sample_role=exploratory — nunca o holdout OOS</span>
+                        </div>
+                        <div style="padding: 16px; display: flex; flex-direction: column; gap: 10px;">
+                            <textarea id="backtestTriggerDescription" maxlength="500" rows="2"
+                                placeholder="Descrição curta do que mudou desde o último run (obrigatório, 3-500 caracteres)"
+                                style="width: 100%; resize: vertical; background: #101624; border: 1px solid var(--border-color); border-radius: 6px; padding: 8px 10px; color: #FFF; font-family: var(--font-mono); font-size: 12px;"></textarea>
+                            <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                                <input type="password" id="backtestTriggerApiKey" placeholder="X-Css-Api-Key"
+                                    style="flex: 1; min-width: 180px; background: #101624; border: 1px solid var(--border-color); border-radius: 6px; padding: 6px 10px; color: #FFF; font-family: var(--font-mono); font-size: 12px;">
+                                <label style="font-size: 11px; color: var(--text-muted); display: flex; align-items: center; gap: 4px;">
+                                    Passadas: <input type="number" id="backtestTriggerRuns" min="1" max="5" value="2" style="width: 48px; background: #101624; border: 1px solid var(--border-color); border-radius: 6px; padding: 4px 6px; color: #FFF; text-align: center;">
+                                </label>
+                                <button class="action-btn secondary-btn" id="btnTriggerBacktest" style="font-size: 11px; padding: 6px 14px;">
+                                    <span>🚀 Disparar</span>
+                                </button>
+                            </div>
+                            <div id="backtestTriggerStatusMsg" style="font-size: 11.5px; color: var(--text-muted); font-family: var(--font-mono);"></div>
+                        </div>
+                    </div>
+
+                    <div class="track-sessions-wrapper" style="margin-bottom: 16px;">
+                        <div class="track-sessions-header">
+                            <span style="font-weight: 700; font-family: var(--font-display); color: #FFF; font-size: 13px;">📜 Histórico de Execuções</span>
+                            <span style="font-size: 11px; color: var(--text-muted);">Mais recente primeiro — clique numa linha pro detalhe completo</span>
+                        </div>
+                        <div style="padding: 0 16px 8px; font-size: 10.5px; color: var(--text-muted); font-family: var(--font-mono);">
+                            ⚠️ <strong>BRUTO</strong> é determinístico (mesma janela/commit reproduz igual) — a coluna primária pra comparar regressão.
+                            <strong>Δ PAREADO</strong> e <strong>LÍQUIDO</strong> dependem do TICK ao vivo no instante do disparo (custo medido, não histórico) — variam ~2x entre mercado aberto/fechado; use a coluna SESSÃO como contexto, não como precisão.
+                        </div>
+                        <div class="table-responsive">
+                            <table class="track-table">
+                                <thead>
+                                    <tr>
+                                        <th>#</th>
+                                        <th>DATA/HORA</th>
+                                        <th title="Mercado aberto/fechado no instante do disparo — contextualiza Δ pareado/líquido">SESSÃO</th>
+                                        <th>PAPEL</th>
+                                        <th>JANELA</th>
+                                        <th>COMMIT</th>
+                                        <th>DESCRIÇÃO</th>
+                                        <th class="text-right">BRUTO/MOTOR</th>
+                                        <th class="text-right" title="Depende do tick ao vivo no instante do disparo — não é custo histórico">Δ PAREADO ⚠️</th>
+                                        <th class="text-right" title="Depende do tick ao vivo no instante do disparo — não é custo histórico">LÍQUIDO/MOTOR ⚠️</th>
+                                        <th class="text-center">QUALIDADE</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="backtestsHistoryTableBody">
+                                    <tr><td colspan="11" class="loading-cell">Carregando histórico...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div id="backtestDetailPanel" class="track-sessions-wrapper" style="padding: 16px; display: none; flex-direction: column; gap: 10px;"></div>
                 </div>
 
             </div>

@@ -5,12 +5,16 @@ Fornece API REST de alta performance e serve a aplicação web frontend SPA.
 
 import os
 import sys
+import asyncio
 import hmac
+import json
 import base64
+import threading
+import time
 from datetime import datetime
 import webbrowser
 import uvicorn
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 from fastapi import FastAPI, HTTPException, Header
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -23,6 +27,8 @@ if BASE_DIR not in sys.path:
 
 from web.css_service import css_engine
 from web.history_tracker import history_engine
+from scripts import run_isolated_backtest
+from scripts._backtest_results_log import RESULTS_LOG_PATH
 
 app = FastAPI(
     title="CSS Institutional Multi-Timeframe Platform",
@@ -160,6 +166,330 @@ async def recalculate_track_record(days: int = 60):
     clamped_days = min(max(1, int(days)), 180)
     res = history_engine.sync_mt5_deals(days_back=clamped_days)
     return JSONResponse(content={"success": True, "summary": res.get("summary")})
+
+
+# ---------------------------------------------------------------------------
+# Acompanhamento de backtest via web (regression tracking) — ver
+# docs/plans/eventual-stargazing-bear.md pro desenho completo e o porquê de
+# cada decisão (consulta herdr-ask mfc-13). Leitura do journal
+# (reports/backtest_history.json) não exige chave; disparar uma execução
+# nova exige CSS_BACKTEST_API_KEY — uma chave DEDICADA, nunca
+# CSS_PORTFOLIO_API_KEY (que abre posição real), pra não aumentar o raio de
+# exposição dessa última.
+# ---------------------------------------------------------------------------
+
+BACKTEST_API_KEY = os.environ.get("CSS_BACKTEST_API_KEY")
+
+
+def _backtest_api_key_matches(x_css_api_key: str) -> bool:
+    if not BACKTEST_API_KEY:
+        return False
+    provided = (x_css_api_key or "").encode("utf-8", "surrogateescape")
+    expected = str(BACKTEST_API_KEY).encode("utf-8", "surrogateescape")
+    return hmac.compare_digest(provided, expected)
+
+
+def _require_backtest_api_key(x_css_api_key: str = Header(default=None)):
+    """Fail-closed: sem CSS_BACKTEST_API_KEY configurada, tanto disparar
+    quanto ler o status (que pode conter log_tail com proveniência sensível
+    — conta, servidor, caminho do terminal) ficam recusados."""
+    if not BACKTEST_API_KEY:
+        raise HTTPException(
+            status_code=503,
+            detail="CSS_BACKTEST_API_KEY não configurada no servidor — disparo de backtest "
+                   "via web desabilitado por padrão (fail closed).",
+        )
+    if not _backtest_api_key_matches(x_css_api_key):
+        raise HTTPException(status_code=401, detail="Chave de API inválida ou ausente.")
+
+
+class BacktestTriggerPayload(BaseModel):
+    """Deliberadamente SEM sample_role/days/end_brt/engines — oos_disjoint e
+    janela arbitrária são estruturalmente impossíveis por esta rota (ver
+    scripts/run_isolated_backtest.py, que hardcoda os dois server-side, e o
+    veto redundante em compare() via MFC_BACKTEST_WEB_TRIGGER=1)."""
+
+    description: str = Field(
+        min_length=run_isolated_backtest.MIN_DESCRIPTION_LEN,
+        max_length=run_isolated_backtest.MAX_DESCRIPTION_LEN,
+    )
+    runs: int = Field(
+        default=run_isolated_backtest.DEFAULT_RUNS,
+        ge=run_isolated_backtest.MIN_RUNS,
+        le=run_isolated_backtest.MAX_RUNS,
+    )
+
+    model_config = ConfigDict(extra="forbid")
+
+
+def _summarize_backtest_entry(entry):
+    """Linha resumida pra tabela — ver docs/plans/eventual-stargazing-bear.md,
+    seção "Colunas da tabela". `market_open_at_run` é DERIVADO de
+    recorded_at_utc (não persistido) — vale pra qualquer entrada, inclusive
+    execuções CLI antigas, já que é função pura do timestamp."""
+    if not isinstance(entry, dict):
+        return None
+    window = entry.get("window") if isinstance(entry.get("window"), dict) else {}
+    provenance = entry.get("provenance") if isinstance(entry.get("provenance"), dict) else {}
+    quality = entry.get("quality") if isinstance(entry.get("quality"), dict) else {}
+    engines = entry.get("engines") if isinstance(entry.get("engines"), dict) else {}
+    note = entry.get("note") if isinstance(entry.get("note"), str) else None
+
+    recorded_at = entry.get("recorded_at_utc")
+    market_open_at_run = None
+    if isinstance(recorded_at, str):
+        try:
+            market_open_at_run = run_isolated_backtest.market_is_open(
+                datetime.fromisoformat(recorded_at)
+            )
+        except ValueError:
+            market_open_at_run = None
+
+    return {
+        "journal_seq": entry.get("journal_seq"),
+        "recorded_at_utc": recorded_at,
+        "market_open_at_run": market_open_at_run,
+        "sample_role": window.get("sample_role"),
+        "engines_compared": entry.get("engines_compared"),
+        "window": {
+            "days": window.get("days"),
+            "start_brt": window.get("start_brt"),
+            "end_brt": window.get("end_brt"),
+            "nights_evaluated": window.get("nights_evaluated"),
+        },
+        "code_commit": provenance.get("code_commit"),
+        "worktree_dirty": provenance.get("worktree_dirty"),
+        "note": note,
+        "is_web_trigger": bool(note and note.startswith("[web-trigger")),
+        "engines": {
+            name: {
+                "baskets": metrics.get("baskets"),
+                "bruto": metrics.get("bruto"),
+                "liquido": metrics.get("liquido"),
+                "quality_status": metrics.get("quality_status"),
+            }
+            for name, metrics in engines.items()
+            if isinstance(metrics, dict)
+        },
+        "paired_net_delta_per_night": entry.get("paired_net_delta_per_night"),
+        "runs": entry.get("runs"),
+        "quality_status": quality.get("status"),
+    }
+
+
+@app.get("/api/backtest-history")
+async def get_backtest_history(limit: int = 100, sample_role: str = None):
+    """Histórico resumido pra tabela, mais recente primeiro. Só leitura —
+    não exige chave. `reports/backtest_history.json` ausente devolve lista
+    vazia (não erro); JSON corrompido/permissão negada devolve erro claro."""
+    clamped_limit = min(max(1, int(limit)), 500)
+    try:
+        with open(RESULTS_LOG_PATH, "r", encoding="utf-8") as f:
+            log = json.load(f)
+    except FileNotFoundError:
+        return {"entries": []}
+    except (json.JSONDecodeError, OSError) as exc:
+        raise HTTPException(status_code=500, detail=f"Journal ilegível: {exc}")
+    if not isinstance(log, list):
+        raise HTTPException(status_code=500, detail="Journal não contém uma lista JSON.")
+    entries = [_summarize_backtest_entry(entry) for entry in log]
+    entries = [entry for entry in entries if entry is not None]
+    if sample_role:
+        entries = [entry for entry in entries if entry.get("sample_role") == sample_role]
+    entries.sort(key=lambda entry: entry.get("journal_seq") or 0, reverse=True)
+    return {"entries": entries[:clamped_limit]}
+
+
+# Chaves de identidade de conta/host/terminal a redigir, por NOME — não por
+# caminho fixo dentro do dict. Achado P2-1 (herdr-review mfc-66,
+# `mfc-rev-2`, com evidência real do journal_seq=28): a mesma identidade
+# aparece em TRÊS envelopes com nomes de campo diferentes —
+# entry["provenance"]["terminal"] (configured_path/mt5_path),
+# entry["producer_provenance"]["terminal"] (path/observed_path), e
+# entry["execution"] (host/terminal_path), este último uma chave de TOPO,
+# não aninhada em nenhum dos dois. Uma primeira versão redigia só
+# producer_provenance e deixava os outros dois vazarem login/servidor/
+# hostname/caminhos sem chave nenhuma. Redigir por nome de campo (percorrendo
+# o dict inteiro) em vez de por caminho fixo evita repetir esse erro se um
+# quarto envelope aparecer no futuro.
+_SENSITIVE_PROVENANCE_KEYS = {
+    "login", "server", "configured_path", "mt5_path", "path",
+    "observed_path", "host", "terminal_path",
+}
+
+
+def _redact_provenance(entry):
+    """Remove recursivamente qualquer campo de identidade de conta/host/
+    terminal do registro antes de devolver pelo endpoint SEM chave — ver
+    _SENSITIVE_PROVENANCE_KEYS. O restante do registro (engines, qualidade,
+    cobertura, janela, digest, currency, trade_mode) continua público."""
+    if isinstance(entry, dict):
+        return {
+            key: ("[redacted]" if key in _SENSITIVE_PROVENANCE_KEYS else _redact_provenance(value))
+            for key, value in entry.items()
+        }
+    if isinstance(entry, list):
+        return [_redact_provenance(item) for item in entry]
+    return entry
+
+
+@app.get("/api/backtest-history/{journal_seq}")
+async def get_backtest_history_entry(journal_seq: int):
+    """Registro completo (pro painel de detalhe), com identidade de
+    conta/terminal/host REDIGIDA — só leitura, sem chave. Diferente do
+    endpoint de status do trigger (que exige CSS_BACKTEST_API_KEY porque o
+    log_tail pode conter texto livre não redigido), este é público, então a
+    proveniência sensível nunca sai daqui, mesmo que o servidor escute fora
+    de localhost."""
+    try:
+        with open(RESULTS_LOG_PATH, "r", encoding="utf-8") as f:
+            log = json.load(f)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Journal ainda não existe.")
+    except (json.JSONDecodeError, OSError) as exc:
+        raise HTTPException(status_code=500, detail=f"Journal ilegível: {exc}")
+    for entry in log if isinstance(log, list) else []:
+        if isinstance(entry, dict) and entry.get("journal_seq") == journal_seq:
+            return JSONResponse(content=_redact_provenance(entry))
+    raise HTTPException(status_code=404, detail=f"journal_seq={journal_seq} não encontrado.")
+
+
+_backtest_trigger_lock = threading.Lock()
+
+
+@app.post("/api/backtest-history/trigger", status_code=202)
+async def trigger_backtest_history(
+    payload: BacktestTriggerPayload, x_css_api_key: str = Header(default=None)
+):
+    """Dispara uma execução de acompanhamento (sample_role="exploratory",
+    janela fixa) em processo separado, contra o terminal MT5 ISOLADO. Ver
+    docs/plans/eventual-stargazing-bear.md."""
+    _require_backtest_api_key(x_css_api_key)
+    if run_isolated_backtest.in_critical_window():
+        raise HTTPException(
+            status_code=409,
+            detail="Disparo recusado: horário dentro da janela crítica de abertura/fechamento "
+                   "de cesta (20:55-22:00 ou 07:55-08:20 BRT).",
+        )
+    if not run_isolated_backtest.market_is_open():
+        raise HTTPException(
+            status_code=409,
+            detail="Disparo recusado: mercado FX fechado agora — medição de custo por tick "
+                   "ao vivo não teria sentido (ver achado 5 na consulta de design do plano).",
+        )
+    # Lock em memória guarda só a checagem+disparo instantâneos (nunca um
+    # await dentro do `with` — threading.Lock não coopera com o event loop,
+    # travá-lo durante uma espera travaria o servidor inteiro).
+    with _backtest_trigger_lock:
+        if run_isolated_backtest.is_trigger_running():
+            raise HTTPException(
+                status_code=409,
+                detail="Já existe uma execução de acompanhamento em andamento.",
+            )
+        process, run_id = run_isolated_backtest.spawn_isolated_backtest(
+            payload.description, payload.runs
+        )
+    # Fora do lock em memória: espera (não-bloqueante pro event loop, outras
+    # requisições continuam servidas) o filho conquistar o lock de arquivo
+    # dedicado, reduzindo — sem eliminar — a janela em que duas requisições
+    # quase simultâneas veriam as duas "não está rodando" e cada uma
+    # lançaria seu próprio processo (achado P2/P2-2, herdr-review mfc-65).
+    # A correção estrutural pro caso residual é current_running_owner_pid():
+    # mesmo que dois filhos cheguem a existir, só um segura o lock por vez, e
+    # é sempre esse que o watchdog/status tratam como "o" dono.
+    deadline = time.monotonic() + 3.0
+    while time.monotonic() < deadline and not run_isolated_backtest.is_trigger_running():
+        await asyncio.sleep(0.05)
+    return {
+        "status": "started",
+        "run_id": run_id,
+        "pid": process.pid,
+        "description": payload.description,
+        "runs": payload.runs,
+    }
+
+
+@app.get("/api/backtest-history/trigger/status")
+async def get_backtest_trigger_status(x_css_api_key: str = Header(default=None)):
+    """Estado do disparo mais recente — exige a chave (log_tail pode conter
+    proveniência sensível do processo filho, que carrega o .env inteiro na
+    importação; ver docs/plans/eventual-stargazing-bear.md).
+
+    `status.json` NUNCA é reescrito por um kill do watchdog (SIGTERM não
+    passa pelos caminhos normais de saída de _run_and_record) nem reflete
+    instantaneamente um segundo dono assumindo o lock — então reconcilia
+    nas DUAS direções contra is_trigger_running() (a autoridade real, ver
+    scripts/run_isolated_backtest.py::read_status) antes de responder
+    (achado P2-1, herdr-review mfc-65, `mfc-rev-2`).
+
+    A reconciliação corrige só o campo `status` (e, no caso de um dono
+    novo, `pid`) — `run_id`/`description`/`log_tail` podem continuar sendo
+    da execução ANTERIOR nesse caso (achado P2, herdr-review mfc-66,
+    `mfc-rev`: sem um status por `run_id`, não há como saber a descrição do
+    dono novo até ele mesmo escrever seu próprio status.json). Sinalizado
+    explicitamente via `stale_metadata=True` — não fingir precisão que o
+    desenho atual não tem."""
+    _require_backtest_api_key(x_css_api_key)
+    status = run_isolated_backtest.read_status()
+    lock_running = run_isolated_backtest.is_trigger_running()
+    json_running = status.get("status") == "running"
+    if lock_running and not json_running:
+        # outro processo já assumiu o lock, mas ainda não sobrescreveu
+        # status.json com sua própria descrição — reflete a realidade
+        # (running + o PID de fato atual), não o snapshot defasado da
+        # execução anterior. run_id/description continuam podendo ser da
+        # execução anterior (ver docstring acima).
+        status = {
+            **status,
+            "status": "running",
+            "pid": run_isolated_backtest.current_running_owner_pid(),
+            "stale_metadata": True,
+        }
+    elif json_running and not lock_running:
+        # o dono anterior morreu sem passar pelos caminhos normais de saída
+        # (ex.: SIGTERM do watchdog) — status.json nunca é reescrito nesse
+        # caso, então "running" aqui seria uma mentira permanente.
+        status = {**status, "status": "interrupted"}
+    status["log_tail"] = run_isolated_backtest.read_log_tail()
+    return JSONResponse(content=status)
+
+
+_BACKTEST_WATCHDOG_INTERVAL_SEC = 30
+
+
+def _backtest_critical_window_watchdog():
+    """Termina o subprocesso de backtest se ele ainda estiver rodando
+    quando o host entrar na janela crítica — mais seguro que tentar prever
+    duração, porque matar o filho é sempre seguro (nunca envia ordem,
+    append_result() só escreve no fim, de forma atômica; pior caso é perder
+    uma execução de diagnóstico). Roda pra qualquer disparo, inclusive um
+    smoke test manual (`python scripts/run_isolated_backtest.py ...`)
+    executado enquanto este servidor está de pé, já que a checagem lê o
+    lock de arquivo compartilhado, não um Popen em memória.
+
+    Usa current_running_owner_pid() (nunca status.json["pid"] bruto) — o
+    PID gravado ali é sempre o do processo que DE FATO segura o lock agora,
+    imune ao caso em que um segundo disparo enfileirado sobrescreveu
+    status.json com o próprio PID antes de bloquear esperando o primeiro
+    terminar (achado P2/P2-2, herdr-review mfc-65)."""
+    while True:
+        time.sleep(_BACKTEST_WATCHDOG_INTERVAL_SEC)
+        try:
+            if not run_isolated_backtest.in_critical_window():
+                continue
+            pid = run_isolated_backtest.current_running_owner_pid()
+            if pid is None:
+                continue
+            run_isolated_backtest.terminate_owner(pid)
+        except Exception as exc:
+            # Nunca engolir em silêncio (achado P2, herdr-review mfc-66,
+            # `mfc-rev`) — uma falha aqui significa a proteção de janela
+            # crítica parou de funcionar sem que ninguém saiba.
+            print(f"[!] watchdog de janela crítica do backtest falhou: {exc}")
+            continue
+
+
+threading.Thread(target=_backtest_critical_window_watchdog, daemon=True).start()
 
 
 class PortfolioOpenPayload(BaseModel):

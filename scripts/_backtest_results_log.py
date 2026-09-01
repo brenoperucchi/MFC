@@ -45,11 +45,16 @@ _PROVENANCE_SOURCE_FILES = (
     "scripts/backtest_engine_compare.py",
     "scripts/measure_composition_effect.py",
     "scripts/_backtest_results_log.py",
+    "scripts/run_isolated_backtest.py",
 )
 
 
-def _lock_path():
-    digest = hashlib.sha256(RESULTS_LOG_PATH.encode("utf-8")).hexdigest()[:20]
+def _lock_path(key=None):
+    """Caminho do lockfile pra `key` (default: o próprio journal). Uma `key`
+    diferente resolve pra um lockfile DIFERENTE — usado por
+    scripts/run_isolated_backtest.py pra ter seu próprio lock dedicado, sem
+    competir pelo lock do journal (ver docstring de `_exclusive_lock`)."""
+    digest = hashlib.sha256((key or RESULTS_LOG_PATH).encode("utf-8")).hexdigest()[:20]
     return os.path.join(tempfile.gettempdir(), f"mfc-backtest-history-{digest}.lock")
 
 
@@ -759,8 +764,18 @@ def _normalize_legacy_entry(entry):
 
 
 @contextmanager
-def _exclusive_lock():
-    """Serializa append entre threads e processos, sem criar artefato no repo."""
+def _exclusive_lock(lock_path=None):
+    """Serializa append entre threads e processos, sem criar artefato no repo.
+
+    `lock_path` (opcional): usa um lock DIFERENTE do lock padrão do journal
+    (via `_lock_path(key=...)`) em vez do lock deste arquivo — necessário pra
+    scripts/run_isolated_backtest.py, que segura seu PRÓPRIO lock dedicado
+    durante toda a vida do processo filho de um backtest de acompanhamento
+    via web. Reusar este mesmo lock (o do journal) pra essa finalidade
+    bloquearia qualquer OUTRO escritor do journal (ex.: uma execução CLI
+    concorrente chamando append_result()) pela duração inteira do backtest
+    — este lock é feito pra proteger só a leitura+escrita atômica do JSON,
+    uma seção crítica breve, não uma execução de minutos."""
     try:
         import fcntl
     except ImportError:  # pragma: no cover - caminho Windows
@@ -770,7 +785,7 @@ def _exclusive_lock():
     except ImportError:  # pragma: no cover - caminho Unix
         msvcrt = None
 
-    lock_fd = os.open(_lock_path(), os.O_RDWR | os.O_CREAT, 0o600)
+    lock_fd = os.open(lock_path or _lock_path(), os.O_RDWR | os.O_CREAT, 0o600)
     try:
         if fcntl is not None:
             fcntl.flock(lock_fd, fcntl.LOCK_EX)
