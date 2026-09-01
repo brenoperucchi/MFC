@@ -274,6 +274,13 @@ def _summarize_backtest_entry(entry):
         "paired_net_delta_per_night": entry.get("paired_net_delta_per_night"),
         "runs": entry.get("runs"),
         "quality_status": quality.get("status"),
+        # Anotação opcional pós-hoc (scripts/run_isolated_backtest.py, via
+        # llm-gateway) — pode não existir ainda (gateway indisponível na
+        # hora, ou anexada um pouco depois de "done") nem nunca vir a
+        # existir (achado do Breno registrando o perfil: best_engine/
+        # worst_engine saem omitidos de propósito em empate/inconclusivo —
+        # não é erro). Nada sensível aqui, sem redação necessária.
+        "llm_analysis": entry.get("llm_analysis") if isinstance(entry.get("llm_analysis"), dict) else None,
     }
 
 

@@ -405,11 +405,13 @@ def terminate_owner(pid, timeout=10):
         pass
 
 
-def _find_journal_seq(run_id):
-    """Identifica o journal_seq alocado por ESTA execução, por conteúdo
+def _find_journal_entry(run_id):
+    """Identifica a entrada alocada por ESTA execução, por conteúdo
     (marcador único de run_id no note) — não por "maior seq antes/depois",
     que colidiria com um append CLI independente e concorrente (achado da
-    consulta herdr-ask mfc-13, mfc-rev)."""
+    consulta herdr-ask mfc-13, mfc-rev). Devolve a entrada completa (ou
+    None) — _find_journal_seq() abaixo é só o atalho pro caso comum de só
+    precisar do número."""
     from scripts._backtest_results_log import RESULTS_LOG_PATH
     try:
         with open(RESULTS_LOG_PATH, "r", encoding="utf-8") as f:
@@ -420,8 +422,89 @@ def _find_journal_seq(run_id):
     for entry in log:
         note = entry.get("note") if isinstance(entry, dict) else None
         if isinstance(note, str) and note.startswith(marker):
-            return entry.get("journal_seq")
+            return entry
     return None
+
+
+def _find_journal_seq(run_id):
+    entry = _find_journal_entry(run_id)
+    return entry.get("journal_seq") if isinstance(entry, dict) else None
+
+
+# Perfil dedicado no llm-gateway (repo separado, ~/Devs/llm-gateway) —
+# system_prompt/schema/modelo/timeout são definidos LÁ (profiles.py), não
+# aqui; este módulo só manda o resumo estruturado dos dados, nunca
+# instrução nenhuma (achado do Breno registrando o perfil: "não repita
+# essas instruções no text do MFC... se o critério mudar, muda no
+# gateway"). Alcançado via túnel SSH local dedicado (systemd --user
+# mfc-llm-gateway-tunnel.service, ssh -L da Ryzen9 pro Omarchy) — a porta
+# LOCAL é 18080, não 8080 (que já pertence a outro sistema de trading ao
+# vivo nesta mesma máquina, pairtrading-server.service).
+LLM_GATEWAY_URL = os.environ.get("CSS_LLM_GATEWAY_URL", "http://127.0.0.1:18080")
+LLM_ANALYSIS_PROFILE = "backtest-analysis"
+# >= timeout_seconds do próprio perfil no gateway (180s, medido: ~2s com
+# modelo carregado, ~28s frio — o Ryzen9 roda OLLAMA_MAX_LOADED_MODELS=1,
+# então alternar de cliente recarrega). Cliente nunca pode desistir antes
+# do gateway.
+LLM_ANALYSIS_TIMEOUT_SEC = 190.0
+
+
+def _build_llm_analysis_text(entry, market_open):
+    """Resumo estruturado em texto simples da entrada — nunca o registro
+    bruto inteiro (sem digest de proveniência, sem caminho de terminal) e
+    nunca instrução nenhuma pro modelo (isso mora no system_prompt do
+    perfil, no gateway)."""
+    window = entry.get("window") if isinstance(entry.get("window"), dict) else {}
+    engines = entry.get("engines") if isinstance(entry.get("engines"), dict) else {}
+    paired = entry.get("paired_net_delta_per_night") if isinstance(entry.get("paired_net_delta_per_night"), dict) else {}
+
+    lines = [
+        f"Janela: {window.get('days')} dias, {window.get('start_brt')} a "
+        f"{window.get('end_brt')} BRT, {window.get('nights_evaluated')} noites avaliadas.",
+        f"Mercado no instante da medição: {'aberto' if market_open else 'fechado'}.",
+        f"Motores comparados: {', '.join(engines.keys()) or '-'}.",
+        "",
+    ]
+    for name, metrics in engines.items():
+        if not isinstance(metrics, dict):
+            continue
+        lines.append(
+            f"{name}: cestas={metrics.get('baskets')} bruto={metrics.get('bruto')} "
+            f"custo={metrics.get('custo')} liquido={metrics.get('liquido')} "
+            f"noite%={metrics.get('noite_pct')} cesta%={metrics.get('cesta_pct')} "
+            f"qualidade={metrics.get('quality_status')}"
+        )
+    if paired.get("mean") is not None:
+        lines.append("")
+        lines.append(
+            f"Delta pareado por noite: media={paired.get('mean')} "
+            f"erro_padrao={paired.get('stderr')} n={paired.get('n')}"
+        )
+    return "\n".join(lines)
+
+
+def _call_backtest_analysis(entry, market_open):
+    """Chama o perfil backtest-analysis do llm-gateway pra uma leitura
+    padronizada do resultado. NUNCA lança: um backtest bem-sucedido não
+    pode falhar por causa de uma anotação opcional (gateway fora do ar,
+    túnel caído, timeout, resposta fora do schema — tudo vira None em vez
+    de exceção). Devolve o dict já validado contra o schema do perfil, ou
+    None em qualquer falha."""
+    try:
+        import httpx
+        response = httpx.post(
+            f"{LLM_GATEWAY_URL}/v1/tasks/{LLM_ANALYSIS_PROFILE}",
+            json={
+                "project": "mfc",
+                "text": _build_llm_analysis_text(entry, market_open),
+            },
+            timeout=LLM_ANALYSIS_TIMEOUT_SEC,
+        )
+        response.raise_for_status()
+        result = response.json().get("result")
+        return result if isinstance(result, dict) else None
+    except Exception:
+        return None
 
 
 def _run_and_record(description, runs, run_id):
@@ -530,18 +613,36 @@ def _run_and_record(description, runs, run_id):
                     "finished_at_utc": datetime.now(timezone.utc).isoformat(),
                 })
                 return ret
+            entry = _find_journal_entry(run_id)
+            new_journal_seq = entry.get("journal_seq") if isinstance(entry, dict) else None
             _write_status({
                 "status": "done",
                 "pid": os.getpid(),
                 "run_id": run_id,
                 "description": description,
                 "runs": runs,
-                "new_journal_seq": _find_journal_seq(run_id),
+                "new_journal_seq": new_journal_seq,
                 "finished_at_utc": datetime.now(timezone.utc).isoformat(),
             })
-            return 0
         finally:
             _remove_owner_pid()
+
+    # Fora do lock dedicado: a análise por LLM (até ~190s no pior caso,
+    # modelo frio no Ryzen9) nunca toca o terminal isolado, então não
+    # precisa da exclusividade — segurar o lock aqui só estenderia sem
+    # necessidade a janela em que outro disparo fica bloqueado esperando.
+    # Melhor esforço puro: "done" já foi gravado acima, uma falha aqui
+    # (gateway fora do ar, túnel caído, resposta fora do schema) nunca
+    # muda isso — ver docstring de _call_backtest_analysis.
+    if entry is not None and new_journal_seq is not None:
+        analysis = _call_backtest_analysis(entry, market_is_open())
+        if analysis is not None:
+            try:
+                from scripts._backtest_results_log import attach_llm_analysis
+                attach_llm_analysis(new_journal_seq, analysis)
+            except Exception:
+                pass
+    return 0
 
 
 if __name__ == "__main__":

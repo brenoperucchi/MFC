@@ -31,6 +31,15 @@ _RESULT_DIGEST_EXCLUDED_FIELDS = {
     "recorded_at_utc", "timestamp_utc", "timestamp", "producer_provenance",
     "provenance", "schema_version", "script", "supersedes", "result_semantics",
     "journal_seq",
+    # Anotação PÓS-HOC (scripts/run_isolated_backtest.py, via llm-gateway) —
+    # anexada depois do append original, nunca parte do resultado auditado
+    # do backtest em si. Só existe pra entradas sample_role="exploratory"
+    # (o disparo web nunca toca oos_disjoint), então nunca interfere com o
+    # digest que _validate_producer_provenance() exige bater pra evidência
+    # OOS — mas fica excluída do digest de qualquer forma, por princípio:
+    # uma anotação que pode ser adicionada DEPOIS do append não pode fazer
+    # parte de um digest de integridade de conteúdo.
+    "llm_analysis",
 }
 _THREAD_LOCK = threading.Lock()
 _PROVENANCE_SOURCE_FILES = (
@@ -870,6 +879,47 @@ def append_result(record):
             # automática de texto, obscurecendo o diff de qualquer append
             # real (um registro novo virava ~19700 linhas "trocadas" em vez
             # de uma inserção). O journal é sempre LF agora, em qualquer SO.
+            with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
+                json.dump(log, f, indent=2, ensure_ascii=False)
+            os.replace(tmp_path, RESULTS_LOG_PATH)
+        except Exception:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
+    return RESULTS_LOG_PATH
+
+
+def attach_llm_analysis(journal_seq, analysis):
+    """Anexa a análise padronizada do llm-gateway (perfil
+    `backtest-analysis`) a uma entrada JÁ persistida, por `journal_seq` —
+    chamado por scripts/run_isolated_backtest.py depois que compare() já
+    terminou e o registro original já foi gravado por append_result().
+
+    Mutação pós-hoc deliberada: `llm_analysis` fica em
+    `_RESULT_DIGEST_EXCLUDED_FIELDS` (nunca parte do digest de conteúdo do
+    resultado) e esta função nunca toca em nenhum outro campo da entrada —
+    escrita atômica (tempfile + os.replace), sob o mesmo lock cross-processo
+    do journal. Levanta ValueError se `journal_seq` não existir; quem chama
+    (a análise é sempre opcional/best-effort) decide se trata isso como
+    fatal ou não."""
+    directory = os.path.dirname(RESULTS_LOG_PATH) or "."
+    with _THREAD_LOCK, _exclusive_lock():
+        with open(RESULTS_LOG_PATH, "r", encoding="utf-8") as f:
+            log = json.load(f)
+        if not isinstance(log, list):
+            raise ValueError(f"{RESULTS_LOG_PATH} não contém uma lista JSON")
+        target = None
+        for entry in log:
+            if isinstance(entry, dict) and entry.get("journal_seq") == journal_seq:
+                target = entry
+                break
+        if target is None:
+            raise ValueError(f"journal_seq={journal_seq} não encontrado no journal")
+        target["llm_analysis"] = analysis
+        fd, tmp_path = tempfile.mkstemp(prefix=".tmp_", dir=directory)
+        try:
             with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
                 json.dump(log, f, indent=2, ensure_ascii=False)
             os.replace(tmp_path, RESULTS_LOG_PATH)

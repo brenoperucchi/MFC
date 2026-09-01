@@ -2719,6 +2719,12 @@ function renderBacktestHistoryTable(entries) {
             badge.title = "Disparado pela web";
             descCell.appendChild(badge);
         }
+        if (entry.llm_analysis && typeof entry.llm_analysis.summary === "string") {
+            const llmBadge = document.createElement("span");
+            llmBadge.textContent = " 🧠";
+            llmBadge.title = entry.llm_analysis.summary;
+            descCell.appendChild(llmBadge);
+        }
 
         // Uma linha por motor não cabe sem espremer a tabela quando há 3-4
         // motores comparados — a coluna mostra só a faixa (min a max) e o
@@ -2938,6 +2944,77 @@ async function selectBacktestEntry(journalSeq) {
     }
 }
 
+// Card padronizado da análise por LLM (perfil backtest-analysis do
+// llm-gateway) — best_engine/worst_engine ficam FORA de required no schema
+// de propósito (empate/inconclusivo é resposta legítima, não erro; achado
+// do Breno registrando o perfil) — tratar ausência como "inconclusivo" na
+// UI, nunca como falha.
+function renderBacktestLlmAnalysisCard(analysis) {
+    const card = document.createElement("div");
+    card.style.cssText = "background: #101624; border: 1px solid rgba(255,255,255,0.08); " +
+        "border-radius: 8px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px;";
+
+    const header = document.createElement("div");
+    header.style.cssText = "display: flex; align-items: center; justify-content: space-between; gap: 8px;";
+    const headerLabel = document.createElement("span");
+    headerLabel.style.cssText = "font-weight: 700; font-family: var(--font-display); color: var(--color-cyan); font-size: 12px;";
+    headerLabel.textContent = "🧠 Análise Automática (llm-gateway)";
+    header.appendChild(headerLabel);
+
+    const confidenceColors = { alta: "#2ECC71", media: "#FFB020", baixa: "#94A3B8" };
+    if (typeof analysis.confidence === "string") {
+        const confBadge = document.createElement("span");
+        const color = confidenceColors[analysis.confidence] || "#94A3B8";
+        confBadge.style.cssText = `font-size: 9px; font-weight: 800; padding: 2px 8px; border-radius: 10px; ` +
+            `border: 1px solid ${color}; color: ${color}; text-transform: uppercase;`;
+        confBadge.textContent = `confiança: ${analysis.confidence}`;
+        header.appendChild(confBadge);
+    }
+    card.appendChild(header);
+
+    const summary = document.createElement("div");
+    summary.style.cssText = "font-size: 12.5px; color: #FFF;";
+    summary.textContent = analysis.summary;
+    card.appendChild(summary);
+
+    const bestName = typeof analysis.best_engine === "string" ? analysis.best_engine : null;
+    const worstName = typeof analysis.worst_engine === "string" ? analysis.worst_engine : null;
+    if (bestName || worstName) {
+        const engineLine = document.createElement("div");
+        engineLine.style.cssText = "font-size: 11px; color: var(--text-secondary); font-family: var(--font-mono);";
+        engineLine.textContent = `melhor: ${bestName || "inconclusivo"} · pior: ${worstName || "inconclusivo"}`;
+        card.appendChild(engineLine);
+    } else {
+        const engineLine = document.createElement("div");
+        engineLine.style.cssText = "font-size: 11px; color: var(--text-muted); font-style: italic;";
+        engineLine.textContent = "Motores inconclusivo/empate nesta janela.";
+        card.appendChild(engineLine);
+    }
+
+    if (Array.isArray(analysis.caveats) && analysis.caveats.length) {
+        const caveatsTitle = document.createElement("div");
+        caveatsTitle.style.cssText = "font-size: 10.5px; font-weight: 700; color: var(--text-muted); margin-top: 2px;";
+        caveatsTitle.textContent = "Ressalvas:";
+        card.appendChild(caveatsTitle);
+        analysis.caveats.forEach(text => {
+            if (typeof text !== "string") return;
+            const li = document.createElement("div");
+            li.style.cssText = "font-size: 11px; color: var(--text-muted);";
+            li.textContent = `• ${text}`;
+            card.appendChild(li);
+        });
+    }
+
+    if (typeof analysis.recommendation === "string" && analysis.recommendation) {
+        const rec = document.createElement("div");
+        rec.style.cssText = "font-size: 11.5px; color: var(--color-cyan); border-top: 1px solid rgba(255,255,255,0.08); padding-top: 8px; margin-top: 2px;";
+        rec.textContent = `💡 ${analysis.recommendation}`;
+        card.appendChild(rec);
+    }
+
+    return card;
+}
+
 function renderBacktestDetailPanel(entry) {
     const panel = document.getElementById("backtestDetailPanel");
     if (!panel) return;
@@ -2950,6 +3027,11 @@ function renderBacktestDetailPanel(entry) {
     title.style.color = "#FFF";
     title.textContent = `📋 Detalhe da execução #${entry.journal_seq != null ? entry.journal_seq : "-"}`;
     panel.appendChild(title);
+
+    const analysis = entry.llm_analysis;
+    if (analysis && typeof analysis.summary === "string") {
+        panel.appendChild(renderBacktestLlmAnalysisCard(analysis));
+    }
 
     const note = document.createElement("div");
     note.style.fontSize = "12px";
