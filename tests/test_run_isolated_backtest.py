@@ -49,6 +49,14 @@ class TestBuildIsolatedEnv(unittest.TestCase):
         self.assertEqual(env["MFC_BACKTEST_WEB_TRIGGER"], "1")
         self.assertEqual(env["PYTHONPATH"], "/tmp/base")
 
+    def test_forces_utf8_stdout_on_the_child(self):
+        """Achado do smoke test real (2026-09-01, produção): sem
+        PYTHONIOENCODING=utf-8, o stdout do filho no Windows usa o codepage
+        ativo do console — qualquer acento em log_note/prints vira mojibake
+        no arquivo de log, já que read_log_tail() sempre lê como UTF-8."""
+        env = rib.build_isolated_env("/tmp/base")
+        self.assertEqual(env["PYTHONIOENCODING"], "utf-8")
+
 
 class TestSpawnIsolatedBacktestArgv(unittest.TestCase):
     """Achado 2 (herdr-ask mfc-13, ambos os revisores): congela o argv

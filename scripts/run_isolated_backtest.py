@@ -94,6 +94,11 @@ def build_isolated_env(base_dir):
     env["MFC_BACKTEST_WEB_TRIGGER"] = "1"
     env["PYTHONPATH"] = base_dir
     env["PYTHONUNBUFFERED"] = "1"
+    # Sem isto, o stdout do filho no Windows usa o codepage ativo do console
+    # (não UTF-8) — qualquer acento vira mojibake no log/log_tail, já que o
+    # arquivo é lido de volta assumindo UTF-8 (achado do smoke test real,
+    # 2026-09-01: "s�ries can�nicas" em vez de "séries canônicas").
+    env["PYTHONIOENCODING"] = "utf-8"
     if os.name == "posix":
         # Caminho de dev local (servidor rodando via WSL, não o py.exe
         # nativo de produção) — WSLENV não propaga variável nenhuma pro lado
