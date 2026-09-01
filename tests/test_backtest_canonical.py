@@ -359,12 +359,27 @@ class TestBarsNeededSince(unittest.TestCase):
     def test_scales_with_distance_from_now_to_window_start(self):
         start = datetime.now(bc.BRT) - timedelta(days=1000)
         self.assertEqual(
-            bc.bars_needed_since(start, 24.0, 1800), 1000 * 24 + 30,
+            bc.bars_needed_since(start, 24.0, 1800), 1000 * 24 + 60,
         )
 
     def test_never_returns_below_the_floor_for_a_recent_window_start(self):
         start = datetime.now(bc.BRT) - timedelta(days=1)
         self.assertEqual(bc.bars_needed_since(start, 24.0, 1800), 1800)
+
+    def test_margin_clears_the_i_less_than_30_rejection_at_the_first_candidate(self):
+        """Achado medido numa rodada real (usuário + exec, 2026-09-01, janela
+        estendida OOS): evaluate_at_all() recusa qualquer noite com índice
+        de barra fechada i<30 (backtest_engine_compare.py:689), por TF,
+        independente de quanto dado exista antes. Uma margem de exatamente
+        30 períodos deixa a primeira noite candidata bem na borda (i≈30) --
+        arredondamento de calendário empurrou ~10 noites iniciais pra
+        i<30 mesmo com o resto da série saudável. A margem (60) precisa
+        cobrir isso com folga real, não só o mínimo teórico."""
+        self.assertGreater(
+            bc.bars_needed_since(datetime.now(bc.BRT) - timedelta(days=1), 1.0, 0) - 0,
+            30,
+            "margem <= 30 deixa a primeira noite candidata na borda de i<30",
+        )
 
     def test_naive_window_start_is_interpreted_as_brt_not_utc(self):
         """Achado explícito na correção: `_normalize_window_end()`

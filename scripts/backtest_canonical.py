@@ -399,7 +399,18 @@ def bars_needed_since(window_start_brt, bars_per_day, floor):
     `window_start_brt=None` devolve `floor` — preserva o default de quem
     não sabe/não precisa de uma janela específica (ex.: uso ao vivo).
     Ingênuo (sem tzinfo) é interpretado como BRT — mesma convenção de
-    `_normalize_window_end()` em backtest_engine_compare.py — não UTC."""
+    `_normalize_window_end()` em backtest_engine_compare.py — não UTC.
+
+    Margem de 60 períodos (não 30): `evaluate_at_all()` recusa qualquer
+    noite cujo índice de barra fechada seja `i < 30`
+    (`backtest_engine_compare.py:689`) — as primeiras ~30 posições da série
+    retornada nunca são avaliáveis, por TF, independente de quanto dado
+    exista antes. Uma margem de exatamente 30 deixa o primeiro candidato
+    bem na borda (`i≈30`), onde arredondamento de calendário/fim de semana
+    empurra algumas noites iniciais pra `i<30` de qualquer jeito — medido
+    numa rodada com margem 30 (ficaram ~10 noites iniciais rejeitadas,
+    mesmo com folga de sobra no restante da série). Dobrar pra 60 dá
+    margem real, não só suficiente no caso médio."""
     if window_start_brt is None:
         return floor
     now = datetime.now(BRT)
@@ -408,7 +419,7 @@ def bars_needed_since(window_start_brt, bars_per_day, floor):
         else window_start_brt.replace(tzinfo=BRT)
     )
     elapsed_days = max(1, (now - start).days)
-    return max(floor, int(elapsed_days * bars_per_day) + 30)
+    return max(floor, int(elapsed_days * bars_per_day) + 60)
 
 
 def tf_counts_for_window(window_start_brt):
