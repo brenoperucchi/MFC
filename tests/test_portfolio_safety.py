@@ -4164,6 +4164,37 @@ class TestMeasureAndLogBasketCost(unittest.TestCase):
         print("[✓] CostModel mal formado não impede a medição de cost_usd; só omite "
               "spread_usd/swap_usd")
 
+    def test_omits_spread_and_swap_when_the_attributes_genuinely_do_not_exist(self):
+        """Achado herdr-review mfc-64 (MFC64-05/`mfc-rev`): o teste acima usa
+        MagicMock, que AUTO-CRIA last_basket_spread/last_basket_swap como
+        atributos (tipo errado, mas presentes) — nunca exercita o caso
+        "atributo realmente ausente" que a docstring do código promete
+        cobrir. Acesso direto (model.last_basket_spread) levantaria
+        AttributeError nesse caso; getattr(..., None) é o que faz a
+        promessa valer de verdade."""
+        class _CostModelWithoutSpreadSwapAttrs:
+            """Objeto real, sem __getattr__/Mock nenhum -- acessar
+            last_basket_spread nele levanta AttributeError de verdade."""
+            def __init__(self, lot):
+                self.last_basket_degraded = set()
+                self.last_basket_swap_unmodeled = set()
+
+            def basket(self, ccy, bias, leg_lots=None):
+                return 12.34
+
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = os.path.join(tmp, "execution_cost_log.json")
+            with patch.object(pe, "COST_LOG_FILE", log_path), \
+                 patch.object(pe, "CostModel", _CostModelWithoutSpreadSwapAttrs):
+                pe.measure_and_log_basket_cost("cad", "BUY", 0.01)
+            with open(log_path, encoding="utf-8") as f:
+                log = json.load(f)
+        self.assertEqual(log[0]["cost_usd"], 12.34)
+        self.assertNotIn("spread_usd", log[0])
+        self.assertNotIn("swap_usd", log[0])
+        print("[✓] atributo genuinamente ausente (não só tipo errado) também não "
+              "impede a medição de cost_usd")
+
     def test_logs_degraded_legs_when_cost_model_reports_them(self):
         """Achado 4 (revisão de ad44e12/c24a44c, mfc-rev-2): a entrada
         precisa registrar QUAIS pernas ficaram sem dado real, não só o

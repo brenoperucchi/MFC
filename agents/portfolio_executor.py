@@ -1073,7 +1073,13 @@ def measure_and_log_basket_cost(currency: str, bias: str, lot: float, leg_lots: 
         # round(MagicMock(), 4) explodindo a medição inteira — os campos
         # ficam de fora da entrada em vez de derrubar cost_usd, que já
         # mediu certo.
-        spread_usd, swap_usd = model.last_basket_spread, model.last_basket_swap
+        # Achado herdr-review mfc-64 (MFC64-05/`mfc-rev`): acesso direto
+        # (model.last_basket_spread) quebra com AttributeError se o atributo
+        # genuinamente não existir — a promessa da docstring acima ("omite
+        # os campos, nunca derruba cost_usd") só valia pra tipo errado, não
+        # pra ausência real. getattr(..., None) cobre os dois casos.
+        spread_usd = getattr(model, "last_basket_spread", None)
+        swap_usd = getattr(model, "last_basket_swap", None)
         spread_swap_valid = (
             isinstance(spread_usd, (int, float)) and math.isfinite(spread_usd)
             and isinstance(swap_usd, (int, float)) and math.isfinite(swap_usd)
