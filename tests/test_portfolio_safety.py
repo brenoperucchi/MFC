@@ -4118,6 +4118,52 @@ class TestMeasureAndLogBasketCost(unittest.TestCase):
         self.assertEqual(log[0]["cost_usd"], 12.34)
         print("[✓] Primeira medição cria o log com a entrada certa")
 
+    def test_logs_spread_and_swap_decomposition_from_the_real_basket(self):
+        """Achado herdr-review mfc-63 (resíduo P3-4/`mfc-rev-2`, corrigido a
+        pedido do Breno): a decomposição spread/swap (herdr-ask mfc-5)
+        existia só no backtest — este é o único ponto que mede sobre a
+        cesta EFETIVAMENTE aberta, com tick real de execução, não de
+        simulação."""
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = os.path.join(tmp, "execution_cost_log.json")
+            with patch.object(pe, "COST_LOG_FILE", log_path), \
+                 patch.object(pe, "CostModel") as MockModel:
+                MockModel.return_value.basket.return_value = 12.34
+                MockModel.return_value.last_basket_degraded = set()
+                MockModel.return_value.last_basket_swap_unmodeled = set()
+                MockModel.return_value.last_basket_spread = 9.5
+                MockModel.return_value.last_basket_swap = 2.84
+                pe.measure_and_log_basket_cost("cad", "BUY", 0.01)
+            with open(log_path, encoding="utf-8") as f:
+                log = json.load(f)
+        self.assertEqual(log[0]["spread_usd"], 9.5)
+        self.assertEqual(log[0]["swap_usd"], 2.84)
+        print("[✓] Entrada do log grava spread_usd/swap_usd da cesta real")
+
+    def test_omits_spread_and_swap_when_cost_model_reports_them_malformed(self):
+        """Mesma disciplina fail-closed do bloco degraded/swap_unmodeled: um
+        CostModel mal formado (MagicMock cru, sem last_basket_spread/
+        last_basket_swap configurados) não pode virar round(MagicMock(), 4)
+        explodindo a medição inteira — cost_usd, que já mediu certo, tem
+        que continuar sendo gravado, só sem os campos novos."""
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = os.path.join(tmp, "execution_cost_log.json")
+            with patch.object(pe, "COST_LOG_FILE", log_path), \
+                 patch.object(pe, "CostModel") as MockModel:
+                MockModel.return_value.basket.return_value = 12.34
+                MockModel.return_value.last_basket_degraded = set()
+                MockModel.return_value.last_basket_swap_unmodeled = set()
+                # NÃO configura last_basket_spread/last_basket_swap de
+                # propósito -- viram MagicMock automáticos, não números.
+                pe.measure_and_log_basket_cost("cad", "BUY", 0.01)
+            with open(log_path, encoding="utf-8") as f:
+                log = json.load(f)
+        self.assertEqual(log[0]["cost_usd"], 12.34)
+        self.assertNotIn("spread_usd", log[0])
+        self.assertNotIn("swap_usd", log[0])
+        print("[✓] CostModel mal formado não impede a medição de cost_usd; só omite "
+              "spread_usd/swap_usd")
+
     def test_logs_degraded_legs_when_cost_model_reports_them(self):
         """Achado 4 (revisão de ad44e12/c24a44c, mfc-rev-2): a entrada
         precisa registrar QUAIS pernas ficaram sem dado real, não só o

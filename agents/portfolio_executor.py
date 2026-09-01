@@ -1063,6 +1063,21 @@ def measure_and_log_basket_cost(currency: str, bias: str, lot: float, leg_lots: 
         # de outra.
         model = CostModel(lot)
         cost_usd = model.basket(currency.upper(), bias, leg_lots)
+        # Achado herdr-review mfc-63 (resíduo P3-4/`mfc-rev-2`, corrigido a
+        # pedido do Breno): a decomposição spread/swap (herdr-ask mfc-5)
+        # existia só no backtest, com tick do MOMENTO DA SIMULAÇÃO — este é
+        # o único ponto que mede a decomposição sobre a cesta EFETIVAMENTE
+        # aberta, com o tick real de execução. Mesma disciplina fail-closed
+        # do bloco de degraded/swap_unmodeled logo abaixo: um CostModel mal
+        # formado (MagicMock cru, testes antigos) não pode virar
+        # round(MagicMock(), 4) explodindo a medição inteira — os campos
+        # ficam de fora da entrada em vez de derrubar cost_usd, que já
+        # mediu certo.
+        spread_usd, swap_usd = model.last_basket_spread, model.last_basket_swap
+        spread_swap_valid = (
+            isinstance(spread_usd, (int, float)) and math.isfinite(spread_usd)
+            and isinstance(swap_usd, (int, float)) and math.isfinite(swap_usd)
+        )
         # Achado 4 (revisão de ad44e12/c24a44c, mfc-rev-2): sem isto,
         # "cesta com custo genuinamente zero" e "uma perna sem dado bem na
         # hora da medição" eram gravadas de forma idêntica no log — e o
@@ -1093,6 +1108,9 @@ def measure_and_log_basket_cost(currency: str, bias: str, lot: float, leg_lots: 
             "lot": round(lot, 4),
             "cost_usd": round(cost_usd, 4),
         }
+        if spread_swap_valid:
+            entry["spread_usd"] = round(spread_usd, 4)
+            entry["swap_usd"] = round(swap_usd, 4)
         if degraded:
             entry["degraded"] = sorted(degraded)
         if swap_unmodeled:
