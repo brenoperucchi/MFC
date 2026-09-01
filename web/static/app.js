@@ -278,16 +278,41 @@ const MODAL_OPEN_BUTTON_IDS = {
     crossoversModal: "btnOpenCrossoversModal",
 };
 
+// Mesma ideia do MODAL_OPEN_BUTTON_IDS, pro sentido contrário: fechar via o
+// botão real de cada modal preserva a limpeza que o handler original já faz
+// (ex.: stopLivePolling()/stopBacktestStatusPolling() no track-record) — sem
+// isso, apertar "voltar" no navegador voltava a URL mas deixava o modal
+// aberto e qualquer polling rodando (achado testando popstate).
+const MODAL_CLOSE_BUTTON_IDS = {
+    trackRecordModal: "btnCloseTrackRecordModal",
+    crossoversModal: "btnCloseCrossoversModal",
+    pairsModal: "btnClosePairsModal",
+    historyModal: "btnCloseHistoryModal",
+    deepDiveModal: "btnCloseDeepDiveModal",
+};
+
+function closeModalsNotMatching(targetModalId) {
+    MODAL_ROUTES.forEach(({ modalId }) => {
+        if (modalId === targetModalId) return;
+        const el = document.getElementById(modalId);
+        if (!el || el.classList.contains("hidden")) return;
+        const btnId = MODAL_CLOSE_BUTTON_IDS[modalId];
+        const btn = btnId && document.getElementById(btnId);
+        if (btn) btn.click();
+        else el.classList.add("hidden");
+    });
+}
+
 function applyRouteFromLocation() {
     const parts = window.location.pathname.split("/").filter(Boolean);
-    if (!parts.length) return; // "/" — nenhum modal, já é o estado padrão
-
     const [first, second] = parts;
-    const route = MODAL_ROUTES.find(r => r.path === `/${first}`);
-    if (!route) return; // rota desconhecida — fica no dashboard padrão, sem 404 no cliente
+    const route = first ? MODAL_ROUTES.find(r => r.path === `/${first}`) : null;
 
     _applyingRouteFromLocation = true;
     try {
+        closeModalsNotMatching(route ? route.modalId : null);
+        if (!route) return; // "/" ou rota desconhecida — fica no dashboard padrão, sem 404 no cliente
+
         if (route.modalId === "trackRecordModal") {
             const btnOpen = document.getElementById("btnOpenTrackRecordModal");
             if (btnOpen) btnOpen.click();
