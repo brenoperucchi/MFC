@@ -2673,9 +2673,10 @@ function renderBacktestHistoryTable(entries) {
         tr.style.cursor = "pointer";
         tr.addEventListener("click", () => selectBacktestEntry(entry.journal_seq));
 
-        const addCell = (text) => {
+        const addCell = (text, tooltip) => {
             const td = document.createElement("td");
             td.textContent = text;
+            if (tooltip) td.title = tooltip;
             tr.appendChild(td);
             return td;
         };
@@ -2703,23 +2704,38 @@ function renderBacktestHistoryTable(entries) {
             descCell.appendChild(badge);
         }
 
+        // Uma linha por motor não cabe sem espremer a tabela quando há 3-4
+        // motores comparados — a coluna mostra só a faixa (min a max) e o
+        // detalhamento por motor vai pro title (tooltip nativo, uma linha
+        // por motor); o painel de detalhe (clique na linha) mostra tudo
+        // formatado sem essa restrição de espaço.
         const engineNames = Object.keys(entry.engines || {});
-        const brutoText = engineNames.map(name => {
+        const rangeText = (values) => {
+            const nums = values.filter(v => typeof v === "number" && isFinite(v));
+            if (!nums.length) return "-";
+            const min = Math.min(...nums);
+            const max = Math.max(...nums);
+            return min === max ? fmtBacktestMoney(min) : `${fmtBacktestMoney(min)} a ${fmtBacktestMoney(max)}`;
+        };
+
+        const brutoValues = engineNames.map(name => entry.engines[name] && entry.engines[name].bruto);
+        const brutoTooltip = engineNames.map(name => {
             const m = entry.engines[name] || {};
-            return `${name}: ${fmtBacktestMoney(m.bruto)} (${m.baskets != null ? m.baskets : 0})`;
-        }).join(" | ") || "-";
-        addCell(brutoText);
+            return `${name}: ${fmtBacktestMoney(m.bruto)} (${m.baskets != null ? m.baskets : 0} cestas)`;
+        }).join("\n");
+        addCell(rangeText(brutoValues), brutoTooltip);
 
         const paired = entry.paired_net_delta_per_night || {};
         addCell(paired.mean != null
             ? `${fmtBacktestMoney(paired.mean)} ± ${paired.stderr != null ? fmtBacktestMoney(paired.stderr) : "n/a"} (n=${paired.n != null ? paired.n : 0})`
             : "-");
 
-        const liquidoText = engineNames.map(name => {
+        const liquidoValues = engineNames.map(name => entry.engines[name] && entry.engines[name].liquido);
+        const liquidoTooltip = engineNames.map(name => {
             const m = entry.engines[name] || {};
             return `${name}: ${fmtBacktestMoney(m.liquido)}`;
-        }).join(" | ") || "-";
-        addCell(liquidoText);
+        }).join("\n");
+        addCell(rangeText(liquidoValues), liquidoTooltip);
 
         const qualityCell = addCell(
             entry.quality_status === "clean" ? "✅" :
