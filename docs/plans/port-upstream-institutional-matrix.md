@@ -1353,6 +1353,30 @@ estatisticamente significativa de que o Port A bata ou perca do baseline
 um efeito real e estável. Ambos os motores são líquido-negativos nas duas
 janelas.
 
+### Verificação do baseline `mfc-61` contra o fix do P1 (journal_seq 27/28)
+
+Pedido do usuário: o `mfc-61` original (`journal_seq=24`, +0,603±4,582)
+também foi calculado com a mesma `_basket_pnl()` sem `rates_dict` do
+achado MFC64-01 — nunca tinha sido reexecutado, só a janela estendida
+recebeu o fix. Reexecutar a janela original `[2026-06-01,2026-07-16)`
+(`journal_seq=27`) deu **+0,631±4,511** — variação pequena, mesmo sinal;
+o bug teve efeito quase nulo nesta janela específica (diferente do que se
+temia antes de medir).
+
+**Efeito colateral registrado, não um achado de revisão:**
+`select_latest_oos_evidence()` escolhe por `journal_seq` mais alto, sem
+considerar tamanho de amostra — rodar `journal_seq=27` (33 noites) DEPOIS
+de `journal_seq=26` (488 noites) fez a evidência selecionada regredir pra
+amostra menor, apesar de `journal_seq=26` ser estritamente mais robusta.
+Corrigido reexecutando a janela estendida mais uma vez (`journal_seq=28`,
+mesmos parâmetros do 26, -0,648±2,579 — dentro do ruído normal de tick da
+mesma janela/código) só pra restaurar o ponteiro. **A evidência elegível
+atual é `journal_seq=28`.** Isto não é um bug do mecanismo — é o
+comportamento monotônico por design (decidido nas rodadas mfc-56–mfc-60,
+"nunca `recorded_at_utc`, sempre `journal_seq`") — mas reexecutar uma
+janela menor por cima de uma maior tem esse efeito prático, vale ter em
+mente antes de rodar qualquer verificação pontual no futuro.
+
 **Escopo real da mudança (achado MFC64-04/`mfc-rev` — a formulação anterior
 desta seção era imprecisa):** nenhum GATE de execução foi alterado —
 `open_portfolio_basket()`, `check_execution_config()`,
