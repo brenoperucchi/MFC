@@ -46,8 +46,8 @@ if BASE_DIR not in sys.path:
 from agents.portfolio_executor import get_portfolio_pairs, CostModel, ensure_mt5
 from web.history_tracker import convert_pnl_to_usd
 from scripts.backtest_canonical import (
-    BRT, LOT, ENTRY_HOUR_BRT, CURRENCIES, load_series, load_h1_prices, _brt_to_server,
-    evaluate_at, is_market_session_valid, check_contract_size_consistency,
+    BRT, LOT, ENTRY_HOUR_BRT, CURRENCIES, load_series, load_h1_prices, h1_bars_for_days,
+    _brt_to_server, evaluate_at, is_market_session_valid, check_contract_size_consistency,
 )
 from scripts._backtest_results_log import append_result
 
@@ -143,7 +143,7 @@ def compare_composition(days=45, log_note=None):
         print("[-] Séries canônicas indisponíveis.")
         return 1
     print("[*] Carregando preços H1...")
-    prices = load_h1_prices()
+    prices = load_h1_prices(count=h1_bars_for_days(days))
     if not prices:
         print("[-] Preços H1 indisponíveis.")
         return 1

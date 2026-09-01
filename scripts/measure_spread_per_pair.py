@@ -50,8 +50,8 @@ from web.css_service import MT5_AVAILABLE, MT5_PATH, mt5, to_broker_symbol, ALL_
 from agents.portfolio_executor import get_portfolio_pairs, CostModel, ensure_mt5
 from web.history_tracker import convert_pnl_to_usd
 from scripts.backtest_canonical import (
-    BRT, LOT, ENTRY_HOUR_BRT, TFS, CURRENCIES, load_series, load_h1_prices, _brt_to_server,
-    evaluate_at, is_market_session_valid, check_contract_size_consistency,
+    BRT, LOT, ENTRY_HOUR_BRT, TFS, CURRENCIES, load_series, load_h1_prices, h1_bars_for_days,
+    _brt_to_server, evaluate_at, is_market_session_valid, check_contract_size_consistency,
 )
 
 # Pares canônicos usados pra montar rates_dict (P3-2) — os mesmos 7 que
@@ -250,7 +250,7 @@ def main():
     if not nights:
         print("[-] Sem noites válidas — pulando razão_custo.")
         return 0
-    prices = load_h1_prices()
+    prices = load_h1_prices(count=h1_bars_for_days(45))
     ratios = measure_cost_ratio(nights, prices)
 
     rows2 = sorted(

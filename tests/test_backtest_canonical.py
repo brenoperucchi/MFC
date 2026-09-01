@@ -300,6 +300,59 @@ class TestRunWiresCostQualityIntoSummary(unittest.TestCase):
         self.assertNotIn("cesta(s) tiveram ao menos uma perna sem símbolo/", output)
         print("[✓] sem cesta degradada, o aviso não aparece — controle negativo do teste acima")
 
+    def test_run_wires_days_into_the_h1_bars_requested(self):
+        """Achado do probe manual de 2026-09-01 (usuário + exec, contra a
+        instância mfc-backtest): load_h1_prices() sempre pediu 1800 barras
+        fixas, mesmo quando `days` pede uma janela maior — só parametrizar
+        h1_bars_for_days() não bastava, precisava provar que run() de fato
+        REPASSA `days` pra ela (mesmo padrão 'wiring não testado' já visto
+        neste arquivo pra _tally_cost_quality)."""
+
+        class _CleanFakeCostModel(self._FakeCostModel):
+            def basket(self, ccy, bias, leg_lots=None):
+                self.last_basket_degraded = set()
+                self.last_basket_swap_unmodeled = set()
+                return 2.5
+
+        h1_times = _h1_times_covering_one_night(days=1)
+        fake_series = {tf: {"times": h1_times, "scores": {}} for tf in bc.TFS}
+
+        class _FakePriceSeries:
+            def asof(self, _dt):
+                return 1.1000
+
+        fake_prices = {pair: _FakePriceSeries() for pair in bc.ALL_28_PAIRS}
+        h1_mock = MagicMock(return_value=fake_prices)
+
+        with patch.object(bc, "ensure_mt5", return_value=True), \
+             patch.object(bc, "load_series", return_value=fake_series), \
+             patch.object(bc, "load_h1_prices", h1_mock), \
+             patch.object(bc, "evaluate_at", return_value={"USD": {"trade_bias": "COMPRA"}}), \
+             patch.object(bc, "convert_pnl_to_usd", return_value=(10.0, 5.0)), \
+             patch.object(bc, "CostModel", _CleanFakeCostModel):
+            bc.run(days=1000)
+        h1_mock.assert_called_once_with(count=bc.h1_bars_for_days(1000))
+        print("[✓] run() repassa days pro count de load_h1_prices(), não fica preso em 1800")
+
+
+class TestH1BarsForDays(unittest.TestCase):
+    """h1_bars_for_days(): achado do probe manual de 2026-09-01 contra a
+    instância mfc-backtest (usuário + exec, só leitura) — load_h1_prices()
+    sempre pediu 1800 barras fixas (~75 dias), número nunca justificado no
+    código, quando a Exness tem bem mais H1 real disponível (medido:
+    ~30.159-30.160 barras/~4,85 anos nos 25 pares mais curtos, mais nos
+    outros 3). Sem parametrizar por `days`, um backtest com janela maior
+    ficaria artificialmente raso mesmo com dado real disponível no broker."""
+
+    def test_preserves_the_historical_default_for_the_usual_45_day_window(self):
+        self.assertEqual(bc.h1_bars_for_days(45), 1800)
+
+    def test_scales_up_for_larger_windows(self):
+        self.assertEqual(bc.h1_bars_for_days(1000), 1000 * 24 + 500)
+
+    def test_never_returns_below_the_historical_default(self):
+        self.assertEqual(bc.h1_bars_for_days(1), 1800)
+
 
 def _month_start_ts(year, month):
     return int(datetime(year, month, 1, tzinfo=timezone.utc).timestamp())

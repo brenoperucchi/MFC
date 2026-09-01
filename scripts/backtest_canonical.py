@@ -372,11 +372,39 @@ def load_series(require_clean=False, use_histdata_mn1_warmup=False):
     return series
 
 
-def load_h1_prices():
-    """Preço de abertura H1 por par, indexado por tempo do servidor."""
+def h1_bars_for_days(days):
+    """Quantas barras H1 pedir por par pra cobrir `days` dias corridos com
+    folga, sem depender de saber de antemão quantos são dias úteis de
+    mercado. 24 barras/dia é superestimativa deliberada (forex fecha fim de
+    semana, ~17 barras/dia na média) — sobra, não falta; +500 de margem
+    absorve borda de fuso/DST perto do início da janela."""
+    return max(1800, int(days) * 24 + 500)
+
+
+def load_h1_prices(count=1800):
+    """Preço de abertura H1 por par, indexado por tempo do servidor.
+
+    `count`: barras pedidas por par via copy_rates_from_pos(..., 0, count).
+    Default 1800 (~75 dias) preserva o comportamento de antes desta opção
+    existir, pra quem não passar nada.
+
+    Medido em 2026-09-01 (só leitura, instância mfc-backtest, probe manual —
+    não script versionado): a Exness tem BEM mais H1 real disponível do que
+    os 1800 que o código sempre pediu, ao contrário do MN1 (que tem gate
+    dedicado de aquecimento porque é genuinamente curto). Os 25 pares
+    "curtos" do MN1 (os mesmos que travam em 59 barras mensais) têm
+    ~30.159-30.160 barras H1 (desde 2021-10-27, ~4,85 anos); EURUSD/GBPUSD
+    ~59.951-59.965 (desde 2014-01-14, ~12,6 anos); GBPJPY passa de 100.000
+    sem bater teto (desde pelo menos 2010-07-22). Pedir mais que o
+    disponível não é erro — copy_rates_from_pos() devolve só o que existe,
+    nunca lança — e o gate `oos_disjoint` (price_missing_points em
+    backtest_engine_compare.py::_one_pass) já detecta cobertura
+    insuficiente sozinho, então esta função não precisa travar `count` num
+    teto: pedir demais só degrada pra `RuntimeError` explícito lá, nunca
+    produz evidência silenciosamente incompleta."""
     prices = {}
     for pair in ALL_28_PAIRS:
-        rates = mt5.copy_rates_from_pos(to_broker_symbol(pair), mt5.TIMEFRAME_H1, 0, 1800)
+        rates = mt5.copy_rates_from_pos(to_broker_symbol(pair), mt5.TIMEFRAME_H1, 0, count)
         if rates is None or len(rates) < 100:
             continue
         df = pd.DataFrame(rates)
@@ -610,7 +638,7 @@ def run(days=45, log_note=None):
         print("[-] Séries canônicas indisponíveis.")
         return 1
     print(f"[*] Carregando preços H1 de {len(ALL_28_PAIRS)} pares...")
-    prices = load_h1_prices()
+    prices = load_h1_prices(count=h1_bars_for_days(days))
     if not prices:
         print("[-] Preços H1 indisponíveis.")
         return 1
