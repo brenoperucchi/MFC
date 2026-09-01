@@ -136,6 +136,22 @@ def parse_zip_to_monthly(zip_path):
     return months
 
 
+def year_is_complete(months, year, current_year):
+    """Um ANO (não um mês) está completo em `months` (dict {"YYYY-MM": ...})
+    quando os 12 meses existem — exceto o ano corrente, que nunca vai ter
+    os 12 se ainda está em curso (usa "algum mês presente" pra esse caso).
+
+    Achado herdr-review mfc-64 (MFC64-02/`mfc-rev` + P3-3/`mfc-rev-2`,
+    CONFIRMADO pelos dois): a versão anterior de fetch_pair() considerava um
+    ano "presente" com QUALQUER mês nele — exatamente o formato do buraco
+    real do AUDJPY (o zip de 2012 só tinha outubro). Rodar o fetcher de
+    novo nunca completaria um ano assim; extraída como função pura pra dar
+    pra testar sem precisar mockar download_hist_data."""
+    if year == current_year:
+        return any(k.startswith(f"{year:04d}-") for k in months)
+    return all(f"{year:04d}-{m:02d}" in months for m in range(1, 13))
+
+
 def fetch_pair(pair):
     try:
         from histdata import download_hist_data
@@ -157,10 +173,11 @@ def fetch_pair(pair):
         # crescia depois (2012-2021 -> 2010-2021) — reproduzir a extensão
         # exigia um script separado, não versionado (resíduo que
         # `mfc-rev-2` já tinha apontado pro merge do Dukascopy/AUDJPY).
-        # Agora completa só os anos que faltam, sem tocar nos que já tem.
+        # Agora completa só os anos que faltam, sem tocar nos que já tem —
+        # ver year_is_complete() (achado herdr-review mfc-64, MFC64-02/P3-3).
+        current_year = datetime.now().year
         missing_years = [
-            y for y in YEARS
-            if not any(k.startswith(f"{y:04d}-") for k in all_months)
+            y for y in YEARS if not year_is_complete(all_months, y, current_year)
         ]
         if not missing_years:
             log(f"{pair}: já cobre {YEARS[0]}-{YEARS[-1]}, pulando")

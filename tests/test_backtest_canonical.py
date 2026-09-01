@@ -366,20 +366,46 @@ class TestBarsNeededSince(unittest.TestCase):
         start = datetime.now(bc.BRT) - timedelta(days=1)
         self.assertEqual(bc.bars_needed_since(start, 24.0, 1800), 1800)
 
+    def _closed_bar_index_for_first_candidate(self, window_start, bars_per_day, margin):
+        """Reconstrói a série de `times` como o pipeline real produz
+        (`common_index[-count:]`, count barras do próprio TF terminando em
+        AGORA) e devolve o índice de barra fechada que `_closed_bar_index`
+        encontraria pra `window_start` — a primeira noite candidata da
+        janela. `margin` isolado (não via bc.bars_needed_since) pra poder
+        testar valores diferentes do que está hardcoded no código hoje."""
+        now = datetime.now(bc.BRT).replace(tzinfo=None)
+        elapsed_days = (now - window_start.replace(tzinfo=None)).days
+        count = max(1, int(elapsed_days * bars_per_day) + margin)
+        freq_seconds = int(round(86400.0 / bars_per_day))
+        times = pd.Series(pd.date_range(
+            end=now, periods=count, freq=pd.Timedelta(seconds=freq_seconds),
+        ))
+        return bc._closed_bar_index(times, window_start.replace(tzinfo=None))
+
     def test_margin_clears_the_i_less_than_30_rejection_at_the_first_candidate(self):
-        """Achado medido numa rodada real (usuário + exec, 2026-09-01, janela
-        estendida OOS): evaluate_at_all() recusa qualquer noite com índice
-        de barra fechada i<30 (backtest_engine_compare.py:689), por TF,
-        independente de quanto dado exista antes. Uma margem de exatamente
-        30 períodos deixa a primeira noite candidata bem na borda (i≈30) --
-        arredondamento de calendário empurrou ~10 noites iniciais pra
-        i<30 mesmo com o resto da série saudável. A margem (60) precisa
-        cobrir isso com folga real, não só o mínimo teórico."""
-        self.assertGreater(
-            bc.bars_needed_since(datetime.now(bc.BRT) - timedelta(days=1), 1.0, 0) - 0,
-            30,
-            "margem <= 30 deixa a primeira noite candidata na borda de i<30",
-        )
+        """Achado herdr-review mfc-64 (P2-1/`mfc-rev-2`): o teste anterior só
+        chamava bars_needed_since(...) e comparava contra 30 em isolamento —
+        passava com QUALQUER margem >= 31 (inclusive as duas já rejeitadas
+        por medição: 30, que deixou ~10 noites iniciais rejeitadas numa
+        rodada real, commit 788615a), sem nunca chamar _closed_bar_index().
+        Reconstrói a série de `times` como o pipeline real produz e prova
+        que a margem ATUAL do código (40) faz a PRIMEIRA noite candidata
+        cair em i>=30 — o achado original medido, reproduzido aqui."""
+        window_start = datetime.now(bc.BRT) - timedelta(days=500)
+        i = self._closed_bar_index_for_first_candidate(window_start, bars_per_day=1.0, margin=40)
+        self.assertIsNotNone(i)
+        self.assertGreaterEqual(i, 30,
+            "margem de 40 não bastou pra primeira noite candidata passar de i>=30")
+
+    def test_margin_of_30_reproduces_the_measured_rejection(self):
+        """Controle negativo: com a margem ANTIGA (30, rejeitada por medição
+        real — commit 788615a), a primeira noite candidata cai exatamente
+        na borda ou abaixo de i>=30. Prova que o teste acima discrimina de
+        verdade, não passa com qualquer margem >=31."""
+        window_start = datetime.now(bc.BRT) - timedelta(days=500)
+        i = self._closed_bar_index_for_first_candidate(window_start, bars_per_day=1.0, margin=30)
+        self.assertLess(i, 30,
+            "margem de 30 deveria reproduzir o achado medido (i<30 na primeira noite)")
 
     def test_naive_window_start_is_interpreted_as_brt_not_utc(self):
         """Achado explícito na correção: `_normalize_window_end()`
@@ -518,6 +544,38 @@ class TestFindGaps(unittest.TestCase):
         self.assertIn("2012-11", gaps)
         self.assertIn("2012-12", gaps)
         self.assertEqual(len(gaps), 11)
+
+
+class TestYearIsComplete(unittest.TestCase):
+    """fetch_histdata_mn1_warmup.year_is_complete(): achado herdr-review
+    mfc-64 (MFC64-02/`mfc-rev` + P3-3/`mfc-rev-2`, CONFIRMADO pelos dois) —
+    a versão anterior de fetch_pair() considerava um ano "presente" com
+    QUALQUER mês nele (`any(k.startswith(...))`), não os 12. É exatamente o
+    formato do buraco real do AUDJPY: o zip de 2012 da HistData.com só
+    tinha outubro, e com a lógica antiga uma reexecução do fetcher NUNCA
+    tentaria completar 2012 de novo."""
+
+    def test_full_year_is_complete(self):
+        months = {f"2012-{m:02d}": {} for m in range(1, 13)}
+        self.assertTrue(fetch_histdata_mn1_warmup.year_is_complete(months, 2012, 2026))
+
+    def test_single_month_is_not_complete(self):
+        """Regressão direta do caso real do AUDJPY: só outubro/2012 presente
+        -- a versão anterior (`any(...)`) marcava isto como completo."""
+        months = {"2012-10": {}}
+        self.assertFalse(fetch_histdata_mn1_warmup.year_is_complete(months, 2012, 2026))
+
+    def test_year_entirely_absent_is_not_complete(self):
+        self.assertFalse(fetch_histdata_mn1_warmup.year_is_complete({}, 2012, 2026))
+
+    def test_current_year_uses_the_any_month_rule(self):
+        """Ano corrente nunca vai ter os 12 meses se ainda está em curso --
+        mantém o critério antigo só pra esse caso."""
+        months = {"2026-03": {}}
+        self.assertTrue(fetch_histdata_mn1_warmup.year_is_complete(months, 2026, 2026))
+
+    def test_current_year_absent_is_still_not_complete(self):
+        self.assertFalse(fetch_histdata_mn1_warmup.year_is_complete({}, 2026, 2026))
 
 
 class TestAudjpyWarmupCacheIsGapFree(unittest.TestCase):
