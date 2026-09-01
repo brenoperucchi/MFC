@@ -51,12 +51,9 @@ from agents.portfolio_executor import get_portfolio_pairs, CostModel, ensure_mt5
 from web.history_tracker import convert_pnl_to_usd
 from scripts.backtest_canonical import (
     BRT, LOT, ENTRY_HOUR_BRT, TFS, CURRENCIES, load_series, load_h1_prices, h1_bars_for_days,
-    _brt_to_server, evaluate_at, is_market_session_valid, check_contract_size_consistency,
+    usd_cross_rates_dict, _brt_to_server, evaluate_at, is_market_session_valid,
+    check_contract_size_consistency,
 )
-
-# Pares canônicos usados pra montar rates_dict (P3-2) — os mesmos 7 que
-# CostModel._usd_rate() tenta pra conversão de qualquer moeda não-USD.
-_USD_CROSS_PAIRS = ("EURUSD", "GBPUSD", "AUDUSD", "NZDUSD", "USDCAD", "USDCHF", "USDJPY")
 
 
 def measure_static_spread(lot=0.01):
@@ -138,24 +135,6 @@ def measure_valid_nights(days=45):
     return nights, series
 
 
-def _build_rates_dict(prices, at_dt):
-    """rates_dict pra convert_pnl_to_usd(): preço dos 7 pares canônicos
-    *USD/USD* no instante `at_dt`, lido da MESMA série histórica que mede o
-    movimento (P3-2) — não a taxa hardcoded de web/history_tracker.py."""
-    rates = {}
-    for pair in _USD_CROSS_PAIRS:
-        ser = prices.get(pair)
-        if ser is None:
-            continue
-        try:
-            p = float(ser.asof(at_dt))
-        except Exception:
-            continue
-        if p > 0:
-            rates[pair] = p
-    return rates
-
-
 def measure_cost_ratio(nights, prices, lot=LOT):
     """razão_custo(par) = spread_ida_volta / mediana(|movimento em USD|,
     mesma janela de 11h, mesmo lote) — separa 'caro porque é volátil'
@@ -184,7 +163,7 @@ def measure_cost_ratio(nights, prices, lot=LOT):
                     continue
                 if not (p_in > 0 and p_out > 0):
                     continue
-                rates = _build_rates_dict(prices, exit_srv)
+                rates = usd_cross_rates_dict(prices, exit_srv)
                 pnl, _ = convert_pnl_to_usd(pair, "BUY", p_in, p_out, lot, rates_dict=rates)
                 moves.append(abs(pnl))
         moves.sort()

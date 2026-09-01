@@ -378,6 +378,39 @@ def load_series(require_clean=False, use_histdata_mn1_warmup=False, window_start
     return series
 
 
+# Pares canônicos usados por usd_cross_rates_dict() — os mesmos 7 que
+# CostModel._usd_rate() tenta pra conversão de qualquer moeda não-USD.
+USD_CROSS_PAIRS = ("EURUSD", "GBPUSD", "AUDUSD", "NZDUSD", "USDCAD", "USDCHF", "USDJPY")
+
+
+def usd_cross_rates_dict(prices, at_dt):
+    """rates_dict pra convert_pnl_to_usd(): preço dos 7 pares canônicos
+    *USD/USD* no instante `at_dt`, lido da MESMA série histórica H1 que mede
+    o movimento — sem isso, convert_pnl_to_usd() cai na tabela hardcoded de
+    web/history_tracker.py pra qualquer par de cotação não-USD (achado
+    herdr-review mfc-62, P3-1/`mfc-rev-2`, e de novo mfc-64, MFC64-01/
+    `mfc-rev`: a MESMA classe de bug em backtest_engine_compare.py::
+    _basket_pnl(), que produz a evidência OOS persistida — não bastava
+    corrigir só o script de diagnóstico measure_composition_effect.py).
+
+    Antes duplicada em measure_composition_effect.py e
+    measure_spread_per_pair.py (P3-2 da rodada 22) — centralizada aqui
+    depois de precisar de uma TERCEIRA cópia pra este módulo, pra não
+    deixar a próxima função esquecer de novo."""
+    rates = {}
+    for pair in USD_CROSS_PAIRS:
+        ser = prices.get(pair)
+        if ser is None:
+            continue
+        try:
+            p = float(ser.asof(at_dt))
+        except Exception:
+            continue
+        if p > 0:
+            rates[pair] = p
+    return rates
+
+
 # Barras/dia por TF, superestimadas de propósito (forex fecha fim de
 # semana — a média real é menor) — sobra barra, nunca falta.
 _TF_BARS_PER_DAY = {"MN1": 1 / 30.0, "W1": 1 / 7.0, "D1": 1.0, "H4": 6.0, "H1": 24.0}
@@ -797,6 +830,11 @@ def run(days=45, log_note=None):
         night_gross = night_cost = 0.0
         night_spread = night_swap = 0.0
         opened = 0
+        # Achado herdr-review mfc-64 (MFC64-01/`mfc-rev`, P1, mesma classe de
+        # bug já fechada em backtest_engine_compare.py::_basket_pnl()): sem
+        # rates_dict, convert_pnl_to_usd() cai na tabela hardcoded de
+        # web/history_tracker.py pra qualquer perna de cotação não-USD.
+        rates = usd_cross_rates_dict(prices, exit_srv)
 
         for ccy, v in actives:
             bias = "BUY" if v["trade_bias"] == "COMPRA" else "SELL"
@@ -817,7 +855,7 @@ def run(days=45, log_note=None):
                 if not (p_in > 0 and p_out > 0):
                     ok = False
                     break
-                pnl, _ = convert_pnl_to_usd(leg["pair"], leg["action"], p_in, p_out, LOT)
+                pnl, _ = convert_pnl_to_usd(leg["pair"], leg["action"], p_in, p_out, LOT, rates_dict=rates)
                 b_gross += pnl
             if not ok:
                 continue

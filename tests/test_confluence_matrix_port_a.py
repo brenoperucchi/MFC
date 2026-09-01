@@ -422,6 +422,59 @@ class TestPortAVectors(unittest.TestCase):
         assert summary["liquido"] == 6.0
         assert summary["active_signals"] == 2
 
+    def test_basket_pnl_uses_historical_rate_for_cross_pair_not_hardcoded_table(self):
+        """Achado herdr-review mfc-64 (MFC64-01/`mfc-rev`, P1): _basket_pnl()
+        é a função que produz o PnL que vira evidência OOS persistida
+        (journal_seq=25 incluído) — sem rates_dict, convert_pnl_to_usd() caía
+        na tabela hardcoded de web/history_tracker.py (NZD=0.60) pra
+        qualquer perna cotada em NZD, mesmo com o preço histórico H1 do
+        cross USD/NZD disponível em `prices`. Mesma classe de bug já
+        corrigida em measure_composition_effect.py na mfc-62/63 — não
+        bastou, porque é uma função diferente."""
+        from web.history_tracker import convert_pnl_to_usd
+
+        srv_dt = datetime(2026, 1, 5, 21, 0, 0)
+        exit_srv = datetime(2026, 1, 6, 8, 0, 0)
+
+        class _FakeSeries:
+            def __init__(self, entry, exit_):
+                self.entry, self.exit_ = entry, exit_
+
+            def asof(self, dt):
+                return self.entry if dt == srv_dt else self.exit_
+
+        # GBPNZD BUY: entry=2.000, exit=2.010 -- cotado em NZD. Taxa
+        # histórica NZDUSD=0.55, deliberadamente diferente do fallback
+        # hardcoded (0.60), pra provar qual dos dois foi usado.
+        prices = {
+            "GBPNZD": _FakeSeries(2.000, 2.010),
+            "NZDUSD": _FakeSeries(0.55, 0.55),
+        }
+        fake_legs = [{"pair": "GBPNZD", "action": "BUY"}]
+
+        class _FakeCostModel:
+            def __init__(self, lot):
+                self.last_basket_spread = 0.0
+                self.last_basket_swap = 0.0
+                self.last_basket_degraded = set()
+                self.last_basket_swap_unmodeled = set()
+
+            def basket(self, ccy, bias, leg_lots=None):
+                return 0.0
+
+        with patch.object(engine_compare, "get_portfolio_pairs", return_value=fake_legs), \
+             patch.object(engine_compare, "CostModel", _FakeCostModel):
+            result = engine_compare._basket_pnl("GBP", "COMPRA", prices, srv_dt, exit_srv)
+
+        gross = result[0]
+        rate_correct_gross, _ = convert_pnl_to_usd(
+            "GBPNZD", "BUY", 2.000, 2.010, canonical.LOT, rates_dict={"NZDUSD": 0.55})
+        hardcoded_gross, _ = convert_pnl_to_usd(
+            "GBPNZD", "BUY", 2.000, 2.010, canonical.LOT)  # sem rates_dict -> cai no 0.60
+        assert gross == rate_correct_gross
+        assert gross != hardcoded_gross, (
+            "_basket_pnl() usou a tabela hardcoded em vez do preço histórico H1")
+
     def test_unmodeled_swap_is_not_reported_as_clean(self):
         stats = {
             "degraded_baskets": 0,

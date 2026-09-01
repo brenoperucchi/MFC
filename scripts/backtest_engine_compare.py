@@ -78,6 +78,7 @@ from scripts._backtest_results_log import (
 from scripts.backtest_canonical import (
     LOT, ENTRY_HOUR_BRT, TFS, TF_COUNTS, CURRENCIES, ALL_28_PAIRS,
     load_series, load_h1_prices, h1_bars_for_days, bars_needed_since,
+    usd_cross_rates_dict,
     _idx_at_or_before, _closed_bar_index,
     is_market_session_valid, check_contract_size_consistency,
     _brt_to_server, MT5_AVAILABLE, mt5, MT5_PATH,
@@ -702,9 +703,18 @@ def evaluate_at_all(series, entry_server_dt, ref_dt, engine_names):
 
 def _basket_pnl(ccy, bias_word, prices, srv_dt, exit_srv):
     """Reproduz o cálculo de PnL bruto de uma cesta de scripts/backtest_canonical.py::run(),
-    isolado numa função pra ser chamado pelos dois motores sem duplicar o laço inteiro."""
+    isolado numa função pra ser chamado pelos dois motores sem duplicar o laço inteiro.
+
+    Achado herdr-review mfc-64 (MFC64-01/`mfc-rev`, P1): esta função produz
+    o PnL que vira evidência OOS persistida, e chamava convert_pnl_to_usd()
+    SEM rates_dict — pra qualquer perna de cotação não-USD, isso caía na
+    tabela hardcoded de web/history_tracker.py, contradizendo o
+    rates_source="historical_h1_prices" declarado no registro. Mesma classe
+    de bug já corrigida em measure_composition_effect.py na mfc-62/63 (P3-1),
+    que não bastou porque é uma função DIFERENTE."""
     bias = "BUY" if bias_word == "COMPRA" else "SELL"
     legs = get_portfolio_pairs(ccy, bias)
+    rates = usd_cross_rates_dict(prices, exit_srv)
     gross = 0.0
     for leg in legs:
         ser = prices.get(leg["pair"])
@@ -717,7 +727,7 @@ def _basket_pnl(ccy, bias_word, prices, srv_dt, exit_srv):
             return None
         if not (p_in > 0 and p_out > 0):
             return None
-        pnl, _ = convert_pnl_to_usd(leg["pair"], leg["action"], p_in, p_out, LOT)
+        pnl, _ = convert_pnl_to_usd(leg["pair"], leg["action"], p_in, p_out, LOT, rates_dict=rates)
         gross += pnl
     costs = CostModel(LOT)
     cost = costs.basket(ccy, bias)
@@ -1208,7 +1218,16 @@ def compare(days=45, engine_names=None, runs=1, log_note=None, end_brt=None,
                 ),
                 f"poder amostral limitado: {nights_evaluated} noites e "
                 f"{sum(stats[name]['baskets'] for name in engine_names)} cestas agregadas",
-            ],
+            ] + (
+                [
+                    "MN1 depende de dado de terceiro (HistData.com/Dukascopy) pro "
+                    "prefixo de aquecimento do ATR(100) — ver "
+                    "quality.css_history.MN1.histdata_warmup_months_used; a "
+                    "validação cruzada documentada mediu o CLOSE mensal contra a "
+                    "Exness, não a amplitude high-low que alimenta o ATR "
+                    "diretamente (achado herdr-review mfc-64, P3-1/`mfc-rev-2`)"
+                ] if use_histdata_mn1_warmup else []
+            ),
             "quality": {
                 "status": _overall_quality_status(
                     css_history_status, stats, engine_names
@@ -1241,6 +1260,12 @@ def compare(days=45, engine_names=None, runs=1, log_note=None, end_brt=None,
                 "development_start_brt": (
                     _brt_iso(development_start) if development_start is not None else None
                 ),
+                # Achado herdr-review mfc-64 (P3-1/`mfc-rev-2`): antes só
+                # inferível de dentro de quality.css_history.MN1 — o flag
+                # que efetivamente decidiu se MN1 usou dado de terceiro
+                # precisa estar visível no nível de parameters, não só
+                # aninhado.
+                "use_histdata_mn1_warmup": bool(use_histdata_mn1_warmup),
             },
             "rates_source": "historical_h1_prices; live CostModel tick for spread/swap",
             "cost_snapshot": "live tick sampled per reconstructed basket",

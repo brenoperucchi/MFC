@@ -47,40 +47,12 @@ from agents.portfolio_executor import get_portfolio_pairs, CostModel, ensure_mt5
 from web.history_tracker import convert_pnl_to_usd
 from scripts.backtest_canonical import (
     BRT, LOT, ENTRY_HOUR_BRT, CURRENCIES, load_series, load_h1_prices, h1_bars_for_days,
-    _brt_to_server, evaluate_at, is_market_session_valid, check_contract_size_consistency,
+    usd_cross_rates_dict, _brt_to_server, evaluate_at, is_market_session_valid,
+    check_contract_size_consistency,
 )
 from scripts._backtest_results_log import append_result
 
 EXCLUDED_PAIR = "GBPNZD"  # corte pré-registrado: razão_custo >= 1.0 (herdr-ask mfc-6)
-
-# Pares canônicos usados pra montar rates_dict (achado herdr-review mfc-62,
-# P3-1/`mfc-rev-2`) — os mesmos 7 que CostModel._usd_rate() tenta pra
-# conversão de qualquer moeda não-USD. Mesmo padrão de
-# scripts/measure_spread_per_pair.py::_build_rates_dict (P3-2 da rodada 22).
-_USD_CROSS_PAIRS = ("EURUSD", "GBPUSD", "AUDUSD", "NZDUSD", "USDCAD", "USDCHF", "USDJPY")
-
-
-def _build_rates_dict(prices, at_dt):
-    """rates_dict pra convert_pnl_to_usd(): preço dos 7 pares canônicos
-    *USD/USD* no instante `at_dt`, lido da MESMA série histórica H1 que mede
-    o movimento — sem isso, convert_pnl_to_usd() cai na tabela hardcoded de
-    web/history_tracker.py pra qualquer par de cotação não-USD (achado
-    herdr-review mfc-62, P3-1/`mfc-rev-2`: o `rates_source` gravado no
-    journal afirmava 'historical_h1_prices' pra essa conversão, mas o
-    código não passava rates_dict — divergência entre metadado e
-    comportamento real, não erro de valor)."""
-    rates = {}
-    for pair in _USD_CROSS_PAIRS:
-        ser = prices.get(pair)
-        if ser is None:
-            continue
-        try:
-            p = float(ser.asof(at_dt))
-        except Exception:
-            continue
-        if p > 0:
-            rates[pair] = p
-    return rates
 
 
 def _needs_hardcoded_rate_fallback(pair, rates):
@@ -108,7 +80,7 @@ def _legs_pnl_and_cost(legs, prices, srv_dt, exit_srv, costs, lot=LOT):
     se QUALQUER perna não tiver preço, pra descartar a noite JUNTA nas duas
     variantes (MFC22-06/P3-3)."""
     per_leg = {}
-    rates = _build_rates_dict(prices, exit_srv)
+    rates = usd_cross_rates_dict(prices, exit_srv)
     for leg in legs:
         ser = prices.get(leg["pair"])
         if ser is None:
