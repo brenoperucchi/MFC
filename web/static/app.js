@@ -252,8 +252,8 @@ function currentRoutePath() {
             const seg = TRACK_RECORD_TAB_TO_SEGMENT[state.activeTrackTab] || "live";
             return `${path}/${seg}`;
         }
-        if (modalId === "deepDiveModal" && state.selectedDeepDive) {
-            return `${path}/${state.selectedDeepDive}`;
+        if (modalId === "deepDiveModal" && state.selectedDeepDiveTarget) {
+            return `${path}/${state.selectedDeepDiveTarget}`;
         }
         return path;
     }
