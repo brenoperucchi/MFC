@@ -10,7 +10,14 @@
 #   scripts/herdr_reviewer.sh revisor-mfc --tab    # em aba nova em vez de split
 set -euo pipefail
 
-REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# `pwd -P` (físico, resolve symlinks) — não `pwd` puro (lógico). Achado
+# herdr-review mfc-63 (resíduo/`mfc-rev-2`, corrigido a pedido do Breno):
+# o `cwd` que `herdr agent get` devolve vem de getcwd() do processo, que é
+# SEMPRE físico; comparar contra um REPO lógico faria a validação de
+# identidade (MFC62-05/mfc-63 P2-1) falhar com mismatch falso se qualquer
+# componente do caminho do repo fosse symlink. Sem symlink hoje neste
+# checkout (verificado), mas a canonicalização não deve depender disso.
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 ROLE_FILE="$REPO/.codex/reviewer.md"
 PROFILE_NAME="mfc-reviewer"
 PROFILE_FILE="${CODEX_HOME:-$HOME/.codex}/${PROFILE_NAME}.config.toml"
