@@ -1221,7 +1221,16 @@ ficam internos e o contrato público preserva as chaves existentes.
   atualização silenciosa deste plano; dados gerados/UI não entram na
   portabilidade.
 
-## Gate pós-implementação
+## Gate pós-implementação [HISTÓRICO — status de evidência OOS superado, ver seção "OOS estendido" abaixo]
+
+**Achado herdr-review mfc-64 (MFC64-03/`mfc-rev`):** esta seção descreve o
+estado em que nenhuma evidência OOS era elegível (histórico MN1
+insuficiente). Isso deixou de ser verdade a partir do `mfc-61`
+(evidência OOS elegível pela primeira vez) e principalmente da seção
+**"OOS estendido"** abaixo (`journal_seq=26`, a evidência elegível atual —
+ver `select_latest_oos_evidence`). O texto original permanece abaixo só
+como registro histórico do que motivou as rodadas `mfc-50`–`mfc-61`; não
+leia como descrição do estado atual.
 
 O gate técnico foi concluído na rodada final `mfc-49`: `mfc-rev` e
 `mfc-rev-2` confirmaram que não resta P0, P1 ou P2. O histórico registra
@@ -1235,7 +1244,7 @@ documental deste plano foi reaberto nas rodadas `mfc-50`/`mfc-51`/`mfc-52`/
 implementação. Nenhuma rodada intermediária autoriza continuar o OOS ou
 alterar código sem a aprovação agregada da versão corrigida pela dupla fixa.
 
-## OOS estendido (journal_seq 25) — janela 15x maior que o `mfc-61`, 2026-09-01
+## OOS estendido (journal_seq 26) — janela 15x maior que o `mfc-61`, 2026-09-01
 
 Depois das rodadas de revisão `mfc-62`/`mfc-63` (achados fechados, ver seções
 acima), o usuário pediu uma janela OOS maior que os 33 noites do `mfc-61`
@@ -1282,35 +1291,83 @@ achados, cada um descoberto só depois de tentar rodar (não hipotéticos):
 
 **Janela final, verificada e executada:** `[2024-08-27, 2026-07-16)` BRT,
 688 dias, 488 noites — `evaluated_nights == candidate_nights == 488`,
-`short_history_pairs=[]` nas 5 séries, `price_missing_points=0`. Registrada
-como `journal_seq=25`, `sample_role=oos_disjoint`,
-`development_start_brt=2026-07-16` (mesmo boundary do `mfc-61` — nada
-depois dele foi usado em desenvolvimento; a extensão foi só pra TRÁS, nunca
-reusando o período `[2026-07-16,2026-08-30)` já usado como exploratório em
-rodadas anteriores).
+`short_history_pairs=[]` nas 5 séries, `price_missing_points=0`.
+`sample_role=oos_disjoint`, `development_start_brt=2026-07-16` (mesmo
+boundary do `mfc-61` — nada depois dele foi usado em desenvolvimento; a
+extensão foi só pra TRÁS, nunca reusando o período
+`[2026-07-16,2026-08-30)` já usado como exploratório em rodadas
+anteriores). **Achado P3-2/`mfc-rev-2` (rodada `mfc-64`):** o W1 é o TF
+mais apertado — 254 semanas disponíveis contra 253 exigidas pela margem
+atual, só **1 barra** de folga. A janela não pode esticar mais pra trás
+sem alterar a margem/calibração; uma tentativa futura falharia com
+`short_history_pairs=[...]` sem indicar que o teto é o W1.
 
-**Resultado — divergente em SINAL do `mfc-61`:**
+### Rodada `mfc-64` (herdr-review) — achado P1 que invalidou o primeiro registro
 
-| | `mfc-61` (33 noites) | `journal_seq=25` (488 noites) |
+A primeira execução desta janela registrou `journal_seq=25` e foi pra
+revisão (`mfc-64`). `mfc-rev` achou **MFC64-01 (P1)**: `_basket_pnl()` —
+a função que produz o PnL desta evidência — chamava `convert_pnl_to_usd()`
+**sem `rates_dict`**, então qualquer perna de cotação não-USD caía na
+tabela hardcoded de `web/history_tracker.py` (NZD=0,60, GBP=1,30 etc.),
+contradizendo o `rates_source="historical_h1_prices"` declarado no
+registro — a MESMA classe de bug já fechada em
+`measure_composition_effect.py` na `mfc-62/63`, só que numa função
+diferente (a que realmente produz a evidência OOS). `journal_seq=25` foi
+**descartado como evidência numérica** (permanece no journal só como
+registro histórico, nunca modificado — journal é append-only) e a janela
+foi reexecutada como `journal_seq=26` depois do fix. Outros achados
+fechados na mesma rodada: fetcher idempotente por MÊS, não por ano
+(MFC64-02/`mfc-rev` + P3-3/`mfc-rev-2`, CONFIRMADO pelos dois — o
+`any(...)` anterior teria deixado passar de novo o exato formato do
+buraco real do AUDJPY); journal sempre grava LF, mesmo rodando no lado
+Windows (MFC64-06); `getattr` no lugar de acesso direto pro fail-closed de
+spread/swap (MFC64-05); `parameters.use_histdata_mn1_warmup` declarado
+explicitamente, não só inferível de dentro de `quality` (P3-1/`mfc-rev-2`
+— a validação cruzada do warmup mediu o *close* mensal contra a Exness,
+não a amplitude high-low que alimenta o ATR diretamente; `mfc-rev-2`
+checou depois, à parte, e não achou viés, mas a limitação passou a constar
+explicitamente no registro).
+
+**Resultado (`journal_seq=26`, número corrigido) — divergente em SINAL do
+`mfc-61`, mas as duas amostras NÃO são independentes:**
+
+| | `mfc-61` (33 noites) | `journal_seq=26` (488 noites) |
 |---|---|---|
 | janela | `[2026-06-01,2026-07-16)` | `[2024-08-27,2026-07-16)` |
-| 3tf_baseline líquido | -$267,58 / 187 cestas | -$7.668,37 / 2806 cestas |
-| 5tf_port_a líquido | -$247,69 / 228 cestas | -$8.039,35 / 3533 cestas |
-| delta pareado/noite | **+0,603 ± 4,582** (n=33) | **-0,760 ± 2,546** (n=488) |
+| 3tf_baseline líquido | -$267,58 / 187 cestas | -$7.722,80 / 2806 cestas |
+| 5tf_port_a líquido | -$247,69 / 228 cestas | -$8.040,92 / 3533 cestas |
+| delta pareado/noite | **+0,603 ± 4,582** (n=33) | **-0,652 ± 2,579** (n=488) |
 
-O `mfc-61` (amostra pequena) sugeria Port A levemente melhor; a amostra
-~15x maior sugere o oposto, levemente pior — mas o erro padrão (mesmo bem
-mais apertado que o do `mfc-61`) ainda cobre zero nos dois casos
-(IC95% aproximado do `journal_seq=25`: -0,76 ± ~4,99 → [-5,75, +4,23]).
-**Não há evidência estatisticamente significativa de que o Port A bata ou
-perca do baseline 3TF nesta janela** — o sinal muda de lado entre as duas
-amostras, consistente com ruído de regime de mercado, não com um efeito
-real e estável. Ambos os motores são líquido-negativos nas duas janelas.
+**Achado P3-4/`mfc-rev-2` (rodada `mfc-64`):** a janela do `mfc-61`
+(`[2026-06-01,2026-07-16)`) está **inteiramente contida** na janela nova
+(`[2024-08-27,2026-07-16)`, mesmo `end_brt`) — as 33 noites são um
+SUBCONJUNTO das 488, não uma segunda amostra independente. Isolando só a
+parte disjunta (455 noites que o `mfc-61` nunca viu):
+`(488×(-0,652) − 33×0,603)/455 ≈ -0,743`/noite — mais negativo que o
+total, ou seja, a sobreposição não é o que produz a inversão de sinal; o
+delta segue negativo mesmo olhando só pro período genuinamente novo. O
+erro padrão da amostra completa (2,579, contra 4,582 do `mfc-61`) ainda
+cobre zero (IC95% ≈ -0,652 ± 5,06 → [-5,71, +4,41]). **Não há evidência
+estatisticamente significativa de que o Port A bata ou perca do baseline
+3TF nesta janela** — consistente com ruído de regime de mercado, não com
+um efeito real e estável. Ambos os motores são líquido-negativos nas duas
+janelas.
 
-Nenhum código de produção/execução foi alterado nesta cadeia — só
-`scripts/backtest_canonical.py`, `scripts/backtest_engine_compare.py`,
+**Escopo real da mudança (achado MFC64-04/`mfc-rev` — a formulação anterior
+desta seção era imprecisa):** nenhum GATE de execução foi alterado —
+`open_portfolio_basket()`, `check_execution_config()`,
+`check_account_gate()`, o kill switch, a idempotência, os tetos, a colisão
+netting, o preflight e a margem agregada permanecem byte-idênticos. Mas
+`agents/portfolio_executor.py` (código do executor ao vivo, não só
+scripts/dados) FOI tocado nesta cadeia: `measure_and_log_basket_cost()`
+ganhou observabilidade (grava `spread_usd`/`swap_usd` da cesta REAL,
+commit `2d0aacc`, e o fix `getattr` desta rodada) — roda DEPOIS da cesta
+aberta e nunca decide abrir/recusar nada, mas é uma mudança no módulo de
+execução e precisa constar no inventário de escopo. Os demais arquivos
+tocados: `scripts/backtest_canonical.py`, `scripts/backtest_engine_compare.py`,
 `scripts/measure_composition_effect.py`, `scripts/measure_spread_per_pair.py`,
-`scripts/fetch_histdata_mn1_warmup.py` e `data/histdata_mn1_warmup/*.json`
-(commits `7cfbe53`, `5886559`, `1b4e9a0` + o topup de dado). Nenhuma rodada
-de `herdr-review` foi disparada sobre esta cadeia especificamente — considerar
-antes de qualquer decisão de adoção que dependa deste resultado.
+`scripts/fetch_histdata_mn1_warmup.py`, `scripts/_backtest_results_log.py`,
+`data/histdata_mn1_warmup/*.json` e `reports/backtest_history.json`.
+
+Rodada `herdr-review` disparada e fechada sobre esta cadeia inteira
+(`mfc-64`, achados acima todos corrigidos e reexecutados).
