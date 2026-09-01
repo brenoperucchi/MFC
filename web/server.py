@@ -658,8 +658,17 @@ async def trigger_daily_routine_endpoint(x_css_api_key: str = Header(default=Non
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
-@app.get("/", response_class=HTMLResponse)
-async def serve_index():
+@app.get("/{full_path:path}", response_class=HTMLResponse)
+async def serve_index(full_path: str = ""):
+    """Serve o SPA pra qualquer rota de navegação do cliente (convenção
+    Rails, ex.: /track_record/backtest — ver MODAL_ROUTES em app.js). O
+    path em si não importa pro servidor, só o JS decide o que abrir a
+    partir de window.location.pathname — deixa uma URL desconhecida cair
+    no dashboard padrão (estado inicial), nunca 404 pro cliente.
+
+    Registrado por ÚLTIMO (depois do mount de /static e de todo /api/*,
+    que casam primeiro por terem sido registrados antes — Starlette tenta
+    rotas na ordem de registro), então esta captura só o que sobra."""
     index_file = os.path.join(STATIC_DIR, "index.html")
     if os.path.exists(index_file):
         with open(index_file, "r", encoding="utf-8") as f:

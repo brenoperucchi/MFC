@@ -201,6 +201,7 @@ function setupEventListeners() {
     setupMatrixModal();
     setupTrackRecordModal();
     setupCrossoversModal();
+    setupUrlRouting();
 
     // 7. Redimensionamento de Janela
     window.addEventListener("resize", () => {
@@ -211,6 +212,115 @@ function setupEventListeners() {
             else if (state.activeTrackTab === 'audit' && state.auditSelectedSession) renderAuditDetailPanel(state.auditSelectedSession);
         }
     });
+}
+
+// ============================================================
+// ROTEAMENTO POR URL (convenção Rails, ex.: /track_record/backtest) —
+// observa a classe "hidden" de cada modal via MutationObserver em vez de
+// editar as ~15 aberturas/fechamentos já espalhados pelo arquivo: zero
+// risco de quebrar o comportamento existente, a sincronização é
+// estritamente um EFEITO do estado real da UI, nunca a causa dele. O
+// backend (web/server.py::serve_index, catch-all /{full_path:path})
+// serve o mesmo index.html pra qualquer uma dessas rotas, então um
+// carregamento direto/refresh também funciona, não só navegação interna.
+// ============================================================
+
+const MODAL_ROUTES = [
+    { modalId: "trackRecordModal", path: "/track_record" },
+    { modalId: "crossoversModal", path: "/crossovers" },
+    { modalId: "pairsModal", path: "/pairs" },
+    { modalId: "historyModal", path: "/history" },
+    { modalId: "matrixModal", path: "/matrix" },
+    { modalId: "deepDiveModal", path: "/deep_dive" },
+];
+
+const TRACK_RECORD_TAB_TO_SEGMENT = { live: "live", audit: "audit", analytics: "analytics", backtests: "backtest" };
+const TRACK_RECORD_SEGMENT_TO_TAB = { live: "live", audit: "audit", analytics: "analytics", backtest: "backtests" };
+
+let _applyingRouteFromLocation = false;
+
+function currentRoutePath() {
+    for (const { modalId, path } of MODAL_ROUTES) {
+        const el = document.getElementById(modalId);
+        if (!el || el.classList.contains("hidden")) continue;
+        if (modalId === "trackRecordModal") {
+            const seg = TRACK_RECORD_TAB_TO_SEGMENT[state.activeTrackTab] || "live";
+            return `${path}/${seg}`;
+        }
+        if (modalId === "deepDiveModal" && state.selectedDeepDive) {
+            return `${path}/${state.selectedDeepDive}`;
+        }
+        return path;
+    }
+    return "/";
+}
+
+function syncUrlWithUiState() {
+    if (_applyingRouteFromLocation) return; // estamos aplicando a URL NA ui agora, não o contrário
+    const newPath = currentRoutePath();
+    if (window.location.pathname !== newPath) {
+        history.pushState(null, "", newPath);
+    }
+}
+
+// Botão de abrir de cada modal "simples" (sem sub-rota própria) — clicar o
+// botão real preserva qualquer carregamento de dado que o handler original
+// já faça (loadHistoryDates, renderPairsTable, renderMatrixChart etc.),
+// em vez de duplicar essa lógica aqui.
+const MODAL_OPEN_BUTTON_IDS = {
+    pairsModal: "btnOpenPairsModal",
+    historyModal: "btnOpenHistoryModal",
+    matrixModal: "btnOpenMatrixModal",
+    crossoversModal: "btnOpenCrossoversModal",
+};
+
+function applyRouteFromLocation() {
+    const parts = window.location.pathname.split("/").filter(Boolean);
+    if (!parts.length) return; // "/" — nenhum modal, já é o estado padrão
+
+    const [first, second] = parts;
+    const route = MODAL_ROUTES.find(r => r.path === `/${first}`);
+    if (!route) return; // rota desconhecida — fica no dashboard padrão, sem 404 no cliente
+
+    _applyingRouteFromLocation = true;
+    try {
+        if (route.modalId === "trackRecordModal") {
+            const btnOpen = document.getElementById("btnOpenTrackRecordModal");
+            if (btnOpen) btnOpen.click();
+            const tabKey = TRACK_RECORD_SEGMENT_TO_TAB[second] || "live";
+            const tabBtn = document.querySelector(`.track-nav-tab[data-tab="${tabKey}"]`);
+            if (tabBtn) tabBtn.click();
+        } else if (route.modalId === "deepDiveModal") {
+            if (second && typeof window.openDeepDive === "function") window.openDeepDive(second.toUpperCase());
+        } else {
+            const btnId = MODAL_OPEN_BUTTON_IDS[route.modalId];
+            const btn = btnId && document.getElementById(btnId);
+            if (btn) btn.click();
+        }
+    } finally {
+        // MutationObserver entrega mutações como microtask, DEPOIS que este
+        // bloco síncrono termina — resetar a flag só no próximo macrotask
+        // (setTimeout 0) garante que o observer ainda a veja True e não
+        // empurre uma entrada de histórico redundante pro estado
+        // intermediário (ex.: /track_record/live antes de /track_record/backtest).
+        setTimeout(() => { _applyingRouteFromLocation = false; }, 0);
+    }
+}
+
+function setupUrlRouting() {
+    MODAL_ROUTES.forEach(({ modalId }) => {
+        const el = document.getElementById(modalId);
+        if (!el) return;
+        new MutationObserver(syncUrlWithUiState).observe(el, { attributes: true, attributeFilter: ["class"] });
+    });
+    // A aba ativa do track-record não é uma classe de MODAL — sincroniza
+    // depois que o handler de clique da aba (setupTrackRecordModal) já
+    // terminou de atualizar state.activeTrackTab.
+    document.querySelectorAll(".track-nav-tab").forEach(tab => {
+        tab.addEventListener("click", () => setTimeout(syncUrlWithUiState, 0));
+    });
+    window.addEventListener("popstate", applyRouteFromLocation);
+    applyRouteFromLocation();
 }
 
 function setupGaussModeToggle() {
