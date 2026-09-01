@@ -183,11 +183,50 @@ class TestCallBacktestAnalysis(unittest.TestCase):
             result = rib._call_backtest_analysis({"window": {}, "engines": {}}, market_open=True)
         self.assertEqual(result["summary"], "x")
         call = mocked_post.call_args
-        self.assertEqual(call.args[0], f"{rib.LLM_GATEWAY_URL}/v1/tasks/backtest-analysis")
+        self.assertEqual(call.args[0], f"{rib._llm_gateway_url()}/v1/tasks/backtest-analysis")
         self.assertEqual(call.kwargs["json"]["project"], "mfc")
         self.assertIn("text", call.kwargs["json"])
         self.assertNotIn("model", call.kwargs["json"])  # perfil decide o modelo, não o MFC
         self.assertGreaterEqual(call.kwargs["timeout"], 180.0)
+
+    def test_gateway_url_override_set_after_import_still_takes_effect(self):
+        """Achado P3-2 (herdr-review mfc-67, mfc-rev-2): antes do fix,
+        LLM_GATEWAY_URL era uma constante de módulo avaliada na importação —
+        um CSS_LLM_GATEWAY_URL setado DEPOIS (como acontece nos dois caminhos
+        reais: build_isolated_env() no disparo web, ou o .env carregado
+        tardiamente dentro de _run_and_record()) nunca tinha efeito. Agora é
+        lido dentro da chamada, então setar a env var em qualquer ponto antes
+        da chamada em si já basta."""
+        fake_response = MagicMock()
+        fake_response.raise_for_status = MagicMock()
+        fake_response.json.return_value = {
+            "result": {"summary": "x", "confidence": "alta", "caveats": [], "recommendation": "y"}
+        }
+        with patch.dict(os.environ, {"CSS_LLM_GATEWAY_URL": "http://127.0.0.1:19999"}):
+            with patch("httpx.post", return_value=fake_response) as mocked_post:
+                rib._call_backtest_analysis({"window": {}, "engines": {}}, market_open=True)
+            call = mocked_post.call_args
+            self.assertEqual(call.args[0], "http://127.0.0.1:19999/v1/tasks/backtest-analysis")
+
+    def test_returns_none_when_result_exceeds_the_size_cap(self):
+        """Achado P3-4 (herdr-review mfc-67, mfc-rev-2): reports/backtest_history.json
+        é rastreado por git e reescrito por inteiro a cada anexação — sem teto
+        de tamanho, uma resposta anômala do gateway (reconfigurado, modelo em
+        laço, perfil trocado) entraria sem limite nenhum. Descarte é
+        best-effort, igual qualquer outra falha desta função."""
+        fake_response = MagicMock()
+        fake_response.raise_for_status = MagicMock()
+        fake_response.json.return_value = {
+            "result": {
+                "summary": "x" * (rib._LLM_ANALYSIS_MAX_BYTES + 1),
+                "confidence": "alta",
+                "caveats": [],
+                "recommendation": "y",
+            }
+        }
+        with patch("httpx.post", return_value=fake_response):
+            result = rib._call_backtest_analysis({"window": {}, "engines": {}}, market_open=True)
+        self.assertIsNone(result)
 
     def test_returns_none_on_network_failure(self):
         with patch("httpx.post", side_effect=OSError("conexão recusada")):

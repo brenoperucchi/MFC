@@ -2,8 +2,11 @@
 Roteamento por URL do SPA (convenção Rails, ex.: /track_record/backtest —
 ver MODAL_ROUTES em web/static/app.js). O backend não conhece rota
 nenhuma de verdade: web/server.py::serve_index é um catch-all que serve o
-MESMO index.html pra qualquer path que não seja /api/* ou /static/* — só
-o JS decide o que abrir a partir de window.location.pathname.
+MESMO index.html pra qualquer path que não seja /static/* (mount) ou um
+/api/* já REGISTRADO acima dele — um /api/* inexistente recusa 404
+explicitamente (achado P3-1, herdr-review mfc-67) em vez de cair no
+catch-all. Só o JS decide o que abrir a partir de window.location.pathname
+pras rotas de fato conhecidas.
 
 Pulado automaticamente se fastapi/uvicorn/httpx não estiverem instalados
 neste ambiente — mesmo padrão de tests/test_portfolio_api_auth.py.
@@ -68,6 +71,18 @@ def test_catch_all_never_shadows_api_routes(client, path):
     na ordem de registro). Uma regressão de ordem faria isto virar HTML."""
     resp = client.get(path)
     assert resp.status_code != 404
+    content_type = resp.headers.get("content-type", "")
+    assert "html" not in content_type.lower()
+
+
+def test_catch_all_refuses_unregistered_api_path_with_404_not_200_html(client):
+    """Achado P3-1 (herdr-review mfc-67, mfc-rev-2): sem reserva de prefixo,
+    um /api/* com typo ou removido cairia no catch-all e devolveria
+    200+HTML — o front trata isso como sucesso (`if (!res.ok) throw` nunca
+    dispara), e o erro real vira um SyntaxError genérico de res.json() sobre
+    HTML em vez de um 404 legível."""
+    resp = client.get("/api/rota-que-nao-existe")
+    assert resp.status_code == 404
     content_type = resp.headers.get("content-type", "")
     assert "html" not in content_type.lower()
 

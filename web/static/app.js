@@ -329,7 +329,16 @@ function applyRouteFromLocation() {
             // escalonado).
             if (second) {
                 const ccy = second.toUpperCase();
+                // Achado P3-3 (herdr-review mfc-67, mfc-rev-2): sem checar a
+                // URL a cada tentativa, um retry agendado pra /deep_dive/AUD
+                // podia disparar até ~3s depois — mesmo que o usuário já
+                // tivesse navegado (clique real ou popstate) pra outra rota
+                // nesse meio-tempo — abrindo o deep-dive por cima do que o
+                // usuário já estava vendo. Guarda a rota-alvo no momento do
+                // agendamento e aborta se a URL não bater mais.
+                const expectedPath = window.location.pathname;
                 const tryOpenDeepDive = (attemptsLeft) => {
+                    if (window.location.pathname !== expectedPath) return;
                     if (state.data && typeof window.openDeepDive === "function") {
                         window.openDeepDive(ccy);
                     } else if (attemptsLeft > 0) {

@@ -668,7 +668,15 @@ async def serve_index(full_path: str = ""):
 
     Registrado por ÚLTIMO (depois do mount de /static e de todo /api/*,
     que casam primeiro por terem sido registrados antes — Starlette tenta
-    rotas na ordem de registro), então esta captura só o que sobra."""
+    rotas na ordem de registro), então esta captura só o que sobra.
+
+    Isso NÃO reserva o prefixo /api/ — um /api/rota-que-nao-existe também
+    casaria aqui e devolveria 200+HTML em vez de 404 (achado P3-1,
+    herdr-review mfc-67, `mfc-rev-2`: o front faz `if (!res.ok) throw`, que
+    nunca dispara com 200, e o erro vira um SyntaxError genérico de
+    `res.json()` sobre HTML). Recusa explicitamente esse prefixo aqui."""
+    if full_path.startswith("api/"):
+        raise HTTPException(status_code=404, detail=f"Rota de API não encontrada: /{full_path}")
     index_file = os.path.join(STATIC_DIR, "index.html")
     if os.path.exists(index_file):
         with open(index_file, "r", encoding="utf-8") as f:

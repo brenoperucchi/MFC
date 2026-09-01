@@ -440,7 +440,19 @@ def _find_journal_seq(run_id):
 # mfc-llm-gateway-tunnel.service, ssh -L da Ryzen9 pro Omarchy) — a porta
 # LOCAL é 18080, não 8080 (que já pertence a outro sistema de trading ao
 # vivo nesta mesma máquina, pairtrading-server.service).
-LLM_GATEWAY_URL = os.environ.get("CSS_LLM_GATEWAY_URL", "http://127.0.0.1:18080")
+def _llm_gateway_url():
+    """Lido tardiamente (nunca como constante de módulo, achado P3-2,
+    herdr-review mfc-67, `mfc-rev-2`, medido neste checkout): um override via
+    CSS_LLM_GATEWAY_URL nunca chegava a valer NENHUM dos dois caminhos reais
+    — no disparo web, build_isolated_env() monta o ambiente do zero e
+    _SO_ENV_WHITELIST não inclui essa chave; em qualquer caminho via `.env`,
+    quem carrega o `.env` (`_load_dotenv_if_present()`, em web/css_service.py)
+    só roda tardiamente dentro de `_run_and_record()` — sempre DEPOIS de uma
+    constante de módulo já ter sido fixada na importação. Ler aqui, na hora
+    da chamada, resolve os dois casos de uma vez."""
+    return os.environ.get("CSS_LLM_GATEWAY_URL", "http://127.0.0.1:18080")
+
+
 LLM_ANALYSIS_PROFILE = "backtest-analysis"
 # >= timeout_seconds do próprio perfil no gateway (180s, medido: ~2s com
 # modelo carregado, ~28s frio — o Ryzen9 roda OLLAMA_MAX_LOADED_MODELS=1,
@@ -504,17 +516,29 @@ def _build_llm_analysis_text(entry, market_open):
     return "\n".join(lines)
 
 
+# Teto grosso de tamanho pra resposta do gateway, achado P3-4 (herdr-review
+# mfc-67, mfc-rev-2): o gateway já valida contra o schema do perfil (esse
+# contrato deliberadamente não é duplicado aqui — "se o critério mudar, muda
+# no gateway"), mas nada limitava o TAMANHO bruto antes de escrever no
+# journal. reports/backtest_history.json é rastreado por git e reescrito
+# por completo a cada anexação — uma resposta anômala (gateway
+# reconfigurado, modelo em laço, perfil trocado) entraria sem teto. Não é
+# validação de schema, é só o mesmo tipo de descarte best-effort que
+# qualquer outra falha de rede já recebe aqui.
+_LLM_ANALYSIS_MAX_BYTES = 32 * 1024
+
+
 def _call_backtest_analysis(entry, market_open):
     """Chama o perfil backtest-analysis do llm-gateway pra uma leitura
     padronizada do resultado. NUNCA lança: um backtest bem-sucedido não
     pode falhar por causa de uma anotação opcional (gateway fora do ar,
-    túnel caído, timeout, resposta fora do schema — tudo vira None em vez
-    de exceção). Devolve o dict já validado contra o schema do perfil, ou
-    None em qualquer falha."""
+    túnel caído, timeout, resposta fora do schema, resposta grande demais —
+    tudo vira None em vez de exceção). Devolve o dict já validado contra o
+    schema do perfil, ou None em qualquer falha."""
     try:
         import httpx
         response = httpx.post(
-            f"{LLM_GATEWAY_URL}/v1/tasks/{LLM_ANALYSIS_PROFILE}",
+            f"{_llm_gateway_url()}/v1/tasks/{LLM_ANALYSIS_PROFILE}",
             json={
                 "project": "mfc",
                 "text": _build_llm_analysis_text(entry, market_open),
@@ -523,7 +547,11 @@ def _call_backtest_analysis(entry, market_open):
         )
         response.raise_for_status()
         result = response.json().get("result")
-        return result if isinstance(result, dict) else None
+        if not isinstance(result, dict):
+            return None
+        if len(json.dumps(result, ensure_ascii=False)) > _LLM_ANALYSIS_MAX_BYTES:
+            return None
+        return result
     except Exception:
         return None
 
