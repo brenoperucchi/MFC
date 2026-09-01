@@ -25,11 +25,13 @@ Uso:
     pip install histdata   # numa venv, não no ambiente do projeto
     python scripts/fetch_histdata_mn1_warmup.py [par ...]
 
-Sem argumentos, baixa todos os pares que ainda não têm
-data/histdata_mn1_warmup/<par>.json. Idempotente: pares já baixados são
-pulados; o cache bruto (zips por par/ano) fica em
-data/histdata_mn1_warmup/.raw_cache/ pra evitar rebaixar em uma nova
-tentativa.
+Sem argumentos, baixa/completa todos os pares em PAIRS. Idempotente: se o
+par já tem cache, só os anos de YEARS que ainda faltam nele são baixados
+(nunca reescreve um ano já presente) — rodar de novo depois de estender
+YEARS (como aconteceu 2026-09-01, 2012-2021 -> 2010-2021) completa o cache
+existente em vez de pular o par inteiro. O cache bruto (zips por par/ano)
+fica em data/histdata_mn1_warmup/.raw_cache/ pra evitar rebaixar em uma
+nova tentativa.
 """
 
 import csv
@@ -63,9 +65,13 @@ PAIRS = [
     "chfjpy",
     "nzdcad", "nzdchf", "nzdjpy",
 ]
-# 2012-2021 = 120 meses; cobre o déficit de 110 meses dos pares de 59 barras
-# (que começam em 2021-09 na Exness) com 10 meses de folga.
-YEARS = list(range(2012, 2022))
+# 2010-2021 = 144 meses. Era 2012-2021 (120 meses) até a janela OOS
+# estendida [2023-01-01,...) (pedido do usuário, 2026-09-01) revelar um
+# déficit de ~4 meses no required_full_history_bars pros 18 pares "cross"
+# (nem canônico USD, nem AUDJPY/CHFJPY, que por motivo histórico distinto
+# já tinham 2010-2021 desde o início) — 2010-2021 fecha com folga e
+# uniformiza a baseline entre os 27 pares.
+YEARS = list(range(2010, 2022))
 
 
 def log(msg):
@@ -142,12 +148,28 @@ def fetch_pair(pair):
         )
         sys.exit(1)
     out_path = os.path.join(OUT_DIR, f"{pair}.json")
-    if os.path.exists(out_path):
-        log(f"{pair}: já baixado, pulando")
-        return
-    os.makedirs(RAW_CACHE_DIR, exist_ok=True)
     all_months = {}
-    for year in YEARS:
+    if os.path.exists(out_path):
+        with open(out_path, "r", encoding="utf-8") as f:
+            all_months = json.load(f)
+        # Achado do probe de 2026-09-01 (usuário + exec): a versão anterior
+        # pulava o par inteiro se o arquivo já existisse, mesmo quando YEARS
+        # crescia depois (2012-2021 -> 2010-2021) — reproduzir a extensão
+        # exigia um script separado, não versionado (resíduo que
+        # `mfc-rev-2` já tinha apontado pro merge do Dukascopy/AUDJPY).
+        # Agora completa só os anos que faltam, sem tocar nos que já tem.
+        missing_years = [
+            y for y in YEARS
+            if not any(k.startswith(f"{y:04d}-") for k in all_months)
+        ]
+        if not missing_years:
+            log(f"{pair}: já cobre {YEARS[0]}-{YEARS[-1]}, pulando")
+            return
+        log(f"{pair}: já baixado parcialmente, completando ano(s) {missing_years}")
+    else:
+        missing_years = list(YEARS)
+    os.makedirs(RAW_CACHE_DIR, exist_ok=True)
+    for year in missing_years:
         zip_path = os.path.join(RAW_CACHE_DIR, f"DAT_ASCII_{pair.upper()}_M1_{year}.zip")
         if not os.path.exists(zip_path):
             for attempt in range(3):

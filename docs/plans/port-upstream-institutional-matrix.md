@@ -1234,3 +1234,83 @@ documental deste plano foi reaberto nas rodadas `mfc-50`/`mfc-51`/`mfc-52`/
 `mfc-53`; o `mfc-49` permanece apenas como aprovação histórica da
 implementação. Nenhuma rodada intermediária autoriza continuar o OOS ou
 alterar código sem a aprovação agregada da versão corrigida pela dupla fixa.
+
+## OOS estendido (journal_seq 25) — janela 15x maior que o `mfc-61`, 2026-09-01
+
+Depois das rodadas de revisão `mfc-62`/`mfc-63` (achados fechados, ver seções
+acima), o usuário pediu uma janela OOS maior que os 33 noites do `mfc-61`
+pra apertar o intervalo de confiança do delta 3TF-vs-5TF. A cadeia de
+achados, cada um descoberto só depois de tentar rodar (não hipotéticos):
+
+1. **H1-preço travado em 1800 barras (~75 dias)**, sem nunca ter sido
+   justificado no código — `load_h1_prices()`. Probe manual (usuário + exec,
+   contra a instância `mfc-backtest`) mediu a profundidade REAL da Exness:
+   ~30.159-30.160 barras (~4,85 anos) nos 25 pares mais curtos,
+   ~59.951-59.965 (~12,6 anos) em EURUSD/GBPUSD, 100.000+ em GBPJPY — ao
+   contrário do MN1, aqui não é gargalo de dado, só de código pedindo pouco.
+   Corrigido (`7cfbe53`): `h1_bars_for_days(days)`.
+2. **As 5 séries de score (`TF_COUNTS`) também travadas**, independente de
+   `load_h1_prices()` — `MN1:60 W1:120 D1:200 H4:600 H1:1600`, fixos, nunca
+   escalavam com `days`. Pior: como `copy_rates_from_pos` conta pra trás a
+   partir de AGORA (não do fim da janela pedida), mesmo o FIM de uma janela
+   no passado já ficava fora do alcance. Corrigido (`5886559`):
+   `bars_needed_since(window_start_brt, bars_per_day, floor)` substitui
+   `h1_bars_for_days` como fórmula única, usada pras 5 séries via
+   `tf_counts_for_window()`.
+3. **MN1 warmup com déficit de ~4 meses** pra janela maior: o cache
+   HistData cobria só 2012-2021 (120 meses) pros 25 pares "curtos" do MN1
+   (só o AUDJPY tinha 2010-2011 extra, do fechamento do buraco); combinado
+   com a Exness nativa dava ~179 meses contra 183 necessários. Resolvido
+   baixando 2010-2011 pros 18 pares "cross" que ainda não tinham (os 7
+   USD-cross + AUDJPY + CHFJPY já tinham) — mesma fonte/método do AUDJPY,
+   `scripts/fetch_histdata_mn1_warmup.py` agora idempotente por ano (não só
+   por par: completa anos faltantes num cache já existente, achado do
+   resíduo "não reproduzível" que `mfc-rev-2` tinha apontado no merge
+   Dukascopy do AUDJPY). Todos os 27 pares agora cobrem 2010-01, zero
+   buracos.
+4. **`evaluate_at_all()` recusa `i<30`** (índice de barra fechada), por TF,
+   independente de profundidade de dado — a margem de `bars_needed_since`
+   precisa exceder 30 com folga real. Primeira tentativa (margem=60)
+   funcionava pro H1 (60h≈2,5 dias, barato) mas desperdiçava quase metade
+   do orçamento do **W1** (60 semanas≈420 dias!) — o TF mais restrito
+   (~254 semanas reais nos pares curtos, que pro W1 inclui
+   AUDUSD/NZDUSD/USDCAD/USDCHF/USDJPY além dos 18 cross; só EURUSD/GBPUSD/
+   GBPJPY são fundos aqui — composição diferente da do MN1). Calibrado pra
+   40 (`1b4e9a0`), verificado empiricamente com `require_clean=True` (o
+   gate real — um diagnóstico anterior tinha usado `require_clean=False`
+   por engano e mascarou a degradação).
+
+**Janela final, verificada e executada:** `[2024-08-27, 2026-07-16)` BRT,
+688 dias, 488 noites — `evaluated_nights == candidate_nights == 488`,
+`short_history_pairs=[]` nas 5 séries, `price_missing_points=0`. Registrada
+como `journal_seq=25`, `sample_role=oos_disjoint`,
+`development_start_brt=2026-07-16` (mesmo boundary do `mfc-61` — nada
+depois dele foi usado em desenvolvimento; a extensão foi só pra TRÁS, nunca
+reusando o período `[2026-07-16,2026-08-30)` já usado como exploratório em
+rodadas anteriores).
+
+**Resultado — divergente em SINAL do `mfc-61`:**
+
+| | `mfc-61` (33 noites) | `journal_seq=25` (488 noites) |
+|---|---|---|
+| janela | `[2026-06-01,2026-07-16)` | `[2024-08-27,2026-07-16)` |
+| 3tf_baseline líquido | -$267,58 / 187 cestas | -$7.668,37 / 2806 cestas |
+| 5tf_port_a líquido | -$247,69 / 228 cestas | -$8.039,35 / 3533 cestas |
+| delta pareado/noite | **+0,603 ± 4,582** (n=33) | **-0,760 ± 2,546** (n=488) |
+
+O `mfc-61` (amostra pequena) sugeria Port A levemente melhor; a amostra
+~15x maior sugere o oposto, levemente pior — mas o erro padrão (mesmo bem
+mais apertado que o do `mfc-61`) ainda cobre zero nos dois casos
+(IC95% aproximado do `journal_seq=25`: -0,76 ± ~4,99 → [-5,75, +4,23]).
+**Não há evidência estatisticamente significativa de que o Port A bata ou
+perca do baseline 3TF nesta janela** — o sinal muda de lado entre as duas
+amostras, consistente com ruído de regime de mercado, não com um efeito
+real e estável. Ambos os motores são líquido-negativos nas duas janelas.
+
+Nenhum código de produção/execução foi alterado nesta cadeia — só
+`scripts/backtest_canonical.py`, `scripts/backtest_engine_compare.py`,
+`scripts/measure_composition_effect.py`, `scripts/measure_spread_per_pair.py`,
+`scripts/fetch_histdata_mn1_warmup.py` e `data/histdata_mn1_warmup/*.json`
+(commits `7cfbe53`, `5886559`, `1b4e9a0` + o topup de dado). Nenhuma rodada
+de `herdr-review` foi disparada sobre esta cadeia especificamente — considerar
+antes de qualquer decisão de adoção que dependa deste resultado.

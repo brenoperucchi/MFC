@@ -49,3 +49,9 @@ data/.tmp_*
 # reviewer.md fica versionado
 .herdr/*
 !.herdr/reviewer.md
+
+# Cache bruto (zips M1 por par/ano) de scripts/fetch_histdata_mn1_warmup.py
+# -- só evita rebaixar da HistData.com numa nova tentativa, regenerável a
+# qualquer momento; os agregados mensais (data/histdata_mn1_warmup/*.json)
+# são o artefato versionado de verdade.
+data/histdata_mn1_warmup/.raw_cache/
