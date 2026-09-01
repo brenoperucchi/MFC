@@ -513,6 +513,29 @@ def test_history_migrates_engine_semantics_and_diagnostics_fail_closed():
         assert composition.compare_composition(days=1) == 1
 
 
+def test_needs_hardcoded_rate_fallback_matches_convert_pnl_to_usd_condition():
+    """Achado herdr-review mfc-63 (P3-2/`mfc-rev-2`, MFC63-02/`mfc-rev`,
+    CONFIRMADO pelos dois): mesmo com rates_dict, convert_pnl_to_usd() cai
+    na tabela hardcoded quando o cross USD necessário não está no dict — o
+    rótulo rates_source do journal era incondicional, então precisa de uma
+    checagem que replique a MESMA condição pra poder avisar antes."""
+    # USD de um lado (base ou quote) nunca precisa de cross -- nunca cai em fallback.
+    assert composition._needs_hardcoded_rate_fallback("EURUSD", {}) is False
+    assert composition._needs_hardcoded_rate_fallback("USDJPY", {}) is False
+    # cross ausente do rates_dict -> precisa do fallback.
+    assert composition._needs_hardcoded_rate_fallback("GBPNZD", {}) is True
+    # cross presente via NZDUSD -> não precisa.
+    assert composition._needs_hardcoded_rate_fallback(
+        "GBPNZD", {"NZDUSD": 0.60}) is False
+    # cross presente via USDNZD (o outro lado do par) -> não precisa.
+    assert composition._needs_hardcoded_rate_fallback(
+        "GBPNZD", {"USDNZD": 1.66}) is False
+    # cross presente mas com valor não-positivo -> convert_pnl_to_usd() também
+    # rejeita esse caso (rates_dict[...] > 0), então ainda precisa do fallback.
+    assert composition._needs_hardcoded_rate_fallback(
+        "GBPNZD", {"NZDUSD": 0.0}) is True
+
+
 def test_history_recomputes_provenance_and_rejects_forged_contract_coverage():
     with tempfile.TemporaryDirectory() as tmp:
         path = f"{tmp}/history.json"

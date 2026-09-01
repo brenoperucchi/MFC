@@ -83,6 +83,24 @@ def _build_rates_dict(prices, at_dt):
     return rates
 
 
+def _needs_hardcoded_rate_fallback(pair, rates):
+    """Replica a MESMA condição que web/history_tracker.py::convert_pnl_to_usd()
+    usa pra decidir se cai na tabela hardcoded (achado herdr-review mfc-63,
+    P3-2/`mfc-rev-2` + MFC63-02/`mfc-rev`, CONFIRMADO pelos dois): mesmo com
+    rates_dict passado, uma moeda de cotação não-USD cujo cross não esteja
+    em `rates` (par ausente de `prices`, ou tick inválido) ainda cai no
+    fallback — silenciosamente, sem que rates_source deixasse de afirmar
+    'historical_h1_prices'. Não reimplementa a conversão, só a checagem de
+    "vai precisar do fallback?" pra poder avisar ANTES de calcular."""
+    base, quote = pair[:3], pair[3:6]
+    if quote == "USD" or base == "USD":
+        return False
+    quote_usd_pair, usd_quote_pair = f"{quote}USD", f"USD{quote}"
+    if rates.get(quote_usd_pair, 0) > 0 or rates.get(usd_quote_pair, 0) > 0:
+        return False
+    return True
+
+
 def _legs_pnl_and_cost(legs, prices, srv_dt, exit_srv, costs, lot=LOT):
     """PnL bruto + custo por perna, usando um `CostModel` COMPARTILHADO
     (passado de fora) — garante que as duas variantes comparadas na mesma
@@ -102,6 +120,7 @@ def _legs_pnl_and_cost(legs, prices, srv_dt, exit_srv, costs, lot=LOT):
             return None
         if not (p_in > 0 and p_out > 0):
             return None
+        rate_fallback = _needs_hardcoded_rate_fallback(leg["pair"], rates)
         pnl, _ = convert_pnl_to_usd(leg["pair"], leg["action"], p_in, p_out, lot, rates_dict=rates)
         spread, swap = costs.leg(leg["pair"], leg["action"], lot)
         cost = spread * 2.0 - swap
@@ -109,7 +128,7 @@ def _legs_pnl_and_cost(legs, prices, srv_dt, exit_srv, costs, lot=LOT):
         # quando símbolo/tick/taxa está indisponível (agents/portfolio_executor.py) —
         # zero genuíno de mercado é praticamente impossível pra um par real.
         degraded = (spread == 0.0 and swap == 0.0)
-        per_leg[leg["pair"]] = (pnl, cost, degraded)
+        per_leg[leg["pair"]] = (pnl, cost, degraded, rate_fallback)
     return per_leg
 
 
@@ -139,6 +158,7 @@ def compare_composition(days=45, log_note=None):
     rest_of_basket_deltas = []  # PnL bruto das 6 pernas mantidas: cut - (full - removida) — deveria ser ~0
     affected_baskets = 0
     degraded_baskets = 0
+    rate_fallback_baskets = 0  # achado herdr-review mfc-63 (P3-2/MFC63-02, CONFIRMADO)
     skipped_missing_price = 0
     nights_evaluated = 0
 
@@ -178,14 +198,16 @@ def compare_composition(days=45, log_note=None):
                 skipped_missing_price += 1
                 continue  # descarta a cesta nas DUAS variantes (MFC22-06/P3-3)
 
-            if any(deg for _, _, deg in per_leg.values()):
+            if any(deg for _, _, deg, _ in per_leg.values()):
                 degraded_baskets += 1
+            if any(fb for _, _, _, fb in per_leg.values()):
+                rate_fallback_baskets += 1
 
-            gross_full = sum(pnl for pnl, _, _ in per_leg.values())
-            cost_full = sum(cost for _, cost, _ in per_leg.values())
+            gross_full = sum(pnl for pnl, _, _, _ in per_leg.values())
+            cost_full = sum(cost for _, cost, _, _ in per_leg.values())
             removed = per_leg.get(EXCLUDED_PAIR)
             if removed is not None:
-                gross_removed, cost_removed, _ = removed
+                gross_removed, cost_removed, _, _ = removed
                 legs_cut = [leg for leg in legs_full if leg["pair"] != EXCLUDED_PAIR]
                 per_leg_cut = _legs_pnl_and_cost(
                     legs_cut, prices, srv_dt, exit_srv, costs
@@ -206,8 +228,8 @@ def compare_composition(days=45, log_note=None):
                 # Recalcula a variante reduzida de forma independente. A
                 # igualdade esperada abaixo é uma checagem de sanidade real,
                 # não a identidade algébrica gross_full - removed.
-                gross_cut = sum(pnl for pnl, _, _ in per_leg_cut.values())
-                cost_cut = sum(cost for _, cost, _ in per_leg_cut.values())
+                gross_cut = sum(pnl for pnl, _, _, _ in per_leg_cut.values())
+                cost_cut = sum(cost for _, cost, _, _ in per_leg_cut.values())
                 rest_of_basket_deltas.append(
                     gross_cut - (gross_full - gross_removed)
                 )
@@ -235,6 +257,10 @@ def compare_composition(days=45, log_note=None):
     print(f"noites avaliadas       : {nights_evaluated}")
     print(f"cestas afetadas (GBP/NZD com {EXCLUDED_PAIR}): {affected_baskets}")
     print(f"cestas com perna degradada (sem símbolo/tick/taxa): {degraded_baskets}")
+    if rate_fallback_baskets:
+        print(f"[!] cestas com pelo menos uma perna convertida pela tabela "
+              f"hardcoded (cross USD ausente de prices): {rate_fallback_baskets} "
+              f"— rates_source abaixo reflete isso")
     if skipped_missing_price:
         print(f"cestas descartadas por preço faltando (nas DUAS variantes): {skipped_missing_price}")
     print()
@@ -316,7 +342,24 @@ def compare_composition(days=45, log_note=None):
                 "excluded_pair": EXCLUDED_PAIR,
                 "variants": list(variants),
             },
-            "rates_source": "historical_h1_prices; live CostModel tick for spread/swap",
+            # Achado herdr-review mfc-63 (P3-2/`mfc-rev-2`, MFC63-02/`mfc-rev`,
+            # CONFIRMADO pelos dois): o fix do P3-1 (mfc-62) monta rates_dict
+            # a partir da série H1, mas se um dos 7 pares de cross USD faltar
+            # de `prices` (ex.: NZDUSD ausente — exatamente o cross que
+            # GBPNZD, o par que este script existe pra avaliar, precisa),
+            # convert_pnl_to_usd() ainda cai na tabela hardcoded pra essa
+            # perna especificamente, e o rótulo abaixo era incondicional —
+            # não distinguia esse caso do caminho totalmente coberto por H1.
+            "rates_source": (
+                "historical_h1_prices; live CostModel tick for spread/swap"
+                if not rate_fallback_baskets else
+                f"historical_h1_prices; live CostModel tick for spread/swap; "
+                f"WARNING: {rate_fallback_baskets} basket(s) had at least one "
+                f"leg fall back to web/history_tracker.py's hardcoded USD "
+                f"cross table (a required rates_dict cross pair was missing "
+                f"from H1 prices)"
+            ),
+            "rate_fallback_baskets": rate_fallback_baskets,
             # Achado herdr-review mfc-62 (MFC62-03/`mfc-rev`): CostModel é
             # compartilhado por NOITE (garante que as duas variantes usem o
             # mesmo tick pras pernas em comum), mas CostModel.leg() consulta
