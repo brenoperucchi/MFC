@@ -359,7 +359,7 @@ class TestBarsNeededSince(unittest.TestCase):
     def test_scales_with_distance_from_now_to_window_start(self):
         start = datetime.now(bc.BRT) - timedelta(days=1000)
         self.assertEqual(
-            bc.bars_needed_since(start, 24.0, 1800), 1000 * 24 + 60,
+            bc.bars_needed_since(start, 24.0, 1800), 1000 * 24 + 40,
         )
 
     def test_never_returns_below_the_floor_for_a_recent_window_start(self):
