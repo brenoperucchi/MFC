@@ -77,7 +77,8 @@ from scripts._backtest_results_log import (
 )
 from scripts.backtest_canonical import (
     LOT, ENTRY_HOUR_BRT, TFS, TF_COUNTS, CURRENCIES, ALL_28_PAIRS,
-    load_series, load_h1_prices, h1_bars_for_days, _idx_at_or_before, _closed_bar_index,
+    load_series, load_h1_prices, h1_bars_for_days, bars_needed_since,
+    _idx_at_or_before, _closed_bar_index,
     is_market_session_valid, check_contract_size_consistency,
     _brt_to_server, MT5_AVAILABLE, mt5, MT5_PATH,
 )
@@ -965,6 +966,7 @@ def compare(days=45, engine_names=None, runs=1, log_note=None, end_brt=None,
     series = load_series(
         require_clean=sample_role == "oos_disjoint",
         use_histdata_mn1_warmup=use_histdata_mn1_warmup,
+        window_start_brt=window_start,
     )
     if not series:
         print("[-] Séries canônicas indisponíveis.")
@@ -983,7 +985,7 @@ def compare(days=45, engine_names=None, runs=1, log_note=None, end_brt=None,
     )
     print(f"[+] Qualidade histórica CSS: {css_history_status}")
     print(f"[*] Carregando preços H1 de 28 pares...")
-    prices = load_h1_prices(count=h1_bars_for_days(days))
+    prices = load_h1_prices(count=bars_needed_since(window_start, 24.0, 1800))
     if not prices:
         print("[-] Preços H1 indisponíveis.")
         return 1
@@ -1267,13 +1269,15 @@ def threshold_sweep(days=45, thresholds=VECTOR_THRESHOLDS, end_brt=None):
         print("[-] MT5 não conectado — abortando varredura; não usar dados degradados.")
         return 1
     check_contract_size_consistency()
+    window_end = _normalize_window_end(end_brt)
+    window_start = window_end - timedelta(days=days)
     print(f"[*] Carregando séries canônicas (mesmo motor da dashboard)...")
-    series = load_series()
+    series = load_series(window_start_brt=window_start)
     if not series:
         print("[-] Séries canônicas indisponíveis.")
         return 1
     print(f"[*] Carregando preços H1 de 28 pares...")
-    prices = load_h1_prices(count=h1_bars_for_days(days))
+    prices = load_h1_prices(count=bars_needed_since(window_start, 24.0, 1800))
     if not prices:
         print("[-] Preços H1 indisponíveis.")
         return 1

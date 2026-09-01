@@ -89,7 +89,7 @@ def measure_pair_frequency(days=45):
         print("[-] MT5 não conectado.")
         return None
 
-    series = load_series()
+    series = load_series(window_start_brt=datetime.now(BRT) - timedelta(days=days))
     if not series:
         return None
 
@@ -121,7 +121,7 @@ def measure_valid_nights(days=45):
     """Lista de (srv_dt, exit_srv) das noites válidas (mesma máscara do
     backtest_canonical.py) — usado como referência temporal comum pra medir
     movimento de TODOS os 28 pares, não só os que alguma cesta abriu."""
-    series = load_series()
+    series = load_series(window_start_brt=datetime.now(BRT) - timedelta(days=days))
     if not series:
         return None, None
     nights = []

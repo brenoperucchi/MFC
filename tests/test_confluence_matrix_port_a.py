@@ -188,7 +188,10 @@ class TestPortAVectors(unittest.TestCase):
                 log_note="runtime guard valid test",
             ) == 1
         contract.assert_called_once_with(strict=True)
-        loader.assert_called_once_with(require_clean=True, use_histdata_mn1_warmup=False)
+        loader.assert_called_once_with(
+            require_clean=True, use_histdata_mn1_warmup=False,
+            window_start_brt=datetime(2026, 7, 15, 21, 0),
+        )
         with pytest.raises(ValueError, match="sobrepõe"):
             compare(
                 days=1,

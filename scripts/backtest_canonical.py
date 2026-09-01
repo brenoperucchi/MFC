@@ -320,7 +320,7 @@ def load_mn1_series_with_warmup(count):
     return _result(css_res, time_strs)
 
 
-def load_series(require_clean=False, use_histdata_mn1_warmup=False):
+def load_series(require_clean=False, use_histdata_mn1_warmup=False, window_start_brt=None):
     """Carrega scores e qualidade histórica pela função canônica.
 
     ``require_clean`` é usado pelo caminho OOS: uma série que não tem ATR
@@ -333,19 +333,25 @@ def load_series(require_clean=False, use_histdata_mn1_warmup=False):
     Exness não tem histórico suficiente (ver módulo). Desligado por padrão:
     o caminho normal continua 100% Exness, sem qualquer dependência de
     terceiro.
+
+    ``window_start_brt``: início real da janela de backtest pedida (achado
+    do probe de 2026-09-01) — sem isso, TF_COUNTS fixo só alcança uma janela
+    pequena relativa a AGORA (pior caso: H1 a ~67 dias), independente de
+    quantos `days` o chamador pediu. `None` preserva TF_COUNTS default.
     """
+    tf_counts = tf_counts_for_window(window_start_brt)
     series = {}
     for tf in TFS:
         if tf == "MN1" and use_histdata_mn1_warmup:
             res, times, quality, warmup_months_used = load_mn1_series_with_warmup(
-                TF_COUNTS[tf]
+                tf_counts[tf]
             )
             if warmup_months_used:
                 quality = dict(quality or {})
                 quality["histdata_warmup_months_used"] = warmup_months_used
         else:
             calculated = calculate_full_css(
-                get_tf_constant(tf), count=TF_COUNTS[tf], mode="standard",
+                get_tf_constant(tf), count=tf_counts[tf], mode="standard",
                 return_quality=True,
             )
             if len(calculated) == 4:
@@ -372,13 +378,59 @@ def load_series(require_clean=False, use_histdata_mn1_warmup=False):
     return series
 
 
+# Barras/dia por TF, superestimadas de propósito (forex fecha fim de
+# semana — a média real é menor) — sobra barra, nunca falta.
+_TF_BARS_PER_DAY = {"MN1": 1 / 30.0, "W1": 1 / 7.0, "D1": 1.0, "H4": 6.0, "H1": 24.0}
+
+
+def bars_needed_since(window_start_brt, bars_per_day, floor):
+    """Barras a pedir via copy_rates_from_pos(..., 0, count) pra alcançar
+    `window_start_brt`.
+
+    Achado do probe manual de 2026-09-01 (usuário + exec, contra a instância
+    mfc-backtest): copy_rates_from_pos sempre conta pra trás a partir do
+    instante da CHAMADA (agora), nunca do fim da janela pedida — pedir
+    `count` baseado só no SPAN (days) da janela (a primeira versão deste
+    helper, h1_bars_for_days) sub-pede quando `end_brt` já está no passado:
+    uma janela de span pequeno mas terminando há 90 dias ficava fora do
+    alcance de TF_COUNTS mesmo assim. O que importa é a distância de AGORA
+    até o INÍCIO da janela, não o span.
+
+    `window_start_brt=None` devolve `floor` — preserva o default de quem
+    não sabe/não precisa de uma janela específica (ex.: uso ao vivo).
+    Ingênuo (sem tzinfo) é interpretado como BRT — mesma convenção de
+    `_normalize_window_end()` em backtest_engine_compare.py — não UTC."""
+    if window_start_brt is None:
+        return floor
+    now = datetime.now(BRT)
+    start = (
+        window_start_brt if window_start_brt.tzinfo
+        else window_start_brt.replace(tzinfo=BRT)
+    )
+    elapsed_days = max(1, (now - start).days)
+    return max(floor, int(elapsed_days * bars_per_day) + 30)
+
+
+def tf_counts_for_window(window_start_brt):
+    """TF_COUNTS escalado pra alcançar `window_start_brt` a partir de agora,
+    por TF — None devolve TF_COUNTS inalterado (comportamento default de
+    sempre). calculate_full_css()/load_mn1_series_with_warmup() já somam
+    sua própria folga de aquecimento (+150 bars, ou o warmup HistData/
+    Dukascopy pro MN1) por cima do que este helper devolve; aqui só garante
+    que a janela DECISÓRIA pedida seja grande o bastante."""
+    return {
+        tf: bars_needed_since(window_start_brt, _TF_BARS_PER_DAY[tf], TF_COUNTS[tf])
+        for tf in TFS
+    }
+
+
 def h1_bars_for_days(days):
-    """Quantas barras H1 pedir por par pra cobrir `days` dias corridos com
-    folga, sem depender de saber de antemão quantos são dias úteis de
-    mercado. 24 barras/dia é superestimativa deliberada (forex fecha fim de
-    semana, ~17 barras/dia na média) — sobra, não falta; +500 de margem
-    absorve borda de fuso/DST perto do início da janela."""
-    return max(1800, int(days) * 24 + 500)
+    """Preservado só pra quem tem `days` mas não `window_start_brt` (ex.:
+    chamada avulsa fora de run()/compare()) — equivale a
+    bars_needed_since(agora - days, 24, 1800)."""
+    return bars_needed_since(
+        datetime.now(BRT) - timedelta(days=int(days)), 24.0, 1800,
+    )
 
 
 def load_h1_prices(count=1800):
@@ -632,13 +684,14 @@ def run(days=45, log_note=None):
 
     check_contract_size_consistency()
 
+    window_start_brt = datetime.now(BRT) - timedelta(days=days)
     print(f"[*] Carregando séries canônicas (mesmo motor da dashboard)...")
-    series = load_series()
+    series = load_series(window_start_brt=window_start_brt)
     if not series:
         print("[-] Séries canônicas indisponíveis.")
         return 1
     print(f"[*] Carregando preços H1 de {len(ALL_28_PAIRS)} pares...")
-    prices = load_h1_prices(count=h1_bars_for_days(days))
+    prices = load_h1_prices(count=bars_needed_since(window_start_brt, 24.0, 1800))
     if not prices:
         print("[-] Preços H1 indisponíveis.")
         return 1

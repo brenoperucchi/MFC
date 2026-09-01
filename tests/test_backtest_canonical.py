@@ -323,35 +323,75 @@ class TestRunWiresCostQualityIntoSummary(unittest.TestCase):
 
         fake_prices = {pair: _FakePriceSeries() for pair in bc.ALL_28_PAIRS}
         h1_mock = MagicMock(return_value=fake_prices)
+        series_mock = MagicMock(return_value=fake_series)
 
         with patch.object(bc, "ensure_mt5", return_value=True), \
-             patch.object(bc, "load_series", return_value=fake_series), \
+             patch.object(bc, "load_series", series_mock), \
              patch.object(bc, "load_h1_prices", h1_mock), \
              patch.object(bc, "evaluate_at", return_value={"USD": {"trade_bias": "COMPRA"}}), \
              patch.object(bc, "convert_pnl_to_usd", return_value=(10.0, 5.0)), \
              patch.object(bc, "CostModel", _CleanFakeCostModel):
             bc.run(days=1000)
         h1_mock.assert_called_once_with(count=bc.h1_bars_for_days(1000))
-        print("[✓] run() repassa days pro count de load_h1_prices(), não fica preso em 1800")
+        series_call_kwargs = series_mock.call_args.kwargs
+        self.assertIn("window_start_brt", series_call_kwargs,
+                      "run() não repassou window_start_brt pra load_series() -- volta a "
+                      "travar em TF_COUNTS fixo (~67 dias pro H1) pra qualquer `days` grande")
+        print("[✓] run() repassa days pro count de load_h1_prices() E window_start_brt pra "
+              "load_series(), não fica preso em TF_COUNTS/1800 fixos")
 
 
-class TestH1BarsForDays(unittest.TestCase):
-    """h1_bars_for_days(): achado do probe manual de 2026-09-01 contra a
-    instância mfc-backtest (usuário + exec, só leitura) — load_h1_prices()
-    sempre pediu 1800 barras fixas (~75 dias), número nunca justificado no
-    código, quando a Exness tem bem mais H1 real disponível (medido:
-    ~30.159-30.160 barras/~4,85 anos nos 25 pares mais curtos, mais nos
-    outros 3). Sem parametrizar por `days`, um backtest com janela maior
-    ficaria artificialmente raso mesmo com dado real disponível no broker."""
+class TestBarsNeededSince(unittest.TestCase):
+    """bars_needed_since()/tf_counts_for_window(): achado do probe manual de
+    2026-09-01 (usuário + exec, contra a instância mfc-backtest) — a
+    primeira versão deste helper (h1_bars_for_days, só `days`) sub-pedia
+    barra quando `end_brt` já estava no passado: copy_rates_from_pos()
+    sempre conta pra trás a partir de AGORA, não do fim da janela pedida,
+    então uma janela de span pequeno mas terminando há 90 dias já ficava
+    fora do alcance do TF_COUNTS fixo (~67 dias pro H1). O que importa é a
+    distância de AGORA até o INÍCIO da janela (`window_start_brt`), não o
+    span sozinho — replicado com execução real na instância mfc-backtest
+    depois desta correção."""
 
-    def test_preserves_the_historical_default_for_the_usual_45_day_window(self):
+    def test_window_start_none_returns_the_floor(self):
+        self.assertEqual(bc.bars_needed_since(None, 24.0, 1800), 1800)
+
+    def test_scales_with_distance_from_now_to_window_start(self):
+        start = datetime.now(bc.BRT) - timedelta(days=1000)
+        self.assertEqual(
+            bc.bars_needed_since(start, 24.0, 1800), 1000 * 24 + 30,
+        )
+
+    def test_never_returns_below_the_floor_for_a_recent_window_start(self):
+        start = datetime.now(bc.BRT) - timedelta(days=1)
+        self.assertEqual(bc.bars_needed_since(start, 24.0, 1800), 1800)
+
+    def test_naive_window_start_is_interpreted_as_brt_not_utc(self):
+        """Achado explícito na correção: `_normalize_window_end()`
+        (backtest_engine_compare.py) devolve datetime INGÊNUO interpretado
+        como BRT, não UTC — misturar os dois introduziria um erro de fuso
+        de 3h no cálculo (pequeno o bastante pra passar despercebido nos
+        testes de `days` inteiros, mas errado)."""
+        naive_start = (datetime.now(bc.BRT) - timedelta(days=1000)).replace(tzinfo=None)
+        aware_start = datetime.now(bc.BRT) - timedelta(days=1000)
+        self.assertEqual(
+            bc.bars_needed_since(naive_start, 24.0, 1800),
+            bc.bars_needed_since(aware_start, 24.0, 1800),
+        )
+
+    def test_tf_counts_for_window_scales_every_timeframe(self):
+        start = datetime.now(bc.BRT) - timedelta(days=3000)
+        counts = bc.tf_counts_for_window(start)
+        self.assertEqual(set(counts), set(bc.TFS))
+        for tf in bc.TFS:
+            self.assertGreater(counts[tf], bc.TF_COUNTS[tf],
+                               f"{tf} não escalou pra uma janela de 3000 dias")
+
+    def test_tf_counts_for_window_none_preserves_the_historical_default(self):
+        self.assertEqual(bc.tf_counts_for_window(None), bc.TF_COUNTS)
+
+    def test_h1_bars_for_days_preserves_the_historical_default_for_45_days(self):
         self.assertEqual(bc.h1_bars_for_days(45), 1800)
-
-    def test_scales_up_for_larger_windows(self):
-        self.assertEqual(bc.h1_bars_for_days(1000), 1000 * 24 + 500)
-
-    def test_never_returns_below_the_historical_default(self):
-        self.assertEqual(bc.h1_bars_for_days(1), 1800)
 
 
 def _month_start_ts(year, month):

@@ -137,8 +137,9 @@ def compare_composition(days=45, log_note=None):
         print("[-] MT5 não conectado — abortando comparação; não usar dados degradados.")
         return 1
     check_contract_size_consistency()
+    window_start_brt = datetime.now(BRT) - timedelta(days=days)
     print("[*] Carregando séries canônicas...")
-    series = load_series()
+    series = load_series(window_start_brt=window_start_brt)
     if not series:
         print("[-] Séries canônicas indisponíveis.")
         return 1
