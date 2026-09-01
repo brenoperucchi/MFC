@@ -59,6 +59,15 @@ trap 'rm -f "$PROFILE_TMP"' EXIT
   cat "$ROLE_FILE"
   echo "'''"
 } > "$PROFILE_TMP"
+# Achado herdr-review mfc-63 (P3-1/`mfc-rev-2`, medido): `mv` troca o inode
+# inteiro, então o arquivo instalado herda o modo de CRIAÇÃO do temporário
+# (regido pelo umask do processo), não o modo 600 que a escrita antiga
+# `> "$PROFILE_FILE"` preservava (truncar in-place nunca muda o modo do
+# arquivo já existente). O resto de ~/.codex/ fica em 600 — sem este chmod,
+# o `mv` deixaria o profile em 644 (umask 022 desta máquina), afrouxando a
+# permissão silenciosamente. Nada secreto no profile hoje, mas o dia em que
+# ganhar uma credencial, o modo frouxo já estaria lá.
+chmod 600 "$PROFILE_TMP"
 
 python3 -c "import tomllib,sys; tomllib.load(open(sys.argv[1],'rb'))" "$PROFILE_TMP" \
   || die "o profile gerado não é TOML válido: $PROFILE_TMP"
@@ -130,20 +139,27 @@ fi
 # esperava — interactive_ready fica só como informação (agent_not_ready no
 # passo anterior é estado aceito, não falha: o Codex pode estourar o
 # timeout de readiness subindo MCP servers e ainda assim estar funcional).
-get_out=$(herdr agent get "$AGENT_NAME" 2>&1) \
+get_out=$(herdr agent get "$AGENT_NAME") \
   || die "o agent '$AGENT_NAME' nao foi registrado. Ultima resposta: ${start_out:-<vazia>}"
 
-python3 -c '
+# Achado herdr-review mfc-63 (P2-1/`mfc-rev-2`, executado e reproduzido com
+# traceback real): a primeira versão passava este bloco via `python3 -c
+# '...'` com aspas SIMPLES tanto na string do bash quanto dentro do próprio
+# código Python (agent.get('name') etc.) — bash fecha e reabre a citação em
+# cada aspa simples interna, chegando ao Python como `agent.get(name)`
+# (NameError) ou `agent.get(agent)` (TypeError: dict como chave). O
+# fail-closed sobrevivia (die ainda disparava), mas a mensagem de
+# diagnóstico nunca era montada — só um traceback. Heredoc com delimitador
+# citado (<<'PY') é imune a expansão/aspas do shell: o conteúdo chega ao
+# Python literal, sem passar pelo parser de citação do bash.
+if ! python3 - "$AGENT_NAME" codex "$PANE_ID" "$REPO" "$get_out" <<'PY'
 import json, sys
 expected_name, expected_kind, expected_pane, expected_cwd = sys.argv[1:5]
 try:
     agent = json.loads(sys.argv[5])["result"]["agent"]
-except (json.JSONDecodeError, KeyError, TypeError):
+except (json.JSONDecodeError, KeyError, TypeError, IndexError):
     sys.exit("resposta de agent get nao e o JSON esperado: " + sys.argv[5][:200])
 mismatches = []
-# Sem barra invertida dentro de {...}: sintaxe de f-string pre-3.12 não
-# aceita (SyntaxError) — usa aspas simples pra indexar o dict, já que a
-# f-string em volta é delimitada por aspas duplas.
 if agent.get("name") != expected_name:
     mismatches.append(f"name={agent.get('name')!r} (esperado {expected_name!r})")
 if agent.get("agent") != expected_kind:
@@ -156,8 +172,10 @@ if mismatches:
     sys.exit("agent registrado nao bate com esta invocacao: " + "; ".join(mismatches))
 ready = agent.get("interactive_ready")
 print(f"interactive_ready={ready}", file=sys.stderr)
-' "$AGENT_NAME" codex "$PANE_ID" "$REPO" "$get_out" \
-  || die "validacao do agent registrado falhou (ver acima)."
+PY
+then
+  die "validacao do agent registrado falhou (ver acima)."
+fi
 
 echo "revisor '$AGENT_NAME' pronto em $PANE_ID (profile $PROFILE_NAME, read-only, cwd $REPO)"
 echo
