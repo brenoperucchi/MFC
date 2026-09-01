@@ -465,6 +465,27 @@ def _build_llm_analysis_text(entry, market_open):
         f"Motores comparados: {', '.join(engines.keys()) or '-'}.",
         "",
     ]
+
+    # Comparação numérica feita AQUI, nunca delegada ao modelo (achado do
+    # llm-exec, confirmado independentemente pelo dre-exec: modelos de 14B
+    # erram comparação entre negativos — "qual é menos negativo" não é
+    # aritmética pra delegar). O texto já chega ORDENADO; o modelo só
+    # redige a partir da ordem pronta, nunca compara os números sozinho —
+    # a classe de erro desaparece por construção, não por instrução.
+    ranked = sorted(
+        (
+            (name, metrics.get("liquido"))
+            for name, metrics in engines.items()
+            if isinstance(metrics, dict) and isinstance(metrics.get("liquido"), (int, float))
+        ),
+        key=lambda pair: pair[1],
+        reverse=True,
+    )
+    if ranked:
+        ranked_str = ", ".join(f"{name} {liquido:+.2f}" for name, liquido in ranked)
+        lines.append(f"Ordem por líquido (maior→menor): {ranked_str}.")
+        lines.append("")
+
     for name, metrics in engines.items():
         if not isinstance(metrics, dict):
             continue

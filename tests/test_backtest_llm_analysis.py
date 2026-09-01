@@ -113,6 +113,51 @@ class TestBuildLlmAnalysisText(unittest.TestCase):
         self.assertNotIn("Você", text)
         self.assertNotIn("confidence", text.lower())
 
+    def test_ranks_engines_by_liquido_so_the_model_never_compares(self):
+        """Achado do llm-exec, confirmado independentemente pelo dre-exec:
+        modelos de 14B erram comparação entre líquidos negativos ("qual é
+        menos negativo"). A ordenação é feita AQUI, em Python — o texto já
+        chega pronto, o modelo só redige a partir da ordem, nunca compara."""
+        entry = {
+            "window": {},
+            "engines": {
+                "3tf_baseline": {"liquido": -604.27},
+                "5tf_port_a": {"liquido": -528.36},
+                "5tf_upstream": {"liquido": -557.65},
+                "3tf_vector": {"liquido": -251.64},
+            },
+            "paired_net_delta_per_night": {},
+        }
+        text = rib._build_llm_analysis_text(entry, market_open=True)
+        ranked_line = next(line for line in text.splitlines() if line.startswith("Ordem por líquido"))
+        # menos negativo (mais próximo de zero) primeiro -- é o "melhor"
+        # entre líquidos todos negativos, e é justamente onde o modelo
+        # errou nos dois smoke tests reais desta sessão.
+        order = [chunk.split()[0] for chunk in ranked_line.split(": ", 1)[1].rstrip(".").split(", ")]
+        self.assertEqual(order, ["3tf_vector", "5tf_port_a", "5tf_upstream", "3tf_baseline"])
+        self.assertIn("3tf_vector -251.64", ranked_line)
+        self.assertIn("3tf_baseline -604.27", ranked_line)
+
+    def test_ranking_handles_a_mix_of_positive_and_negative_liquido(self):
+        entry = {
+            "window": {},
+            "engines": {
+                "mn1_v2": {"liquido": 30.0},
+                "legacy": {"liquido": -290.0},
+                "3tf_baseline": {"liquido": -1160.0},
+            },
+            "paired_net_delta_per_night": {},
+        }
+        text = rib._build_llm_analysis_text(entry, market_open=True)
+        ranked_line = next(line for line in text.splitlines() if line.startswith("Ordem por líquido"))
+        self.assertIn("mn1_v2 +30.00", ranked_line)
+        order = [chunk.split()[0] for chunk in ranked_line.split(": ", 1)[1].rstrip(".").split(", ")]
+        self.assertEqual(order, ["mn1_v2", "legacy", "3tf_baseline"])
+
+    def test_omits_ranking_line_when_no_engine_has_a_numeric_liquido(self):
+        text = rib._build_llm_analysis_text({"window": {}, "engines": {}}, market_open=True)
+        self.assertNotIn("Ordem por líquido", text)
+
     def test_reports_closed_market(self):
         entry = {"window": {}, "engines": {}, "paired_net_delta_per_night": {}}
         text = rib._build_llm_analysis_text(entry, market_open=False)
