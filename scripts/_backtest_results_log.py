@@ -849,7 +849,13 @@ def append_result(record):
         log.append(_normalize_semantics(entry))
         fd, tmp_path = tempfile.mkstemp(prefix=".tmp_", dir=directory)
         try:
-            with os.fdopen(fd, "w", encoding="utf-8") as f:
+            # newline="\n" (achado herdr-review mfc-64, MFC64-06/`mfc-rev`):
+            # sem isso, rodar no lado Windows (py.exe, onde este journal é
+            # produzido de verdade — ver CLAUDE.md) grava CRLF via tradução
+            # automática de texto, obscurecendo o diff de qualquer append
+            # real (um registro novo virava ~19700 linhas "trocadas" em vez
+            # de uma inserção). O journal é sempre LF agora, em qualquer SO.
+            with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
                 json.dump(log, f, indent=2, ensure_ascii=False)
             os.replace(tmp_path, RESULTS_LOG_PATH)
         except Exception:
