@@ -17,9 +17,12 @@ from scripts.backtest_engine_compare import (
     _normalize_window_end,
     _aggregate_pass_summaries,
     _data_snapshot_digest,
+    _disagreement_by_currency_summary,
     _engine_summary,
+    _exposure_summary,
     _overall_quality_status,
     _quality_status,
+    _turnover_summary,
     compare,
     evaluate_currency_confluence_5tf,
 )
@@ -254,7 +257,11 @@ class TestPortAVectors(unittest.TestCase):
                 stats[names[0]]["baskets"] = 0
             if dirty_metric == "skipped_missing_price":
                 stats[names[0]]["skipped_missing_price"] = 1
-            return stats, 0, 0, [], active, coverage["evaluated_nights"], [], coverage
+            disagree_by_currency = {ccy: 0 for ccy in engine_compare.CURRENCIES}
+            exposure_series = {name: [] for name in names}
+            decision_matrix = {}
+            return (stats, 0, 0, [], active, coverage["evaluated_nights"], [],
+                    disagree_by_currency, exposure_series, decision_matrix, coverage)
 
         base = {
             "candidate_nights": 30,
@@ -326,7 +333,12 @@ class TestPortAVectors(unittest.TestCase):
         }
         second = dict(first)
         second["evaluated_nights"] = 29
-        result = lambda coverage: (stats, 0, 0, [], active, coverage["evaluated_nights"], [], coverage)
+        disagree_by_currency = {ccy: 0 for ccy in engine_compare.CURRENCIES}
+        exposure_series = {name: [] for name in names}
+        result = lambda coverage: (
+            stats, 0, 0, [], active, coverage["evaluated_nights"], [],
+            disagree_by_currency, exposure_series, {}, coverage,
+        )
         with patch.object(engine_compare, "MT5_PATH", r"D:\MetaTradersWSL\mfc-backtest\terminal64.exe"), \
                 patch.object(engine_compare, "MT5_AVAILABLE", True), \
                 patch.object(engine_compare, "_assert_oos_terminal_configuration"), \
@@ -503,6 +515,99 @@ class TestPortAVectors(unittest.TestCase):
              patch.object(canonical, "mt5", None):
             with pytest.raises(RuntimeError, match="contrato MT5"):
                 canonical.check_contract_size_consistency(strict=True)
+
+
+class TestItem6VectorMetrics(unittest.TestCase):
+    """Retomada do item 6 (matriz 5-TF em shadow mode, reconciliação
+    Miqueias): "vetores/decisão/exposição/turnover", não só PnL agregado.
+    _turnover_summary/_exposure_summary/_disagreement_by_currency_summary
+    são funções puras (sem MT5), testáveis diretamente com uma matriz de
+    decisão sintética."""
+
+    def test_turnover_counts_zero_flips_for_a_stable_currency(self):
+        names = ["engine_a"]
+        decision_matrix = {
+            "2026-07-16": {"USD": {"engine_a": "COMPRA"}},
+            "2026-07-19": {"USD": {"engine_a": "COMPRA"}},
+            "2026-07-20": {"USD": {"engine_a": "COMPRA"}},
+        }
+        # completa as outras 7 moedas com um valor constante — não devem
+        # contribuir flip nenhum, só ruído se o código não filtrar direito.
+        for date in decision_matrix:
+            for ccy in engine_compare.CURRENCIES:
+                decision_matrix[date].setdefault(ccy, {"engine_a": "NEUTRO"})
+        summary = _turnover_summary(decision_matrix, names)
+        self.assertEqual(summary["engine_a"]["by_currency"]["USD"]["flips"], 0)
+        self.assertEqual(summary["engine_a"]["by_currency"]["USD"]["night_pairs"], 2)
+        self.assertEqual(summary["engine_a"]["by_currency"]["USD"]["flip_rate"], 0.0)
+
+    def test_turnover_counts_every_state_change_for_a_flip_flopping_currency(self):
+        names = ["engine_a"]
+        sequence = ["COMPRA", "VENDA", "VENDA", "NEUTRO", "COMPRA"]  # 3 mudanças
+        decision_matrix = {}
+        for index, bias in enumerate(sequence):
+            date = f"2026-07-{16 + index:02d}"
+            decision_matrix[date] = {ccy: {"engine_a": "NEUTRO"} for ccy in engine_compare.CURRENCIES}
+            decision_matrix[date]["GBP"] = {"engine_a": bias}
+        summary = _turnover_summary(decision_matrix, names)
+        gbp = summary["engine_a"]["by_currency"]["GBP"]
+        self.assertEqual(gbp["flips"], 3)
+        self.assertEqual(gbp["night_pairs"], 4)
+        self.assertEqual(gbp["flip_rate"], 0.75)
+
+    def test_turnover_totals_sum_across_all_currencies(self):
+        names = ["engine_a"]
+        decision_matrix = {
+            "2026-07-16": {ccy: {"engine_a": "NEUTRO"} for ccy in engine_compare.CURRENCIES},
+            "2026-07-19": {ccy: {"engine_a": "NEUTRO"} for ccy in engine_compare.CURRENCIES},
+        }
+        decision_matrix["2026-07-19"]["USD"] = {"engine_a": "COMPRA"}  # 1 flip (USD)
+        decision_matrix["2026-07-19"]["EUR"] = {"engine_a": "VENDA"}   # 1 flip (EUR)
+        decision_matrix["2026-07-16"]["USD"] = {"engine_a": "NEUTRO"}
+        decision_matrix["2026-07-16"]["EUR"] = {"engine_a": "NEUTRO"}
+        summary = _turnover_summary(decision_matrix, names)
+        # 8 moedas x 1 par de noites cada = 8 pares totais; 2 flips (USD, EUR)
+        self.assertEqual(summary["engine_a"]["flips_total"], 2)
+        self.assertEqual(summary["engine_a"]["night_pairs_total"], 8)
+        self.assertEqual(summary["engine_a"]["flip_rate"], 0.25)
+
+    def test_turnover_handles_empty_decision_matrix_without_dividing_by_zero(self):
+        summary = _turnover_summary({}, ["engine_a"])
+        self.assertEqual(summary["engine_a"]["flips_total"], 0)
+        self.assertIsNone(summary["engine_a"]["flip_rate"])
+        for ccy_summary in summary["engine_a"]["by_currency"].values():
+            self.assertIsNone(ccy_summary["flip_rate"])
+
+    def test_exposure_reports_mean_max_and_nights_with_any_activity(self):
+        exposure_series = {"engine_a": [0, 2, 4, 0, 3]}
+        summary = _exposure_summary(exposure_series, ["engine_a"])
+        e = summary["engine_a"]
+        self.assertEqual(e["max_open_currencies"], 4)
+        self.assertEqual(e["nights_with_any_exposure"], 3)
+        self.assertEqual(e["nights_total"], 5)
+        self.assertAlmostEqual(e["mean_open_currencies"], 1.8)
+
+    def test_exposure_handles_no_nights_without_dividing_by_zero(self):
+        summary = _exposure_summary({"engine_a": []}, ["engine_a"])
+        e = summary["engine_a"]
+        self.assertIsNone(e["mean_open_currencies"])
+        self.assertIsNone(e["max_open_currencies"])
+        self.assertEqual(e["nights_with_any_exposure"], 0)
+
+    def test_disagreement_by_currency_computes_rate_per_currency(self):
+        disagree_by_currency = {ccy: 0 for ccy in engine_compare.CURRENCIES}
+        disagree_by_currency["GBP"] = 15
+        disagree_by_currency["JPY"] = 3
+        summary = _disagreement_by_currency_summary(disagree_by_currency, nights_evaluated=30)
+        self.assertEqual(summary["GBP"]["disagree_nights"], 15)
+        self.assertAlmostEqual(summary["GBP"]["disagree_rate"], 0.5)
+        self.assertAlmostEqual(summary["JPY"]["disagree_rate"], 0.1)
+        self.assertEqual(summary["USD"]["disagree_nights"], 0)
+        self.assertEqual(summary["USD"]["disagree_rate"], 0.0)
+
+    def test_disagreement_by_currency_handles_zero_nights_without_dividing_by_zero(self):
+        summary = _disagreement_by_currency_summary({"USD": 0}, nights_evaluated=0)
+        self.assertIsNone(summary["USD"]["disagree_rate"])
 
 
 class TestPortAMacroDecision(unittest.TestCase):

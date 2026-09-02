@@ -389,6 +389,88 @@ def _mean_stderr(values):
     return mean, (variance / n) ** 0.5
 
 
+def _turnover_summary(decision_matrix, engine_names):
+    """Item 6 (matriz 5-TF em shadow mode): "turnover" aqui NÃO é custo de
+    troca de posição (cada cesta fecha sozinha toda manhã, não é posição
+    carregada) — é ESTABILIDADE DE SINAL: com que frequência o trade_bias de
+    uma moeda MUDA de uma noite avaliada pra próxima, por motor. Um motor
+    mais estável (turnover baixo) está seguindo uma tendência persistente;
+    um motor instável (turnover alto) pode estar reagindo a ruído — é
+    exatamente o tipo de diferença que "só olhar PnL agregado" esconde.
+
+    Definição deliberadamente simples: QUALQUER mudança de estado conta
+    (COMPRA→VENDA, COMPRA→NEUTRO, NEUTRO→VENDA, todas do mesmo jeito) —
+    não distingue reversão direta de simples entrada/saída de neutro. Uma
+    métrica mais refinada (só reversões diretas, por exemplo) pode ser
+    adicionada depois se esta se mostrar insuficiente; documentado aqui pra
+    não fingir mais precisão do que a definição atual tem."""
+    dates = sorted(decision_matrix.keys())
+    result = {}
+    for name in engine_names:
+        by_currency = {}
+        total_flips = 0
+        total_pairs = 0
+        for ccy in CURRENCIES:
+            flips = 0
+            pairs = 0
+            prev = None
+            for date in dates:
+                current = decision_matrix[date][ccy][name]
+                if prev is not None:
+                    pairs += 1
+                    if current != prev:
+                        flips += 1
+                prev = current
+            by_currency[ccy] = {
+                "flips": flips,
+                "night_pairs": pairs,
+                "flip_rate": round(flips / pairs, 3) if pairs else None,
+            }
+            total_flips += flips
+            total_pairs += pairs
+        result[name] = {
+            "flips_total": total_flips,
+            "night_pairs_total": total_pairs,
+            "flip_rate": round(total_flips / total_pairs, 3) if total_pairs else None,
+            "by_currency": by_currency,
+        }
+    return result
+
+
+def _exposure_summary(exposure_series, engine_names):
+    """Item 6: "exposição" — quantas moedas tinham cesta reconstruída
+    SIMULTANEAMENTE na mesma noite, por motor (não a contagem agregada de
+    cestas ao longo da janela inteira, que já existe em stats[name]["baskets"]
+    — aqui é a distribuição por noite, pra ver se um motor concentra risco
+    em noites de muita concordância ou distribui mais uniformemente)."""
+    result = {}
+    for name in engine_names:
+        series = exposure_series[name]
+        nights_with_any = sum(1 for v in series if v > 0)
+        mean_open = sum(series) / len(series) if series else None
+        result[name] = {
+            "mean_open_currencies": round(mean_open, 2) if mean_open is not None else None,
+            "max_open_currencies": max(series) if series else None,
+            "nights_with_any_exposure": nights_with_any,
+            "nights_total": len(series),
+        }
+    return result
+
+
+def _disagreement_by_currency_summary(disagree_by_currency, nights_evaluated):
+    """Taxa de discordância COMPLETA por moeda (não capada em 12 exemplos
+    como disagreement_examples) — moedas onde os motores discordam sempre
+    são um sinal mais forte de divergência estrutural do que raras
+    discordâncias espalhadas por todas as 8."""
+    return {
+        ccy: {
+            "disagree_nights": count,
+            "disagree_rate": round(count / nights_evaluated, 3) if nights_evaluated else None,
+        }
+        for ccy, count in disagree_by_currency.items()
+    }
+
+
 def _normalize_window_end(end_brt=None):
     """Normaliza o fim da janela para um datetime ingênuo em BRT.
 
@@ -564,7 +646,8 @@ def _overall_quality_status(css_history_status, stats, engine_names):
 
 def _pass_summary(pass_result, engine_names):
     """Resumo persistível de uma passada individual do CostModel."""
-    stats, _agree, _disagree, _examples, active, nights, paired, coverage = pass_result
+    (stats, _agree, _disagree, _examples, active, nights, paired,
+     _disagree_by_ccy, _exposure, _decisions, coverage) = pass_result
     engines = {}
     for name in engine_names:
         current = stats[name]
@@ -770,6 +853,23 @@ def _one_pass(series, prices, days, engine_names, end_brt=None):
     agree = 0
     disagree = 0
     disagreement_examples = []
+    # Item 6 (matriz 5-TF em shadow mode) pede "vetores/decisão/exposição/
+    # turnover", não só PnL agregado — disagreement_examples sozinho capa em
+    # 12 exemplos (achado retomando o item 6: numa comparação real de 31
+    # noites, 214 discordâncias totais, os 12 exemplos cobrem 5,6% delas).
+    # decision_matrix guarda TODA decisão (não capada) pra permitir turnover
+    # (mudança de trade_bias entre noites consecutivas, por moeda/motor) e
+    # uma taxa de discordância POR MOEDA (não só o agregado "X% concordam").
+    # Não é persistido bruto no journal — só os resumos derivados dele (ver
+    # _turnover_summary/_disagreement_by_currency) — a matriz crua fica só
+    # em memória, pra não inflar reports/backtest_history.json (rastreado
+    # por git, reescrito por inteiro a cada anexação).
+    decision_matrix = {}
+    disagree_by_currency = {c: 0 for c in CURRENCIES}
+    # exposure_series: quantas moedas tinham cesta reconstruída na MESMA
+    # noite, por motor — "exposição" simultânea, não só contagem agregada
+    # de cestas ao longo da janela inteira.
+    exposure_series = {name: [] for name in engine_names}
     active_signal_counts = {name: {c: 0 for c in CURRENCIES} for name in engine_names}
     nights_evaluated = 0
     candidate_nights = 0
@@ -801,7 +901,9 @@ def _one_pass(series, prices, days, engine_names, end_brt=None):
             skipped_invalid_exit += 1
             continue
         nights_evaluated += 1
-        evaluated_brt_days.append(brt_day.replace(tzinfo=BRT).isoformat())
+        brt_iso = brt_day.replace(tzinfo=BRT).isoformat()
+        evaluated_brt_days.append(brt_iso)
+        decision_matrix[brt_iso] = {}
 
         night_pnl = {name: 0.0 for name in engine_names}
         night_cost = {name: 0.0 for name in engine_names}
@@ -811,6 +913,7 @@ def _one_pass(series, prices, days, engine_names, end_brt=None):
 
         for ccy in CURRENCIES:
             biases = {name: verdicts[name][ccy]["trade_bias"] for name in engine_names}
+            decision_matrix[brt_iso][ccy] = dict(biases)
             for name in engine_names:
                 if biases[name] in ("COMPRA", "VENDA"):
                     active_signal_counts[name][ccy] += 1
@@ -820,6 +923,7 @@ def _one_pass(series, prices, days, engine_names, end_brt=None):
                 agree += 1
             else:
                 disagree += 1
+                disagree_by_currency[ccy] += 1
                 if len(disagreement_examples) < 12:
                     disagreement_examples.append((
                         brt_day.strftime("%Y-%m-%d"), ccy,
@@ -863,6 +967,7 @@ def _one_pass(series, prices, days, engine_names, end_brt=None):
             stats[name]["spread"] += night_spread[name]
             stats[name]["swap"] += night_swap[name]
             stats[name]["baskets"] += night_baskets[name]
+            exposure_series[name].append(night_baskets[name])
             if night_baskets[name] > 0:
                 stats[name]["nights_with_baskets"] += 1
                 if night_pnl[name] - night_cost[name] >= 0:
@@ -913,6 +1018,9 @@ def _one_pass(series, prices, days, engine_names, end_brt=None):
         active_signal_counts,
         nights_evaluated,
         paired_net_deltas,
+        disagree_by_currency,
+        exposure_series,
+        decision_matrix,
         coverage,
     )
 
@@ -1046,7 +1154,8 @@ def compare(days=45, engine_names=None, runs=1, log_note=None, end_brt=None,
     # não é custo, e agrega net líquido de todas as passadas pra reportar a
     # faixa.
     (stats, agree, disagree, disagreement_examples, active_signal_counts,
-     nights_evaluated, paired_net_deltas, coverage) = passes[-1]
+     nights_evaluated, paired_net_deltas, disagree_by_currency,
+     exposure_series, decision_matrix, coverage) = passes[-1]
     if any(pass_result[-1] != coverage for pass_result in passes):
         raise RuntimeError("cobertura divergente entre passadas do mesmo backtest")
     if sample_role == "oos_disjoint":
@@ -1081,6 +1190,9 @@ def compare(days=45, engine_names=None, runs=1, log_note=None, end_brt=None,
         require_isolated=sample_role == "oos_disjoint",
     )
     net_by_run = {name: [p[0][name]["pnl"] - p[0][name]["cost"] for p in passes] for name in engine_names}
+    turnover = _turnover_summary(decision_matrix, engine_names)
+    exposure = _exposure_summary(exposure_series, engine_names)
+    disagreement_by_currency = _disagreement_by_currency_summary(disagree_by_currency, nights_evaluated)
 
     total_calls = agree + disagree
     print("=" * 70)
@@ -1163,6 +1275,25 @@ def compare(days=45, engine_names=None, runs=1, log_note=None, end_brt=None,
         for date_str, ccy, per_engine in disagreement_examples:
             parts = ", ".join(f"{name}={bias}({score:.2f})" for name, (bias, score) in per_engine.items())
             print(f"  {date_str} {ccy:<4} {parts}")
+
+    print(f"\ndiscordância por moeda ({nights_evaluated} noites avaliadas):")
+    for ccy in CURRENCIES:
+        d = disagreement_by_currency[ccy]
+        rate_str = f"{d['disagree_rate']*100:.1f}%" if d["disagree_rate"] is not None else "n/a"
+        print(f"  {ccy:<4} {d['disagree_nights']:>3} noites divergentes ({rate_str})")
+
+    print("\nturnover (mudança de trade_bias entre noites consecutivas, por motor):")
+    for name in engine_names:
+        t = turnover[name]
+        rate_str = f"{t['flip_rate']*100:.1f}%" if t["flip_rate"] is not None else "n/a"
+        print(f"  {name:<14} {t['flips_total']:>4} flips / {t['night_pairs_total']:>3} pares ({rate_str})")
+
+    print("\nexposição simultânea (moedas com cesta reconstruída na mesma noite, por motor):")
+    for name in engine_names:
+        e = exposure[name]
+        mean_str = f"{e['mean_open_currencies']:.2f}" if e["mean_open_currencies"] is not None else "n/a"
+        print(f"  {name:<14} média={mean_str} máx={e['max_open_currencies']} "
+              f"noites_com_exposição={e['nights_with_any_exposure']}/{e['nights_total']}")
 
     paired_mean, paired_stderr = _mean_stderr(paired_net_deltas)
     if "3tf_baseline" in engine_names and "5tf_port_a" in engine_names:
@@ -1279,6 +1410,15 @@ def compare(days=45, engine_names=None, runs=1, log_note=None, end_brt=None,
                 "definition": "Port A minus baseline on nights with reconstructed baskets in both",
             },
             "comparison_to_baseline": comparison_to_baseline,
+            # Item 6 (matriz 5-TF em shadow mode) — "vetores/decisão/
+            # exposição/turnover", não só PnL agregado. Resumos derivados,
+            # não a matriz de decisão bruta (que fica só em memória durante
+            # o run — ver docstring de _turnover_summary) pra não inflar
+            # este arquivo, rastreado por git e reescrito por inteiro a
+            # cada anexação.
+            "disagreement_by_currency": disagreement_by_currency,
+            "turnover": turnover,
+            "exposure": exposure,
             "parameters": {
                 "lot": LOT,
                 "runs": runs,
