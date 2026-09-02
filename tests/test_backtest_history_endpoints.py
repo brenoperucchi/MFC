@@ -3,6 +3,12 @@ TESTES DOS ENDPOINTS /api/backtest-history/* (acompanhamento de backtest via
 web) — ver docs/plans/eventual-stargazing-bear.md pro desenho completo
 (consulta herdr-ask mfc-13).
 
+Auth trocada de chave de API estática (CSS_BACKTEST_API_KEY) por login/senha
++ sessão de cookie HttpOnly (achado do Breno: "vamos criar senha e login...
+remover o uso da x-css-api-key") — ver TestBacktestCredentialsMatch,
+TestBacktestSessionLifecycle, TestRequireBacktestSession e os testes de
+login/logout dentro de TestBacktestHistoryEndpointsIntegration.
+
 Pulado automaticamente se fastapi/uvicorn/httpx não estiverem instalados
 neste ambiente — mesmo padrão de tests/test_portfolio_api_auth.py. Rodar de
 verdade requer `pip install fastapi uvicorn` (ver CLAUDE.md); TestClient
@@ -13,6 +19,7 @@ import json
 import os
 import sys
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 
@@ -32,37 +39,93 @@ except ImportError as e:
                  allow_module_level=True)
 
 
-class TestRequireBacktestApiKey(unittest.TestCase):
-    """Mesmo padrão fail-closed de _require_portfolio_api_key
-    (tests/test_portfolio_api_auth.py) — chave DEDICADA
-    (CSS_BACKTEST_API_KEY), nunca CSS_PORTFOLIO_API_KEY."""
+class TestBacktestCredentialsMatch(unittest.TestCase):
+    """Login único compartilhado — usuário E senha comparados sempre via
+    hmac.compare_digest (nunca `and` de curto-circuito, pra não vazar por
+    timing qual campo errou primeiro)."""
 
-    def test_fails_closed_when_no_key_configured(self):
-        with patch.object(server, "BACKTEST_API_KEY", None):
-            with self.assertRaises(HTTPException) as ctx:
-                server._require_backtest_api_key(None)
-        self.assertEqual(ctx.exception.status_code, 503)
+    def test_fails_when_username_not_configured(self):
+        with patch.object(server, "BACKTEST_USERNAME", None), \
+             patch.object(server, "BACKTEST_PASSWORD", "senha"):
+            self.assertFalse(server._backtest_credentials_match("qualquer", "senha"))
 
-    def test_rejects_wrong_key_when_one_is_configured(self):
-        with patch.object(server, "BACKTEST_API_KEY", "segredo-backtest"):
-            with self.assertRaises(HTTPException) as ctx:
-                server._require_backtest_api_key("chave-errada")
-        self.assertEqual(ctx.exception.status_code, 401)
+    def test_fails_when_password_not_configured(self):
+        with patch.object(server, "BACKTEST_USERNAME", "user"), \
+             patch.object(server, "BACKTEST_PASSWORD", None):
+            self.assertFalse(server._backtest_credentials_match("user", "qualquer"))
 
-    def test_accepts_the_correct_key(self):
-        with patch.object(server, "BACKTEST_API_KEY", "segredo-backtest"):
-            server._require_backtest_api_key("segredo-backtest")  # não deve lançar
+    def test_rejects_wrong_username(self):
+        with patch.object(server, "BACKTEST_USERNAME", "user"), \
+             patch.object(server, "BACKTEST_PASSWORD", "senha"):
+            self.assertFalse(server._backtest_credentials_match("outro", "senha"))
+
+    def test_rejects_wrong_password(self):
+        with patch.object(server, "BACKTEST_USERNAME", "user"), \
+             patch.object(server, "BACKTEST_PASSWORD", "senha"):
+            self.assertFalse(server._backtest_credentials_match("user", "errada"))
+
+    def test_accepts_correct_username_and_password(self):
+        with patch.object(server, "BACKTEST_USERNAME", "user"), \
+             patch.object(server, "BACKTEST_PASSWORD", "senha"):
+            self.assertTrue(server._backtest_credentials_match("user", "senha"))
 
     def test_never_reuses_the_portfolio_key(self):
-        """A chave de portfólio (que abre ordem real) nunca deve autenticar
-        o endpoint de backtest, mesmo se coincidentemente configurada com o
-        mesmo valor por engano do operador — são variáveis de ambiente
-        DIFERENTES (CSS_PORTFOLIO_API_KEY vs CSS_BACKTEST_API_KEY)."""
-        with patch.object(server, "BACKTEST_API_KEY", None), \
-             patch.object(server, "PORTFOLIO_API_KEY", "mesma-chave"):
+        """CSS_PORTFOLIO_API_KEY (abre ordem real) nunca deve autenticar o
+        login de backtest, mesmo coincidindo por acidente do operador com
+        usuário/senha configurados — são variáveis DIFERENTES."""
+        with patch.object(server, "BACKTEST_USERNAME", None), \
+             patch.object(server, "BACKTEST_PASSWORD", None), \
+             patch.object(server, "PORTFOLIO_API_KEY", "mesma-coisa"):
+            self.assertFalse(server._backtest_credentials_match("mesma-coisa", "mesma-coisa"))
+
+
+class TestBacktestSessionLifecycle(unittest.TestCase):
+    def setUp(self):
+        server._backtest_sessions.clear()
+        self.addCleanup(server._backtest_sessions.clear)
+
+    def test_created_session_is_valid(self):
+        token = server._create_backtest_session()
+        self.assertTrue(server._backtest_session_valid(token))
+
+    def test_unknown_token_is_invalid(self):
+        self.assertFalse(server._backtest_session_valid("token-que-nao-existe"))
+
+    def test_empty_or_none_token_is_invalid(self):
+        self.assertFalse(server._backtest_session_valid(""))
+        self.assertFalse(server._backtest_session_valid(None))
+
+    def test_expired_session_is_invalid_and_gets_evicted(self):
+        token = server._create_backtest_session()
+        server._backtest_sessions[token] = time.time() - 1  # força expirado
+        self.assertFalse(server._backtest_session_valid(token))
+        self.assertNotIn(token, server._backtest_sessions)
+
+
+class TestRequireBacktestSession(unittest.TestCase):
+    def setUp(self):
+        server._backtest_sessions.clear()
+        self.addCleanup(server._backtest_sessions.clear)
+
+    def test_fails_closed_when_credentials_not_configured(self):
+        with patch.object(server, "BACKTEST_USERNAME", None), \
+             patch.object(server, "BACKTEST_PASSWORD", None):
             with self.assertRaises(HTTPException) as ctx:
-                server._require_backtest_api_key("mesma-chave")
-        self.assertEqual(ctx.exception.status_code, 503)  # continua fail-closed
+                server._require_backtest_session(None)
+        self.assertEqual(ctx.exception.status_code, 503)
+
+    def test_rejects_missing_session_when_credentials_configured(self):
+        with patch.object(server, "BACKTEST_USERNAME", "user"), \
+             patch.object(server, "BACKTEST_PASSWORD", "senha"):
+            with self.assertRaises(HTTPException) as ctx:
+                server._require_backtest_session(None)
+        self.assertEqual(ctx.exception.status_code, 401)
+
+    def test_accepts_a_valid_session_token(self):
+        with patch.object(server, "BACKTEST_USERNAME", "user"), \
+             patch.object(server, "BACKTEST_PASSWORD", "senha"):
+            token = server._create_backtest_session()
+            server._require_backtest_session(token)  # não deve lançar
 
 
 class TestBacktestTriggerPayloadShape(unittest.TestCase):
@@ -157,9 +220,32 @@ class TestBacktestHistoryEndpointsIntegration(unittest.TestCase):
         patch_path = patch.object(server, "RESULTS_LOG_PATH", self._journal_path)
         patch_path.start()
         self.addCleanup(patch_path.stop)
-        key_patch = patch.object(server, "BACKTEST_API_KEY", "test-key")
-        key_patch.start()
-        self.addCleanup(key_patch.stop)
+
+        user_patch = patch.object(server, "BACKTEST_USERNAME", "test-user")
+        user_patch.start()
+        self.addCleanup(user_patch.stop)
+        pass_patch = patch.object(server, "BACKTEST_PASSWORD", "test-pass")
+        pass_patch.start()
+        self.addCleanup(pass_patch.stop)
+
+        # Estado de auth é global no módulo (sessões em memória, contador de
+        # falha de login) — precisa resetar entre testes, senão um teste
+        # vaza sessão/lockout pro próximo.
+        server._backtest_sessions.clear()
+        server._backtest_login_failures = 0
+        server._backtest_login_locked_until = 0.0
+        self.addCleanup(server._backtest_sessions.clear)
+
+    def _login(self):
+        """TestClient persiste cookies entre chamadas do mesmo client, igual
+        um navegador de verdade — chamadas subsequentes já saem
+        autenticadas depois disto, sem precisar passar header nenhum."""
+        resp = self.client.post(
+            "/api/backtest-history/login",
+            json={"username": "test-user", "password": "test-pass"},
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+        return resp
 
     def _write_journal(self, entries):
         with open(self._journal_path, "w", encoding="utf-8") as f:
@@ -255,45 +341,115 @@ class TestBacktestHistoryEndpointsIntegration(unittest.TestCase):
         resp = self.client.get("/api/backtest-history/999")
         self.assertEqual(resp.status_code, 404)
 
-    def test_trigger_requires_api_key(self):
+    # ------------------------------------------------------------------
+    # Login / logout / sessão
+    # ------------------------------------------------------------------
+
+    def test_login_fails_closed_when_credentials_not_configured(self):
+        with patch.object(server, "BACKTEST_USERNAME", None), \
+             patch.object(server, "BACKTEST_PASSWORD", None):
+            resp = self.client.post(
+                "/api/backtest-history/login",
+                json={"username": "qualquer", "password": "qualquer"},
+            )
+        self.assertEqual(resp.status_code, 503)
+
+    def test_login_rejects_wrong_credentials(self):
+        resp = self.client.post(
+            "/api/backtest-history/login",
+            json={"username": "test-user", "password": "senha-errada"},
+        )
+        self.assertEqual(resp.status_code, 401)
+
+    def test_login_with_correct_credentials_sets_session_cookie(self):
+        resp = self._login()
+        self.assertTrue(resp.json()["success"])
+        self.assertIn(server._BACKTEST_SESSION_COOKIE, resp.cookies)
+
+    def test_login_rejects_extra_fields_with_422(self):
+        resp = self.client.post(
+            "/api/backtest-history/login",
+            json={"username": "test-user", "password": "test-pass", "remember_me": True},
+        )
+        self.assertEqual(resp.status_code, 422)
+
+    def test_login_locks_out_after_repeated_failures(self):
+        for _ in range(server._BACKTEST_LOGIN_LOCKOUT_THRESHOLD):
+            resp = self.client.post(
+                "/api/backtest-history/login",
+                json={"username": "test-user", "password": "senha-errada"},
+            )
+            self.assertEqual(resp.status_code, 401)
+        # a próxima tentativa, mesmo com a senha CERTA, esbarra no lockout
+        resp = self.client.post(
+            "/api/backtest-history/login",
+            json={"username": "test-user", "password": "test-pass"},
+        )
+        self.assertEqual(resp.status_code, 429)
+
+    def test_session_endpoint_reflects_logged_out_by_default(self):
+        resp = self.client.get("/api/backtest-history/session")
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(resp.json()["logged_in"])
+
+    def test_session_endpoint_reflects_logged_in_after_login(self):
+        self._login()
+        resp = self.client.get("/api/backtest-history/session")
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.json()["logged_in"])
+
+    def test_logout_invalidates_the_session(self):
+        self._login()
+        resp = self.client.post("/api/backtest-history/logout")
+        self.assertEqual(resp.status_code, 200)
+        status = self.client.get("/api/backtest-history/session")
+        self.assertFalse(status.json()["logged_in"])
+        # e o trigger volta a recusar com a sessão antiga
+        trigger = self.client.post(
+            "/api/backtest-history/trigger", json={"description": "teste válido"}
+        )
+        self.assertEqual(trigger.status_code, 401)
+
+    # ------------------------------------------------------------------
+    # Trigger / status (agora exigem sessão de login, não mais API key)
+    # ------------------------------------------------------------------
+
+    def test_trigger_requires_login(self):
         resp = self.client.post("/api/backtest-history/trigger", json={"description": "teste válido"})
         self.assertEqual(resp.status_code, 401)
 
     def test_trigger_rejects_extra_fields_with_422(self):
+        self._login()
         resp = self.client.post(
             "/api/backtest-history/trigger",
             json={"description": "teste válido", "sample_role": "oos_disjoint"},
-            headers={"X-Css-Api-Key": "test-key"},
         )
         self.assertEqual(resp.status_code, 422)
 
     def test_trigger_refused_inside_critical_window(self):
+        self._login()
         with patch.object(server.run_isolated_backtest, "in_critical_window", return_value=True):
             resp = self.client.post(
-                "/api/backtest-history/trigger",
-                json={"description": "teste válido"},
-                headers={"X-Css-Api-Key": "test-key"},
+                "/api/backtest-history/trigger", json={"description": "teste válido"}
             )
         self.assertEqual(resp.status_code, 409)
 
     def test_trigger_refused_when_market_closed(self):
+        self._login()
         with patch.object(server.run_isolated_backtest, "in_critical_window", return_value=False), \
              patch.object(server.run_isolated_backtest, "market_is_open", return_value=False):
             resp = self.client.post(
-                "/api/backtest-history/trigger",
-                json={"description": "teste válido"},
-                headers={"X-Css-Api-Key": "test-key"},
+                "/api/backtest-history/trigger", json={"description": "teste válido"}
             )
         self.assertEqual(resp.status_code, 409)
 
     def test_trigger_refused_when_already_running(self):
+        self._login()
         with patch.object(server.run_isolated_backtest, "in_critical_window", return_value=False), \
              patch.object(server.run_isolated_backtest, "market_is_open", return_value=True), \
              patch.object(server.run_isolated_backtest, "is_trigger_running", return_value=True):
             resp = self.client.post(
-                "/api/backtest-history/trigger",
-                json={"description": "teste válido"},
-                headers={"X-Css-Api-Key": "test-key"},
+                "/api/backtest-history/trigger", json={"description": "teste válido"}
             )
         self.assertEqual(resp.status_code, 409)
 
@@ -302,6 +458,7 @@ class TestBacktestHistoryEndpointsIntegration(unittest.TestCase):
         lock em memória) e True logo depois (simula o filho conquistando o
         lock de arquivo quase imediatamente) — evita que o teste espere os
         3s inteiros do loop pós-spawn (achado P2/P2-2, herdr-review mfc-65)."""
+        self._login()
         fake_process = type("P", (), {"pid": 4242})()
         with patch.object(server.run_isolated_backtest, "in_critical_window", return_value=False), \
              patch.object(server.run_isolated_backtest, "market_is_open", return_value=True), \
@@ -312,7 +469,6 @@ class TestBacktestHistoryEndpointsIntegration(unittest.TestCase):
             resp = self.client.post(
                 "/api/backtest-history/trigger",
                 json={"description": "teste válido", "runs": 3},
-                headers={"X-Css-Api-Key": "test-key"},
             )
         self.assertEqual(resp.status_code, 202)
         body = resp.json()
@@ -325,6 +481,7 @@ class TestBacktestHistoryEndpointsIntegration(unittest.TestCase):
         lock em memória, sem travar o event loop) até is_trigger_running()
         confirmar que o filho assumiu o lock dedicado, reduzindo a janela
         em que um segundo disparo veria erroneamente "não está rodando"."""
+        self._login()
         fake_process = type("P", (), {"pid": 4242})()
         calls = {"n": 0}
 
@@ -338,26 +495,22 @@ class TestBacktestHistoryEndpointsIntegration(unittest.TestCase):
              patch.object(server.run_isolated_backtest, "spawn_isolated_backtest",
                            return_value=(fake_process, "run-id-wait")):
             resp = self.client.post(
-                "/api/backtest-history/trigger",
-                json={"description": "teste válido"},
-                headers={"X-Css-Api-Key": "test-key"},
+                "/api/backtest-history/trigger", json={"description": "teste válido"}
             )
         self.assertEqual(resp.status_code, 202)
         self.assertGreaterEqual(calls["n"], 3)
 
-    def test_status_requires_api_key(self):
+    def test_status_requires_login(self):
         resp = self.client.get("/api/backtest-history/trigger/status")
         self.assertEqual(resp.status_code, 401)
 
-    def test_status_returns_log_tail_with_correct_key(self):
+    def test_status_returns_log_tail_when_logged_in(self):
+        self._login()
         with patch.object(server.run_isolated_backtest, "read_status",
                            return_value={"status": "done", "new_journal_seq": 9}), \
              patch.object(server.run_isolated_backtest, "is_trigger_running", return_value=False), \
              patch.object(server.run_isolated_backtest, "read_log_tail", return_value="log content"):
-            resp = self.client.get(
-                "/api/backtest-history/trigger/status",
-                headers={"X-Css-Api-Key": "test-key"},
-            )
+            resp = self.client.get("/api/backtest-history/trigger/status")
         self.assertEqual(resp.status_code, 200)
         body = resp.json()
         self.assertEqual(body["status"], "done")
@@ -369,14 +522,12 @@ class TestBacktestHistoryEndpointsIntegration(unittest.TestCase):
         _run_and_record(), então status.json fica preso em "running" pra
         sempre — o endpoint precisa reconciliar contra is_trigger_running()
         (a autoridade real)."""
+        self._login()
         with patch.object(server.run_isolated_backtest, "read_status",
                            return_value={"status": "running", "pid": 4242}), \
              patch.object(server.run_isolated_backtest, "is_trigger_running", return_value=False), \
              patch.object(server.run_isolated_backtest, "read_log_tail", return_value=""):
-            resp = self.client.get(
-                "/api/backtest-history/trigger/status",
-                headers={"X-Css-Api-Key": "test-key"},
-            )
+            resp = self.client.get("/api/backtest-history/trigger/status")
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.json()["status"], "interrupted")
 
@@ -387,15 +538,13 @@ class TestBacktestHistoryEndpointsIntegration(unittest.TestCase):
         roda de verdade. `pid` também é corrigido pro dono ATUAL (achado
         P2, herdr-review mfc-66, `mfc-rev`: sem isto, o `pid` ficaria sendo
         o da execução anterior, que já terminou)."""
+        self._login()
         with patch.object(server.run_isolated_backtest, "read_status",
                            return_value={"status": "done", "new_journal_seq": 5, "pid": 111}), \
              patch.object(server.run_isolated_backtest, "is_trigger_running", return_value=True), \
              patch.object(server.run_isolated_backtest, "current_running_owner_pid", return_value=222), \
              patch.object(server.run_isolated_backtest, "read_log_tail", return_value=""):
-            resp = self.client.get(
-                "/api/backtest-history/trigger/status",
-                headers={"X-Css-Api-Key": "test-key"},
-            )
+            resp = self.client.get("/api/backtest-history/trigger/status")
         self.assertEqual(resp.status_code, 200)
         body = resp.json()
         self.assertEqual(body["status"], "running")
@@ -403,14 +552,12 @@ class TestBacktestHistoryEndpointsIntegration(unittest.TestCase):
         self.assertTrue(body["stale_metadata"])
 
     def test_status_leaves_a_consistent_running_state_untouched(self):
+        self._login()
         with patch.object(server.run_isolated_backtest, "read_status",
                            return_value={"status": "running", "pid": 111}), \
              patch.object(server.run_isolated_backtest, "is_trigger_running", return_value=True), \
              patch.object(server.run_isolated_backtest, "read_log_tail", return_value="tail"):
-            resp = self.client.get(
-                "/api/backtest-history/trigger/status",
-                headers={"X-Css-Api-Key": "test-key"},
-            )
+            resp = self.client.get("/api/backtest-history/trigger/status")
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.json()["status"], "running")
 

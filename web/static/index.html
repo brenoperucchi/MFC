@@ -8,7 +8,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/styles.css?v=3.16">
+    <link rel="stylesheet" href="/static/styles.css?v=3.17">
 </head>
 <body class="dark-theme">
     <!-- TOP NAVIGATION BAR -->
@@ -771,18 +771,34 @@
                             <span style="font-weight: 700; font-family: var(--font-display); color: #FFF; font-size: 13px;">🧪 Disparar Novo Acompanhamento</span>
                             <span style="font-size: 11px; color: var(--text-muted);">Janela fixa de 45 dias, sample_role=exploratory — nunca o holdout OOS</span>
                         </div>
-                        <div style="padding: 16px; display: flex; flex-direction: column; gap: 10px;">
+                        <!-- Login (visível sem sessão ativa) — ver checkBacktestLoginStatus() em app.js -->
+                        <div id="backtestLoginForm" style="padding: 16px; display: flex; flex-direction: column; gap: 10px;">
+                            <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                                <input type="text" id="backtestLoginUsername" placeholder="Usuário" autocomplete="username"
+                                    style="flex: 1; min-width: 140px; background: #101624; border: 1px solid var(--border-color); border-radius: 6px; padding: 6px 10px; color: #FFF; font-family: var(--font-mono); font-size: 12px;">
+                                <input type="password" id="backtestLoginPassword" placeholder="Senha" autocomplete="current-password"
+                                    style="flex: 1; min-width: 140px; background: #101624; border: 1px solid var(--border-color); border-radius: 6px; padding: 6px 10px; color: #FFF; font-family: var(--font-mono); font-size: 12px;">
+                                <button class="action-btn secondary-btn" id="btnBacktestLogin" style="font-size: 11px; padding: 6px 14px;">
+                                    <span>🔑 Entrar</span>
+                                </button>
+                            </div>
+                            <div id="backtestLoginMsg" style="font-size: 11.5px; color: var(--text-muted); font-family: var(--font-mono);"></div>
+                        </div>
+
+                        <!-- Disparo (visível só com sessão ativa) -->
+                        <div id="backtestTriggerForm" style="display: none; padding: 16px; flex-direction: column; gap: 10px;">
                             <textarea id="backtestTriggerDescription" maxlength="500" rows="2"
                                 placeholder="Descrição curta do que mudou desde o último run (obrigatório, 3-500 caracteres)"
                                 style="width: 100%; resize: vertical; background: #101624; border: 1px solid var(--border-color); border-radius: 6px; padding: 8px 10px; color: #FFF; font-family: var(--font-mono); font-size: 12px;"></textarea>
                             <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
-                                <input type="password" id="backtestTriggerApiKey" placeholder="X-Css-Api-Key"
-                                    style="flex: 1; min-width: 180px; background: #101624; border: 1px solid var(--border-color); border-radius: 6px; padding: 6px 10px; color: #FFF; font-family: var(--font-mono); font-size: 12px;">
                                 <label style="font-size: 11px; color: var(--text-muted); display: flex; align-items: center; gap: 4px;">
                                     Passadas: <input type="number" id="backtestTriggerRuns" min="1" max="5" value="2" style="width: 48px; background: #101624; border: 1px solid var(--border-color); border-radius: 6px; padding: 4px 6px; color: #FFF; text-align: center;">
                                 </label>
                                 <button class="action-btn secondary-btn" id="btnTriggerBacktest" style="font-size: 11px; padding: 6px 14px;">
                                     <span>🚀 Disparar</span>
+                                </button>
+                                <button class="action-btn secondary-btn" id="btnBacktestLogout" style="font-size: 11px; padding: 6px 14px; margin-left: auto;">
+                                    <span>🔒 Sair</span>
                                 </button>
                             </div>
                             <div id="backtestTriggerStatusMsg" style="font-size: 11.5px; color: var(--text-muted); font-family: var(--font-mono);"></div>
@@ -953,6 +969,6 @@
     </div>
 
     <!-- SCRIPTS -->
-    <script src="/static/app.js?v=3.16"></script>
+    <script src="/static/app.js?v=3.17"></script>
 </body>
 </html>

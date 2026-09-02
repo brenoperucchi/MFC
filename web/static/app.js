@@ -2602,6 +2602,7 @@ function setupTrackRecordModal() {
                     const pane = document.getElementById("paneBacktests");
                     if (pane) pane.classList.add("active");
                     loadBacktestHistory();
+                    checkBacktestLoginStatus();
                 }
             });
         });
@@ -2679,27 +2680,41 @@ async function fetchLiveSessionData() {
 // etc.) é setada via textContent, NUNCA interpolada em innerHTML — este é
 // o primeiro texto livre digitado por humano renderizado nesta UI, e o
 // resto do arquivo usa innerHTML sem escapar (só números/moeda até aqui).
-// A chave de API vai em sessionStorage (some ao fechar a aba), nunca
-// localStorage — é uma chave dedicada (CSS_BACKTEST_API_KEY), mas ainda
-// assim não deve virar um segredo durável no navegador.
+//
+// Login/senha (achado do Breno: "vamos criar senha e login... remover o
+// uso da x-css-api-key") — nada de token/chave gerenciado aqui no JS.
+// POST /login grava um cookie de sessão HttpOnly (o navegador cuida de
+// mandar em toda requisição same-origin sozinho, textContent nunca vê o
+// valor) — só sabemos SE está logado perguntando pro servidor
+// (checkBacktestLoginStatus()), nunca guardando estado de login no
+// cliente como fonte de verdade.
 // ============================================================
 
-const BACKTEST_API_KEY_STORAGE_KEY = "css_backtest_api_key";
-
-function getBacktestApiKey() {
+async function checkBacktestLoginStatus() {
+    const loginForm = document.getElementById("backtestLoginForm");
+    const triggerForm = document.getElementById("backtestTriggerForm");
+    if (!loginForm || !triggerForm) return false;
+    let loggedIn = false;
     try {
-        return sessionStorage.getItem(BACKTEST_API_KEY_STORAGE_KEY) || "";
+        const res = await fetch("/api/backtest-history/session", { credentials: "same-origin" });
+        if (res.ok) {
+            const body = await res.json();
+            loggedIn = !!body.logged_in;
+        }
     } catch (err) {
-        return "";
+        // rede fora do ar — trata como não-logado, sem travar a UI
     }
+    loginForm.style.display = loggedIn ? "none" : "flex";
+    triggerForm.style.display = loggedIn ? "flex" : "none";
+    return loggedIn;
 }
 
-function setBacktestApiKey(value) {
-    try {
-        sessionStorage.setItem(BACKTEST_API_KEY_STORAGE_KEY, value);
-    } catch (err) {
-        // sessionStorage indisponível (aba privada/bloqueio) — segue sem persistir
-    }
+function setBacktestLoginMsg(text, kind) {
+    const msgEl = document.getElementById("backtestLoginMsg");
+    if (!msgEl) return;
+    msgEl.textContent = text;
+    msgEl.style.color = kind === "error" ? "var(--color-red)" : "var(--text-muted)";
+    msgEl.style.fontWeight = kind === "error" ? "700" : "400";
 }
 
 function fmtBacktestMoney(value) {
@@ -2721,10 +2736,57 @@ function setBacktestTriggerMsg(text, kind) {
 }
 
 function setupBacktestTriggerForm() {
-    const keyInput = document.getElementById("backtestTriggerApiKey");
-    if (keyInput) {
-        keyInput.value = getBacktestApiKey();
-        keyInput.addEventListener("input", () => setBacktestApiKey(keyInput.value));
+    checkBacktestLoginStatus();
+
+    const btnLogin = document.getElementById("btnBacktestLogin");
+    if (btnLogin) {
+        btnLogin.addEventListener("click", async () => {
+            const userInput = document.getElementById("backtestLoginUsername");
+            const passInput = document.getElementById("backtestLoginPassword");
+            const username = (userInput && userInput.value || "").trim();
+            const password = (passInput && passInput.value || "");
+            if (!username || !password) {
+                setBacktestLoginMsg("Preencha usuário e senha.", "error");
+                return;
+            }
+            btnLogin.disabled = true;
+            setBacktestLoginMsg("Entrando...", "info");
+            try {
+                const res = await fetch("/api/backtest-history/login", {
+                    method: "POST",
+                    credentials: "same-origin",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ username, password }),
+                });
+                const body = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    setBacktestLoginMsg(body.detail || `Erro (${res.status}) ao entrar.`, "error");
+                    btnLogin.disabled = false;
+                    return;
+                }
+                if (passInput) passInput.value = "";
+                setBacktestLoginMsg("", "info");
+                await checkBacktestLoginStatus();
+            } catch (err) {
+                setBacktestLoginMsg("Erro de rede ao entrar.", "error");
+            } finally {
+                btnLogin.disabled = false;
+            }
+        });
+    }
+
+    const btnLogout = document.getElementById("btnBacktestLogout");
+    if (btnLogout) {
+        btnLogout.addEventListener("click", async () => {
+            stopBacktestStatusPolling();
+            try {
+                await fetch("/api/backtest-history/logout", { method: "POST", credentials: "same-origin" });
+            } catch (err) {
+                // segue mesmo se a chamada falhar — o cookie some no navegador
+                // de qualquer forma quando a sessão expirar sozinha
+            }
+            await checkBacktestLoginStatus();
+        });
     }
 
     const btn = document.getElementById("btnTriggerBacktest");
@@ -2734,16 +2796,10 @@ function setupBacktestTriggerForm() {
         const runsInput = document.getElementById("backtestTriggerRuns");
         const description = (descInput && descInput.value || "").trim();
         const runs = parseInt((runsInput && runsInput.value) || "2", 10);
-        const apiKey = getBacktestApiKey();
 
         if (description.length < 3) {
             setBacktestTriggerMsg("Descrição precisa ter pelo menos 3 caracteres.", "error");
             if (descInput) descInput.focus();
-            return;
-        }
-        if (!apiKey) {
-            setBacktestTriggerMsg("Preencha a X-Css-Api-Key antes de disparar.", "error");
-            if (keyInput) keyInput.focus();
             return;
         }
 
@@ -2752,9 +2808,16 @@ function setupBacktestTriggerForm() {
         try {
             const res = await fetch("/api/backtest-history/trigger", {
                 method: "POST",
-                headers: { "Content-Type": "application/json", "X-Css-Api-Key": apiKey },
+                credentials: "same-origin",
+                headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ description, runs }),
             });
+            if (res.status === 401) {
+                setBacktestTriggerMsg("Sessão expirada — faça login de novo.", "error");
+                btn.disabled = false;
+                await checkBacktestLoginStatus();
+                return;
+            }
             const body = await res.json().catch(() => ({}));
             if (!res.ok) {
                 setBacktestTriggerMsg(`Erro (${res.status}): ${body.detail || "falha ao disparar"}`, "error");
@@ -2788,8 +2851,15 @@ async function pollBacktestStatus() {
     const btn = document.getElementById("btnTriggerBacktest");
     try {
         const res = await fetch("/api/backtest-history/trigger/status", {
-            headers: { "X-Css-Api-Key": getBacktestApiKey() },
+            credentials: "same-origin",
         });
+        if (res.status === 401) {
+            stopBacktestStatusPolling();
+            if (btn) btn.disabled = false;
+            if (msgEl) msgEl.textContent = "Sessão expirada — faça login de novo.";
+            await checkBacktestLoginStatus();
+            return;
+        }
         if (!res.ok) {
             stopBacktestStatusPolling();
             if (btn) btn.disabled = false;

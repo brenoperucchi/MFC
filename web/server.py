@@ -9,13 +9,14 @@ import asyncio
 import hmac
 import json
 import base64
+import secrets
 import threading
 import time
 from datetime import datetime
 import webbrowser
 import uvicorn
 from pydantic import BaseModel, ConfigDict, Field
-from fastapi import FastAPI, HTTPException, Header
+from fastapi import FastAPI, HTTPException, Header, Cookie, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -172,35 +173,155 @@ async def recalculate_track_record(days: int = 60):
 # Acompanhamento de backtest via web (regression tracking) — ver
 # docs/plans/eventual-stargazing-bear.md pro desenho completo e o porquê de
 # cada decisão (consulta herdr-ask mfc-13). Leitura do journal
-# (reports/backtest_history.json) não exige chave; disparar uma execução
-# nova exige CSS_BACKTEST_API_KEY — uma chave DEDICADA, nunca
-# CSS_PORTFOLIO_API_KEY (que abre posição real), pra não aumentar o raio de
-# exposição dessa última.
+# (reports/backtest_history.json) não exige login; disparar uma execução
+# nova exige login (CSS_BACKTEST_USERNAME/CSS_BACKTEST_PASSWORD) — login
+# DEDICADO, nunca CSS_PORTFOLIO_API_KEY (que abre posição real), pra não
+# aumentar o raio de exposição dessa última.
+#
+# Trocado de chave de API estática (CSS_BACKTEST_API_KEY, achado do Breno:
+# "vamos criar senha e login... remover o uso da x-css-api-key") por
+# login/senha + sessão de cookie HttpOnly. Só em memória do processo
+# (nenhum estado em disco, decisão explícita do Breno) — reiniciar
+# css-web-mfc.service invalida toda sessão ativa, exige login de novo.
+# Credenciais em texto puro no .env (mesmo padrão que a chave antiga já
+# usava, comparação sempre via hmac.compare_digest) — login único
+# compartilhado, sem hash/bcrypt: não é um sistema multiusuário de verdade,
+# é o mesmo segredo compartilhado de antes com uma forma mais memorizável.
 # ---------------------------------------------------------------------------
 
-BACKTEST_API_KEY = os.environ.get("CSS_BACKTEST_API_KEY")
+BACKTEST_USERNAME = os.environ.get("CSS_BACKTEST_USERNAME")
+BACKTEST_PASSWORD = os.environ.get("CSS_BACKTEST_PASSWORD")
+
+_BACKTEST_SESSION_COOKIE = "mfc_backtest_session"
+_BACKTEST_SESSION_TTL_SECONDS = 12 * 3600  # 12h — cobre um dia de trabalho
+_BACKTEST_LOGIN_LOCKOUT_THRESHOLD = 5
+_BACKTEST_LOGIN_LOCKOUT_SECONDS = 60
+
+_backtest_auth_lock = threading.Lock()
+_backtest_sessions = {}  # token -> timestamp (time.time()) de expiração
+_backtest_login_failures = 0
+_backtest_login_locked_until = 0.0
 
 
-def _backtest_api_key_matches(x_css_api_key: str) -> bool:
-    if not BACKTEST_API_KEY:
+def _backtest_credentials_match(username: str, password: str) -> bool:
+    if not BACKTEST_USERNAME or not BACKTEST_PASSWORD:
         return False
-    provided = (x_css_api_key or "").encode("utf-8", "surrogateescape")
-    expected = str(BACKTEST_API_KEY).encode("utf-8", "surrogateescape")
-    return hmac.compare_digest(provided, expected)
+    user_ok = hmac.compare_digest(
+        (username or "").encode("utf-8", "surrogateescape"),
+        str(BACKTEST_USERNAME).encode("utf-8", "surrogateescape"),
+    )
+    pass_ok = hmac.compare_digest(
+        (password or "").encode("utf-8", "surrogateescape"),
+        str(BACKTEST_PASSWORD).encode("utf-8", "surrogateescape"),
+    )
+    # os dois comparados sempre (nunca `and` de curto-circuito), pra não
+    # vazar por timing qual dos dois campos errou primeiro.
+    return user_ok and pass_ok
 
 
-def _require_backtest_api_key(x_css_api_key: str = Header(default=None)):
-    """Fail-closed: sem CSS_BACKTEST_API_KEY configurada, tanto disparar
-    quanto ler o status (que pode conter log_tail com proveniência sensível
-    — conta, servidor, caminho do terminal) ficam recusados."""
-    if not BACKTEST_API_KEY:
+def _create_backtest_session() -> str:
+    token = secrets.token_urlsafe(32)
+    now = time.time()
+    with _backtest_auth_lock:
+        expired = [t for t, exp in _backtest_sessions.items() if exp < now]
+        for t in expired:
+            del _backtest_sessions[t]
+        _backtest_sessions[token] = now + _BACKTEST_SESSION_TTL_SECONDS
+    return token
+
+
+def _backtest_session_valid(token: str) -> bool:
+    if not token:
+        return False
+    with _backtest_auth_lock:
+        expiry = _backtest_sessions.get(token)
+        if expiry is None:
+            return False
+        if expiry < time.time():
+            del _backtest_sessions[token]
+            return False
+        return True
+
+
+def _require_backtest_session(mfc_backtest_session: str = Cookie(default=None)):
+    """Fail-closed: sem CSS_BACKTEST_USERNAME/CSS_BACKTEST_PASSWORD
+    configurados, tanto disparar quanto ler o status (que pode conter
+    log_tail com proveniência sensível — conta, servidor, caminho do
+    terminal) ficam recusados."""
+    if not BACKTEST_USERNAME or not BACKTEST_PASSWORD:
         raise HTTPException(
             status_code=503,
-            detail="CSS_BACKTEST_API_KEY não configurada no servidor — disparo de backtest "
-                   "via web desabilitado por padrão (fail closed).",
+            detail="CSS_BACKTEST_USERNAME/CSS_BACKTEST_PASSWORD não configurados no servidor — "
+                   "disparo de backtest via web desabilitado por padrão (fail closed).",
         )
-    if not _backtest_api_key_matches(x_css_api_key):
-        raise HTTPException(status_code=401, detail="Chave de API inválida ou ausente.")
+    if not _backtest_session_valid(mfc_backtest_session):
+        raise HTTPException(status_code=401, detail="Sessão inválida ou expirada — faça login novamente.")
+
+
+class BacktestLoginPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    username: str
+    password: str
+
+
+@app.post("/api/backtest-history/login")
+async def backtest_login(payload: BacktestLoginPayload, response: Response):
+    """Login único compartilhado — sem cadastro de usuários, é o mesmo
+    segredo compartilhado que a chave de API antiga já era, só que digitado
+    num formulário em vez de colado num campo. Lockout global (não por IP,
+    de propósito: login único compartilhado não distingue quem está
+    tentando) depois de 5 falhas seguidas, 60s — senha memorizável é mais
+    adivinhável que uma chave aleatória longa, então vale uma trava barata
+    mesmo sendo uso interno."""
+    global _backtest_login_failures, _backtest_login_locked_until
+    now = time.time()
+    with _backtest_auth_lock:
+        if now < _backtest_login_locked_until:
+            wait_s = int(_backtest_login_locked_until - now) + 1
+            raise HTTPException(
+                status_code=429,
+                detail=f"Muitas tentativas de login com falha — espere {wait_s}s.",
+            )
+    if not BACKTEST_USERNAME or not BACKTEST_PASSWORD:
+        raise HTTPException(
+            status_code=503,
+            detail="CSS_BACKTEST_USERNAME/CSS_BACKTEST_PASSWORD não configurados no servidor.",
+        )
+    if not _backtest_credentials_match(payload.username, payload.password):
+        with _backtest_auth_lock:
+            _backtest_login_failures += 1
+            if _backtest_login_failures >= _BACKTEST_LOGIN_LOCKOUT_THRESHOLD:
+                _backtest_login_locked_until = time.time() + _BACKTEST_LOGIN_LOCKOUT_SECONDS
+                _backtest_login_failures = 0
+        raise HTTPException(status_code=401, detail="Usuário ou senha incorretos.")
+    with _backtest_auth_lock:
+        _backtest_login_failures = 0
+    token = _create_backtest_session()
+    response.set_cookie(
+        key=_BACKTEST_SESSION_COOKIE,
+        value=token,
+        httponly=True,
+        samesite="strict",
+        max_age=_BACKTEST_SESSION_TTL_SECONDS,
+        path="/",
+    )
+    return {"success": True}
+
+
+@app.post("/api/backtest-history/logout")
+async def backtest_logout(response: Response, mfc_backtest_session: str = Cookie(default=None)):
+    if mfc_backtest_session:
+        with _backtest_auth_lock:
+            _backtest_sessions.pop(mfc_backtest_session, None)
+    response.delete_cookie(_BACKTEST_SESSION_COOKIE, path="/")
+    return {"success": True}
+
+
+@app.get("/api/backtest-history/session")
+async def backtest_session_status(mfc_backtest_session: str = Cookie(default=None)):
+    """Só pra o frontend saber se mostra o formulário de login ou o de
+    disparo — não expõe nada sensível (nenhum dado do journal aqui)."""
+    return {"logged_in": _backtest_session_valid(mfc_backtest_session)}
 
 
 class BacktestTriggerPayload(BaseModel):
@@ -343,11 +464,11 @@ def _redact_provenance(entry):
 @app.get("/api/backtest-history/{journal_seq}")
 async def get_backtest_history_entry(journal_seq: int):
     """Registro completo (pro painel de detalhe), com identidade de
-    conta/terminal/host REDIGIDA — só leitura, sem chave. Diferente do
-    endpoint de status do trigger (que exige CSS_BACKTEST_API_KEY porque o
-    log_tail pode conter texto livre não redigido), este é público, então a
-    proveniência sensível nunca sai daqui, mesmo que o servidor escute fora
-    de localhost."""
+    conta/terminal/host REDIGIDA — só leitura, sem login. Diferente do
+    endpoint de status do trigger (que exige login porque o log_tail pode
+    conter texto livre não redigido), este é público, então a proveniência
+    sensível nunca sai daqui, mesmo que o servidor escute fora de
+    localhost."""
     try:
         with open(RESULTS_LOG_PATH, "r", encoding="utf-8") as f:
             log = json.load(f)
@@ -366,12 +487,12 @@ _backtest_trigger_lock = threading.Lock()
 
 @app.post("/api/backtest-history/trigger", status_code=202)
 async def trigger_backtest_history(
-    payload: BacktestTriggerPayload, x_css_api_key: str = Header(default=None)
+    payload: BacktestTriggerPayload, mfc_backtest_session: str = Cookie(default=None)
 ):
     """Dispara uma execução de acompanhamento (sample_role="exploratory",
     janela fixa) em processo separado, contra o terminal MT5 ISOLADO. Ver
     docs/plans/eventual-stargazing-bear.md."""
-    _require_backtest_api_key(x_css_api_key)
+    _require_backtest_session(mfc_backtest_session)
     if run_isolated_backtest.in_critical_window():
         raise HTTPException(
             status_code=409,
@@ -417,8 +538,8 @@ async def trigger_backtest_history(
 
 
 @app.get("/api/backtest-history/trigger/status")
-async def get_backtest_trigger_status(x_css_api_key: str = Header(default=None)):
-    """Estado do disparo mais recente — exige a chave (log_tail pode conter
+async def get_backtest_trigger_status(mfc_backtest_session: str = Cookie(default=None)):
+    """Estado do disparo mais recente — exige login (log_tail pode conter
     proveniência sensível do processo filho, que carrega o .env inteiro na
     importação; ver docs/plans/eventual-stargazing-bear.md).
 
@@ -436,7 +557,7 @@ async def get_backtest_trigger_status(x_css_api_key: str = Header(default=None))
     dono novo até ele mesmo escrever seu próprio status.json). Sinalizado
     explicitamente via `stale_metadata=True` — não fingir precisão que o
     desenho atual não tem."""
-    _require_backtest_api_key(x_css_api_key)
+    _require_backtest_session(mfc_backtest_session)
     status = run_isolated_backtest.read_status()
     lock_running = run_isolated_backtest.is_trigger_running()
     json_running = status.get("status") == "running"
