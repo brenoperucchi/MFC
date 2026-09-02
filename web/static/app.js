@@ -202,6 +202,7 @@ function setupEventListeners() {
     setupTrackRecordModal();
     setupCrossoversModal();
     setupUrlRouting();
+    setupCustomTooltip();
 
     // 7. Redimensionamento de Janela
     window.addEventListener("resize", () => {
@@ -2830,6 +2831,63 @@ async function loadBacktestHistory() {
     }
 }
 
+// ==========================================================================
+// TOOLTIP/POPOVER CUSTOMIZADO (substitui o atributo `title` nativo)
+// ==========================================================================
+// Achado do Breno testando /track_record/backtest: o `title` nativo exige
+// hover real do mouse, tem delay do próprio SO/navegador, é pequeno e sem
+// estilo — fácil de nunca notar que existe. Este popover é um único
+// elemento reaproveitado (nunca recriado por hover), populado via
+// `data-tooltip` (multi-linha com "\n") em vez de `title`, sempre por
+// textContent — igual ao resto do app, nenhuma string de dado vira HTML.
+function setupCustomTooltip() {
+    const el = document.createElement("div");
+    el.id = "customTooltipPopover";
+    el.className = "custom-tooltip-popover hidden";
+    document.body.appendChild(el);
+
+    const show = (text, x, y) => {
+        el.textContent = "";
+        text.split("\n").forEach(line => {
+            const row = document.createElement("div");
+            row.textContent = line;
+            el.appendChild(row);
+        });
+        el.classList.remove("hidden");
+        position(x, y);
+    };
+
+    const position = (x, y) => {
+        const OFFSET = 14;
+        const rect = el.getBoundingClientRect();
+        let left = x + OFFSET;
+        let top = y + OFFSET;
+        if (left + rect.width > window.innerWidth) left = x - rect.width - OFFSET;
+        if (top + rect.height > window.innerHeight) top = y - rect.height - OFFSET;
+        el.style.left = `${Math.max(4, left)}px`;
+        el.style.top = `${Math.max(4, top)}px`;
+    };
+
+    const hide = () => el.classList.add("hidden");
+
+    document.addEventListener("mouseover", (e) => {
+        const target = e.target.closest("[data-tooltip]");
+        if (target) show(target.dataset.tooltip, e.clientX, e.clientY);
+    });
+    document.addEventListener("mousemove", (e) => {
+        if (!el.classList.contains("hidden") && e.target.closest("[data-tooltip]")) {
+            position(e.clientX, e.clientY);
+        }
+    });
+    document.addEventListener("mouseout", (e) => {
+        const target = e.target.closest("[data-tooltip]");
+        if (target && !target.contains(e.relatedTarget)) hide();
+    });
+    // Popover some se a página rolar/o modal fechar embaixo dele — evita um
+    // popover "grudado" apontando pra um elemento que já saiu do lugar.
+    document.addEventListener("scroll", hide, true);
+}
+
 function renderBacktestHistoryTable(entries) {
     const tbody = document.getElementById("backtestsHistoryTableBody");
     if (!tbody) return;
@@ -2854,7 +2912,7 @@ function renderBacktestHistoryTable(entries) {
         const addCell = (text, tooltip) => {
             const td = document.createElement("td");
             td.textContent = text;
-            if (tooltip) td.title = tooltip;
+            if (tooltip) td.dataset.tooltip = tooltip;
             tr.appendChild(td);
             return td;
         };
@@ -2890,13 +2948,13 @@ function renderBacktestHistoryTable(entries) {
         if (entry.is_web_trigger) {
             const badge = document.createElement("span");
             badge.textContent = " 🌐";
-            badge.title = "Disparado pela web";
+            badge.dataset.tooltip = "Disparado pela web";
             descCell.appendChild(badge);
         }
         if (entry.llm_analysis && typeof entry.llm_analysis.summary === "string") {
             const llmBadge = document.createElement("span");
             llmBadge.textContent = " 🧠";
-            llmBadge.title = entry.llm_analysis.summary;
+            llmBadge.dataset.tooltip = entry.llm_analysis.summary;
             descCell.appendChild(llmBadge);
         }
 
@@ -3276,6 +3334,15 @@ function renderBacktestDetailPanel(entry) {
         provRow.textContent = `Terminal observado: ${terminalPath || "-"} | orders_sent=${ordersSent}`;
         panel.appendChild(provRow);
     }
+
+    // Achado do Breno clicando numa linha no topo da tabela: o painel
+    // renderiza certo (conteúdo, display:flex), mas fica ~2300px abaixo do
+    // viewport visível dentro do modal — sem scroll nenhum, parecia que o
+    // clique não fazia nada. O modal inteiro (não a página) é o contêiner
+    // com scroll aqui, daí `block: "nearest"` em vez de `"start"` — evita
+    // rolar mais que o necessário quando o painel já está parcialmente
+    // visível.
+    panel.scrollIntoView({ behavior: "smooth", block: "nearest" });
 }
 
 async function loadTrackRecord(ccy = "ALL") {
