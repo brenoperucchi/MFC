@@ -467,18 +467,23 @@ _BACKTEST_WATCHDOG_INTERVAL_SEC = 30
 def _backtest_critical_window_watchdog():
     """Termina o subprocesso de backtest se ele ainda estiver rodando
     quando o host entrar na janela crítica — mais seguro que tentar prever
-    duração, porque matar o filho é sempre seguro (nunca envia ordem,
-    append_result() só escreve no fim, de forma atômica; pior caso é perder
-    uma execução de diagnóstico). Roda pra qualquer disparo, inclusive um
-    smoke test manual (`python scripts/run_isolated_backtest.py ...`)
-    executado enquanto este servidor está de pé, já que a checagem lê o
-    lock de arquivo compartilhado, não um Popen em memória.
+    duração, porque matar O PROCESSO CERTO (o filho de backtest) é sempre
+    seguro (nunca envia ordem, append_result() só escreve no fim, de forma
+    atômica; pior caso é perder uma execução de diagnóstico). Roda pra
+    qualquer disparo, inclusive um smoke test manual (`python
+    scripts/run_isolated_backtest.py ...`) executado enquanto este servidor
+    está de pé, já que a checagem lê o lock de arquivo compartilhado, não um
+    Popen em memória.
 
-    Usa current_running_owner_pid() (nunca status.json["pid"] bruto) — o
-    PID gravado ali é sempre o do processo que DE FATO segura o lock agora,
-    imune ao caso em que um segundo disparo enfileirado sobrescreveu
-    status.json com o próprio PID antes de bloquear esperando o primeiro
-    terminar (achado P2/P2-2, herdr-review mfc-65)."""
+    Usa current_running_owner_pid() (nunca status.json["pid"] bruto) — o PID
+    gravado ali é imune especificamente ao caso em que um segundo disparo
+    enfileirado sobrescreveu status.json com o próprio PID antes de bloquear
+    esperando o primeiro terminar (achado P2/P2-2, herdr-review mfc-65). Não
+    é imune a TUDO: current_running_owner_pid() ainda sonda o lock e lê
+    owner.pid em dois passos não-atômicos (achado P1, herdr-review
+    mfc-66/mfc-67/mfc-68, ainda residual — ver a própria docstring da
+    função) — a garantia real é "identifica corretamente o dono na imensa
+    maioria dos casos", não "nunca erra o PID"."""
     while True:
         time.sleep(_BACKTEST_WATCHDOG_INTERVAL_SEC)
         try:
@@ -674,8 +679,12 @@ async def serve_index(full_path: str = ""):
     casaria aqui e devolveria 200+HTML em vez de 404 (achado P3-1,
     herdr-review mfc-67, `mfc-rev-2`: o front faz `if (!res.ok) throw`, que
     nunca dispara com 200, e o erro vira um SyntaxError genérico de
-    `res.json()` sobre HTML). Recusa explicitamente esse prefixo aqui."""
-    if full_path.startswith("api/"):
+    `res.json()` sobre HTML). Recusa explicitamente esse prefixo aqui —
+    `full_path == "api"` cobre o path SEM barra final (`/api`), que o
+    conversor do Starlette entrega sem o `/` que `.startswith("api/")`
+    sozinho exigia (achado P3, herdr-review mfc-68, `mfc-rev`, verify
+    mode)."""
+    if full_path == "api" or full_path.startswith("api/"):
         raise HTTPException(status_code=404, detail=f"Rota de API não encontrada: /{full_path}")
     index_file = os.path.join(STATIC_DIR, "index.html")
     if os.path.exists(index_file):

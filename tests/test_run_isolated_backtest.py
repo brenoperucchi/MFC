@@ -57,6 +57,38 @@ class TestBuildIsolatedEnv(unittest.TestCase):
         env = rib.build_isolated_env("/tmp/base")
         self.assertEqual(env["PYTHONIOENCODING"], "utf-8")
 
+    def test_propagates_llm_gateway_url_override_when_set(self):
+        """Achado P3 (herdr-review mfc-68, mfc-rev, verify mode): tornar
+        _llm_gateway_url() tardio (fix anterior, mfc-67) só resolve o caso
+        do .env carregado tarde — o disparo WEB continuava sem receber a
+        variável nenhuma, porque build_isolated_env() nunca a copiava pro
+        ambiente do filho. Sem esta propagação explícita, um override
+        configurado no ambiente do servidor era descartado silenciosamente,
+        mesmo já lido tardiamente."""
+        with patch.dict(os.environ, {"CSS_LLM_GATEWAY_URL": "http://127.0.0.1:19999"}):
+            env = rib.build_isolated_env("/tmp/base")
+        self.assertEqual(env["CSS_LLM_GATEWAY_URL"], "http://127.0.0.1:19999")
+
+    def test_omits_llm_gateway_url_when_not_set_in_parent(self):
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("CSS_LLM_GATEWAY_URL", None)
+            env = rib.build_isolated_env("/tmp/base")
+        self.assertNotIn("CSS_LLM_GATEWAY_URL", env)
+
+    @unittest.skipUnless(os.name == "posix", "WSLENV só existe no caminho posix (dev local via WSL)")
+    def test_wslenv_lists_llm_gateway_url_only_when_override_is_set(self):
+        """Sem isto na lista do WSLENV, mesmo com a chave presente no dict
+        `env`, o valor nunca atravessa a fronteira WSL->Windows (mesma
+        classe de bug documentada no CLAUDE.md pra outras variáveis)."""
+        with patch.dict(os.environ, {"CSS_LLM_GATEWAY_URL": "http://127.0.0.1:19999"}):
+            env = rib.build_isolated_env("/tmp/base")
+        self.assertIn("CSS_LLM_GATEWAY_URL", env["WSLENV"].split(":"))
+
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("CSS_LLM_GATEWAY_URL", None)
+            env = rib.build_isolated_env("/tmp/base")
+        self.assertNotIn("CSS_LLM_GATEWAY_URL", env["WSLENV"].split(":"))
+
 
 class TestSpawnIsolatedBacktestArgv(unittest.TestCase):
     """Achado 2 (herdr-ask mfc-13, ambos os revisores): congela o argv

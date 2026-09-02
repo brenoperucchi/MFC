@@ -2960,9 +2960,10 @@ function renderBacktestHistoryTable(entries) {
 
         // Uma linha por motor não cabe sem espremer a tabela quando há 3-4
         // motores comparados — a coluna mostra só a faixa (min a max) e o
-        // detalhamento por motor vai pro title (tooltip nativo, uma linha
-        // por motor); o painel de detalhe (clique na linha) mostra tudo
-        // formatado sem essa restrição de espaço.
+        // detalhamento por motor vai pro popover customizado (data-tooltip,
+        // ver setupCustomTooltip(), uma linha por motor); o painel de
+        // detalhe (clique na linha) mostra tudo formatado sem essa
+        // restrição de espaço.
         const engineNames = Object.keys(entry.engines || {});
         const rangeText = (values) => {
             const nums = values.filter(v => typeof v === "number" && isFinite(v));

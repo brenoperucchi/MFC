@@ -83,7 +83,15 @@ def build_isolated_env(base_dir):
     Copia individualmente só o whitelist estrutural do SO, mais as variáveis
     de domínio setadas explicitamente. CSS_MT5_TERMINAL_PATH nunca é lido do
     processo pai — essa é a garantia que a variável dá; a garantia de fundo
-    é ser um processo separado (ver docstring do módulo)."""
+    é ser um processo separado (ver docstring do módulo). CSS_LLM_GATEWAY_URL
+    É lida do processo pai e repassada quando presente (achado P3, herdr-
+    review mfc-68, `mfc-rev`, verify mode: _llm_gateway_url() ficou tardio
+    o bastante pra observar um override, mas o disparo web ainda não
+    recebia a variável NENHUMA — o filho sempre caía no default,
+    silenciosamente, independente de quando era lido). Diferente de
+    CSS_MT5_TERMINAL_PATH, não é uma garantia de segurança propagar essa
+    aqui: a análise por LLM é só uma anotação best-effort pós-hoc, nunca
+    toca o terminal MT5."""
     env = {}
     for key in _SO_ENV_WHITELIST:
         value = os.environ.get(key)
@@ -94,6 +102,9 @@ def build_isolated_env(base_dir):
     env["MFC_BACKTEST_WEB_TRIGGER"] = "1"
     env["PYTHONPATH"] = base_dir
     env["PYTHONUNBUFFERED"] = "1"
+    gateway_url_override = os.environ.get("CSS_LLM_GATEWAY_URL")
+    if gateway_url_override is not None:
+        env["CSS_LLM_GATEWAY_URL"] = gateway_url_override
     # Sem isto, o stdout do filho no Windows usa o codepage ativo do console
     # (não UTF-8) — qualquer acento vira mojibake no log/log_tail, já que o
     # arquivo é lido de volta assumindo UTF-8 (achado do smoke test real,
@@ -105,10 +116,11 @@ def build_isolated_env(base_dir):
         # Windows por padrão, precisa ser listada explicitamente (mesmo
         # padrão documentado em CLAUDE.md). Não verificado automaticamente;
         # ver Verificação item 4 no plano.
-        env["WSLENV"] = ":".join([
-            "CSS_MT5_TERMINAL_PATH", "PYTHONPATH",
-            "MFC_BACKTEST_TERMINAL_ISOLATED", "MFC_BACKTEST_WEB_TRIGGER",
-        ])
+        wslenv_keys = ["CSS_MT5_TERMINAL_PATH", "PYTHONPATH",
+                       "MFC_BACKTEST_TERMINAL_ISOLATED", "MFC_BACKTEST_WEB_TRIGGER"]
+        if gateway_url_override is not None:
+            wslenv_keys.append("CSS_LLM_GATEWAY_URL")
+        env["WSLENV"] = ":".join(wslenv_keys)
     return env
 
 

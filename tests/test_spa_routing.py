@@ -87,6 +87,18 @@ def test_catch_all_refuses_unregistered_api_path_with_404_not_200_html(client):
     assert "html" not in content_type.lower()
 
 
+def test_catch_all_refuses_bare_api_path_without_trailing_slash(client):
+    """Achado P3 (herdr-review mfc-68, mfc-rev, verify mode): a checagem
+    original só testava `startswith("api/")` — /api SEM barra final (que o
+    conversor {full_path:path} do Starlette entrega como full_path="api",
+    sem o "/" que o startswith exigia) escapava e caía no catch-all,
+    devolvendo 200+HTML em vez de 404."""
+    resp = client.get("/api")
+    assert resp.status_code == 404
+    content_type = resp.headers.get("content-type", "")
+    assert "html" not in content_type.lower()
+
+
 def test_catch_all_never_shadows_the_static_mount(client):
     resp = client.get("/static/app.js")
     assert resp.status_code == 200
