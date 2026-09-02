@@ -237,6 +237,48 @@ class TestPortAVectors(unittest.TestCase):
             "degraded",
         )
 
+    def test_threshold_sweep_success_path_survives_the_one_pass_result_shape(self):
+        """Achado CONFIRMADO (herdr-review mfc-70, mfc-rev P2 + mfc-rev-2 P1,
+        os dois independentemente — um com repro executado): threshold_sweep()
+        desempacotava o retorno de _one_pass() como um tuple posicional de 8
+        nomes, congelado de quando _one_pass() ainda devolvia 8 campos.
+        Depois do crescimento pra 11 (turnover/exposição/decisão), o PRIMEIRO
+        limiar da varredura levantava `ValueError: too many values to unpack`
+        — depois de já ter pago o custo de carregar séries/preços, sem
+        produzir nada. Nenhum teste existente alcançava esse caminho (o único
+        teste de threshold_sweep() cobria só o retorno precoce sem MT5, nunca
+        chegava em _one_pass()). Este teste mocka _one_pass() pra devolver o
+        shape ATUAL (OnePassResult) e prova que threshold_sweep() completa
+        sem lançar — é exatamente a fronteira que ficou sem cobertura."""
+        names = list(engine_compare.ENGINES)
+        active = {name: {ccy: 0 for ccy in engine_compare.CURRENCIES} for name in names}
+        stats_template = {
+            "pnl": 10.0, "cost": 2.0, "baskets": 3, "nights_with_baskets": 2,
+            "wins": 1, "basket_wins": 2, "net_per_basket": [1.0, 2.0, 3.0],
+            "degraded_baskets": 0, "swap_unmodeled_baskets": 0,
+            "skipped_missing_price": 0,
+        }
+
+        def fake_one_pass(series, prices, days, engine_names, end_brt=None):
+            return engine_compare.OnePassResult(
+                stats={engine_names[0]: dict(stats_template)},
+                agree=1, disagree=0, disagreement_examples=[],
+                active_signal_counts=active, nights_evaluated=2,
+                paired_net_deltas=[], disagree_by_currency={ccy: 0 for ccy in engine_compare.CURRENCIES},
+                exposure_series={engine_names[0]: [1, 2]}, decision_matrix={},
+                coverage={"candidate_nights": 2, "evaluated_nights": 2,
+                          "skipped_no_verdict": 0, "skipped_invalid_exit": 0,
+                          "evaluated_dates_brt": [], "price_missing_points": []},
+            )
+
+        with patch.object(engine_compare, "ensure_mt5", return_value=True), \
+                patch.object(engine_compare, "check_contract_size_consistency", return_value={"valid_for_pnl": True}), \
+                patch.object(engine_compare, "load_series", return_value={"loaded": True}), \
+                patch.object(engine_compare, "load_h1_prices", return_value={pair: object() for pair in canonical.ALL_28_PAIRS}), \
+                patch.object(engine_compare, "_one_pass", side_effect=fake_one_pass):
+            result = engine_compare.threshold_sweep(days=1, thresholds=(0.5, 1.0))
+        self.assertEqual(result, 0)
+
     def test_oos_producer_coverage_gate_rejects_each_incomplete_case(self):
         names = list(engine_compare.ENGINES)
         active = {name: {ccy: 0 for ccy in engine_compare.CURRENCIES} for name in names}
@@ -260,8 +302,13 @@ class TestPortAVectors(unittest.TestCase):
             disagree_by_currency = {ccy: 0 for ccy in engine_compare.CURRENCIES}
             exposure_series = {name: [] for name in names}
             decision_matrix = {}
-            return (stats, 0, 0, [], active, coverage["evaluated_nights"], [],
-                    disagree_by_currency, exposure_series, decision_matrix, coverage)
+            return engine_compare.OnePassResult(
+                stats=stats, agree=0, disagree=0, disagreement_examples=[],
+                active_signal_counts=active, nights_evaluated=coverage["evaluated_nights"],
+                paired_net_deltas=[], disagree_by_currency=disagree_by_currency,
+                exposure_series=exposure_series, decision_matrix=decision_matrix,
+                coverage=coverage,
+            )
 
         base = {
             "candidate_nights": 30,
@@ -335,9 +382,11 @@ class TestPortAVectors(unittest.TestCase):
         second["evaluated_nights"] = 29
         disagree_by_currency = {ccy: 0 for ccy in engine_compare.CURRENCIES}
         exposure_series = {name: [] for name in names}
-        result = lambda coverage: (
-            stats, 0, 0, [], active, coverage["evaluated_nights"], [],
-            disagree_by_currency, exposure_series, {}, coverage,
+        result = lambda coverage: engine_compare.OnePassResult(
+            stats=stats, agree=0, disagree=0, disagreement_examples=[],
+            active_signal_counts=active, nights_evaluated=coverage["evaluated_nights"],
+            paired_net_deltas=[], disagree_by_currency=disagree_by_currency,
+            exposure_series=exposure_series, decision_matrix={}, coverage=coverage,
         )
         with patch.object(engine_compare, "MT5_PATH", r"D:\MetaTradersWSL\mfc-backtest\terminal64.exe"), \
                 patch.object(engine_compare, "MT5_AVAILABLE", True), \

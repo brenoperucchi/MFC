@@ -56,6 +56,7 @@ import json
 import ntpath
 import socket
 from datetime import datetime, timedelta, timezone
+from typing import NamedTuple
 
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if BASE_DIR not in sys.path:
@@ -646,8 +647,11 @@ def _overall_quality_status(css_history_status, stats, engine_names):
 
 def _pass_summary(pass_result, engine_names):
     """Resumo persistível de uma passada individual do CostModel."""
-    (stats, _agree, _disagree, _examples, active, nights, paired,
-     _disagree_by_ccy, _exposure, _decisions, coverage) = pass_result
+    stats = pass_result.stats
+    active = pass_result.active_signal_counts
+    nights = pass_result.nights_evaluated
+    paired = pass_result.paired_net_deltas
+    coverage = pass_result.coverage
     engines = {}
     for name in engine_names:
         current = stats[name]
@@ -830,6 +834,31 @@ def _basket_pnl(ccy, bias_word, prices, srv_dt, exit_srv):
     )
 
 
+class OnePassResult(NamedTuple):
+    """Retorno de _one_pass() por NOME, não por posição — achado real
+    (herdr-review mfc-70, mfc-rev P2 + mfc-rev-2 P1, confirmado pelos dois
+    independentemente, um deles com repro executado): o tuple cru já cresceu
+    de 8 pra 11 campos uma vez, e um dos quatro call sites que o desmontavam
+    manualmente (threshold_sweep()) ficou pra trás — `sweep` da CLI quebrava
+    com ValueError determinístico, sem nenhum teste cobrindo essa fronteira.
+    NamedTuple elimina a classe inteira do bug: um call site desatualizado
+    vira AttributeError óbvio na hora certa (não um unpack silenciosamente
+    errado), e novos campos podem entrar em qualquer posição sem exigir a
+    regra não-verificável "coverage sempre por último" que o código antigo
+    dependia (pass_result[-1] em compare() virou pass_result.coverage)."""
+    stats: dict
+    agree: int
+    disagree: int
+    disagreement_examples: list
+    active_signal_counts: dict
+    nights_evaluated: int
+    paired_net_deltas: list
+    disagree_by_currency: dict
+    exposure_series: dict
+    decision_matrix: dict
+    coverage: dict
+
+
 def _one_pass(series, prices, days, engine_names, end_brt=None):
     """Uma passada completa pelos `days` dias, pros motores pedidos. Separado
     de compare() pra permitir `runs=N` (custo varia por passada, decisão
@@ -1010,18 +1039,18 @@ def _one_pass(series, prices, days, engine_names, end_brt=None):
         "evaluated_dates_brt": evaluated_brt_days,
         "price_missing_points": price_missing_points,
     }
-    return (
-        stats,
-        agree,
-        disagree,
-        disagreement_examples,
-        active_signal_counts,
-        nights_evaluated,
-        paired_net_deltas,
-        disagree_by_currency,
-        exposure_series,
-        decision_matrix,
-        coverage,
+    return OnePassResult(
+        stats=stats,
+        agree=agree,
+        disagree=disagree,
+        disagreement_examples=disagreement_examples,
+        active_signal_counts=active_signal_counts,
+        nights_evaluated=nights_evaluated,
+        paired_net_deltas=paired_net_deltas,
+        disagree_by_currency=disagree_by_currency,
+        exposure_series=exposure_series,
+        decision_matrix=decision_matrix,
+        coverage=coverage,
     )
 
 
@@ -1153,10 +1182,19 @@ def compare(days=45, engine_names=None, runs=1, log_note=None, end_brt=None,
     # passada — só custo/líquido variam. Usa a última passada pra tudo que
     # não é custo, e agrega net líquido de todas as passadas pra reportar a
     # faixa.
-    (stats, agree, disagree, disagreement_examples, active_signal_counts,
-     nights_evaluated, paired_net_deltas, disagree_by_currency,
-     exposure_series, decision_matrix, coverage) = passes[-1]
-    if any(pass_result[-1] != coverage for pass_result in passes):
+    last_pass = passes[-1]
+    stats = last_pass.stats
+    agree = last_pass.agree
+    disagree = last_pass.disagree
+    disagreement_examples = last_pass.disagreement_examples
+    active_signal_counts = last_pass.active_signal_counts
+    nights_evaluated = last_pass.nights_evaluated
+    paired_net_deltas = last_pass.paired_net_deltas
+    disagree_by_currency = last_pass.disagree_by_currency
+    exposure_series = last_pass.exposure_series
+    decision_matrix = last_pass.decision_matrix
+    coverage = last_pass.coverage
+    if any(pass_result.coverage != coverage for pass_result in passes):
         raise RuntimeError("cobertura divergente entre passadas do mesmo backtest")
     if sample_role == "oos_disjoint":
         if (coverage["candidate_nights"] < 30
@@ -1189,7 +1227,7 @@ def compare(days=45, engine_names=None, runs=1, log_note=None, end_brt=None,
         [summary["cost_observation_digests"] for summary in pass_summaries],
         require_isolated=sample_role == "oos_disjoint",
     )
-    net_by_run = {name: [p[0][name]["pnl"] - p[0][name]["cost"] for p in passes] for name in engine_names}
+    net_by_run = {name: [p.stats[name]["pnl"] - p.stats[name]["cost"] for p in passes] for name in engine_names}
     turnover = _turnover_summary(decision_matrix, engine_names)
     exposure = _exposure_summary(exposure_series, engine_names)
     disagreement_by_currency = _disagreement_by_currency_summary(disagree_by_currency, nights_evaluated)
@@ -1488,18 +1526,17 @@ def threshold_sweep(days=45, thresholds=VECTOR_THRESHOLDS, end_brt=None):
         original = ENGINES.get(name)
         ENGINES[name] = make_3tf_vector_engine(t)
         try:
-            stats, agree, disagree, _, _, nights_evaluated, _, _coverage = _one_pass(
-                series, prices, days, [name], end_brt=end_brt
-            )
+            pass_result = _one_pass(series, prices, days, [name], end_brt=end_brt)
         finally:
             if original is None:
                 del ENGINES[name]
             else:
                 ENGINES[name] = original
-        s = stats[name]
+        s = pass_result.stats[name]
         net = s["pnl"] - s["cost"]
         night_winrate = (s["wins"] / s["nights_with_baskets"] * 100) if s["nights_with_baskets"] else 0.0
         basket_winrate = (s["basket_wins"] / s["baskets"] * 100) if s["baskets"] else 0.0
+        nights_evaluated = pass_result.nights_evaluated
         cestas_noite = s["baskets"] / nights_evaluated if nights_evaluated else 0.0
         print(f"{t:>6} {s['nights_with_baskets']:>16} {s['baskets']:>8} {cestas_noite:>13.2f} "
               f"{night_winrate:>6.1f}% {basket_winrate:>6.1f}% "
