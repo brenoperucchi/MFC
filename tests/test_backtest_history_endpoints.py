@@ -404,6 +404,33 @@ class TestBacktestHistoryEndpointsIntegration(unittest.TestCase):
         self.assertIn("httponly", set_cookie)
         self.assertIn("samesite=strict", set_cookie)
 
+    def test_login_also_clears_a_stale_wide_scoped_cookie_from_before_the_path_scope_fix(self):
+        """Migração (herdr-review mfc-69, medido ao vivo pelo próprio Breno
+        no Ryzen9): quem tinha logado ANTES do cookie ficar restrito a
+        /api/backtest-history ainda carrega um cookie fantasma em path="/"
+        — o navegador manda os DOIS (mesmo nome, paths diferentes) em toda
+        requisição sob o prefixo novo, e qual dos dois o servidor lê
+        primeiro não é garantido entre navegadores. Login precisa apagar o
+        path antigo, não só gravar o novo, senão o fantasma pode sombrear a
+        sessão pra sempre."""
+        resp = self._login()
+        set_cookie_headers = resp.headers.get_list("set-cookie")
+        wide_scoped_clear = [
+            h for h in set_cookie_headers
+            if h.startswith(f"{server._BACKTEST_SESSION_COOKIE}=") and "Path=/;" in h
+        ]
+        self.assertTrue(wide_scoped_clear, f"nenhum Set-Cookie limpando path=\"/\" em {set_cookie_headers}")
+
+    def test_logout_also_clears_the_stale_wide_scoped_cookie(self):
+        self._login()
+        resp = self.client.post("/api/backtest-history/logout")
+        set_cookie_headers = resp.headers.get_list("set-cookie")
+        wide_scoped_clear = [
+            h for h in set_cookie_headers
+            if h.startswith(f"{server._BACKTEST_SESSION_COOKIE}=") and "Path=/;" in h
+        ]
+        self.assertTrue(wide_scoped_clear, f"nenhum Set-Cookie limpando path=\"/\" em {set_cookie_headers}")
+
     def test_login_rejects_extra_fields_with_422(self):
         resp = self.client.post(
             "/api/backtest-history/login",

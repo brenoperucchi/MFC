@@ -341,6 +341,10 @@ async def backtest_login(payload: BacktestLoginPayload, request: Request, respon
         max_age=_BACKTEST_SESSION_TTL_SECONDS,
         path=_BACKTEST_SESSION_COOKIE_PATH,
     )
+    # Mesma migração do logout (ver comentário lá) — limpa um cookie
+    # "fantasma" de path="/" de antes do escopo ficar restrito, pra ele
+    # nunca sombrear o cookie novo que acabou de ser gravado.
+    response.delete_cookie(_BACKTEST_SESSION_COOKIE, path="/")
     return {"success": True}
 
 
@@ -350,6 +354,14 @@ async def backtest_logout(response: Response, mfc_backtest_session: str = Cookie
         with _backtest_auth_lock:
             _backtest_sessions.pop(mfc_backtest_session, None)
     response.delete_cookie(_BACKTEST_SESSION_COOKIE, path=_BACKTEST_SESSION_COOKIE_PATH)
+    # Migração: um cookie de sessão gravado ANTES do escopo de path ficar
+    # restrito (achado, herdr-review mfc-69) continua em path="/" no
+    # navegador de quem já tinha logado antes do deploy — o navegador manda
+    # os DOIS (mesmo nome, paths diferentes) em toda requisição sob
+    # /api/backtest-history, e qual dos dois o servidor lê primeiro não é
+    # garantido entre navegadores. Apagar o path antigo também evita esse
+    # cookie "fantasma" sombrear o novo indefinidamente.
+    response.delete_cookie(_BACKTEST_SESSION_COOKIE, path="/")
     return {"success": True}
 
 
