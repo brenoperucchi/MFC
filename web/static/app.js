@@ -203,6 +203,7 @@ function setupEventListeners() {
     setupCrossoversModal();
     setupUrlRouting();
     setupCustomTooltip();
+    setupBacktestDetailSidebar();
 
     // 7. Redimensionamento de Janela
     window.addEventListener("resize", () => {
@@ -2832,6 +2833,58 @@ async function loadBacktestHistory() {
 }
 
 // ==========================================================================
+// SIDEBAR MODAL DE DETALHE DO BACKTEST (substitui o painel inline com scroll)
+// ==========================================================================
+// Achado do Breno: o painel de detalhe (clique na linha da tabela) ficava
+// inline, ~2300px abaixo do viewport visível dentro do modal — mesmo com
+// scrollIntoView(), a experiência era "a página pula lá pra baixo" em vez
+// de mostrar o detalhe ali na hora. Vira um drawer/sidebar que desliza da
+// direita por cima de tudo (mesmo padrão de camada do popover de tooltip:
+// elemento único, reaproveitado, anexado direto em document.body — nunca
+// dentro do modal, pra nunca competir com o overflow/scroll dele).
+// #backtestDetailPanel continua sendo o CONTAINER DE CONTEÚDO (mesmo id,
+// mesma lógica de renderBacktestDetailPanel() abaixo) — só o que muda é
+// onde ele mora e como fica visível.
+function setupBacktestDetailSidebar() {
+    const backdrop = document.createElement("div");
+    backdrop.id = "backtestDetailSidebar";
+    backdrop.className = "backtest-detail-sidebar hidden";
+
+    const panelWrap = document.createElement("div");
+    panelWrap.className = "backtest-detail-sidebar-panel";
+
+    const header = document.createElement("div");
+    header.className = "backtest-detail-sidebar-header";
+    const headerLabel = document.createElement("span");
+    headerLabel.id = "backtestDetailSidebarTitle";
+    headerLabel.textContent = "📋 Detalhe da execução";
+    const btnClose = document.createElement("button");
+    btnClose.className = "modal-close";
+    btnClose.textContent = "×";
+    btnClose.setAttribute("aria-label", "Fechar");
+    header.appendChild(headerLabel);
+    header.appendChild(btnClose);
+
+    const content = document.createElement("div");
+    content.id = "backtestDetailPanel";
+    content.className = "backtest-detail-sidebar-content";
+
+    panelWrap.appendChild(header);
+    panelWrap.appendChild(content);
+    backdrop.appendChild(panelWrap);
+    document.body.appendChild(backdrop);
+
+    const close = () => backdrop.classList.add("hidden");
+    btnClose.addEventListener("click", close);
+    backdrop.addEventListener("click", (e) => {
+        if (e.target === backdrop) close();
+    });
+    document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape" && !backdrop.classList.contains("hidden")) close();
+    });
+}
+
+// ==========================================================================
 // TOOLTIP/POPOVER CUSTOMIZADO (substitui o atributo `title` nativo)
 // ==========================================================================
 // Achado do Breno testando /track_record/backtest: o `title` nativo exige
@@ -3252,14 +3305,13 @@ function renderBacktestDetailPanel(entry) {
     const panel = document.getElementById("backtestDetailPanel");
     if (!panel) return;
     panel.textContent = "";
-    panel.style.display = "flex";
 
-    const title = document.createElement("div");
-    title.style.fontWeight = "800";
-    title.style.fontFamily = "var(--font-display)";
-    title.style.color = "#FFF";
-    title.textContent = `📋 Detalhe da execução #${entry.journal_seq != null ? entry.journal_seq : "-"}`;
-    panel.appendChild(title);
+    const sidebarTitle = document.getElementById("backtestDetailSidebarTitle");
+    if (sidebarTitle) {
+        sidebarTitle.textContent = `📋 Detalhe da execução #${entry.journal_seq != null ? entry.journal_seq : "-"}`;
+    }
+    const sidebar = document.getElementById("backtestDetailSidebar");
+    if (sidebar) sidebar.classList.remove("hidden");
 
     const analysis = entry.llm_analysis;
     if (analysis && typeof analysis.summary === "string") {
@@ -3336,14 +3388,10 @@ function renderBacktestDetailPanel(entry) {
         panel.appendChild(provRow);
     }
 
-    // Achado do Breno clicando numa linha no topo da tabela: o painel
-    // renderiza certo (conteúdo, display:flex), mas fica ~2300px abaixo do
-    // viewport visível dentro do modal — sem scroll nenhum, parecia que o
-    // clique não fazia nada. O modal inteiro (não a página) é o contêiner
-    // com scroll aqui, daí `block: "nearest"` em vez de `"start"` — evita
-    // rolar mais que o necessário quando o painel já está parcialmente
-    // visível.
-    panel.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    // Reseta o scroll pro topo a cada nova entrada — sem isto, clicar numa
+    // linha diferente enquanto o sidebar já está aberto e rolado mostrava o
+    // novo conteúdo já rolado pra onde o anterior tinha ficado.
+    panel.scrollTop = 0;
 }
 
 async function loadTrackRecord(ccy = "ALL") {
