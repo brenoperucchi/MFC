@@ -34,6 +34,15 @@ pela web precisa rodar num **processo separado**, com o ambiente do terminal iso
 4. Chave de API separada (`CSS_BACKTEST_API_KEY`) — nunca reaproveita `CSS_PORTFOLIO_API_KEY`
    (que abre posição real), pra não aumentar o raio de exposição dessa chave.
 
+   **Atualização (2026-09-02, pedido do Breno "vamos criar uma senha e login... remover
+   o uso da x-css-api-key"):** `CSS_BACKTEST_API_KEY`/`X-Css-Api-Key` foram REMOVIDOS —
+   substituídos por login/senha (`CSS_BACKTEST_USERNAME`/`CSS_BACKTEST_PASSWORD`) + sessão
+   de cookie HttpOnly. Todo o texto abaixo que menciona a chave antiga é histórico (documenta
+   a decisão original e as duas rodadas de revisão que a validaram) — não reflete mais o
+   código atual. Desenho e revisão do mecanismo novo: commit `3401cc3` + correções da rodada
+   `herdr-review mfc-69` (CORS `allow_credentials`, escopo do cookie, lockout que não bloqueia
+   credencial correta) — ver `web/server.py`, seção "Acompanhamento de backtest via web".
+
 ## Consulta de design (herdr-ask mfc-13) — achados que mudaram o plano
 
 Antes de implementar, o plano foi submetido a `herdr-ask` (`mfc-rev` + `mfc-rev-2`, cegos um

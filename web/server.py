@@ -16,7 +16,7 @@ from datetime import datetime
 import webbrowser
 import uvicorn
 from pydantic import BaseModel, ConfigDict, Field
-from fastapi import FastAPI, HTTPException, Header, Cookie, Response
+from fastapi import FastAPI, HTTPException, Header, Cookie, Response, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -37,11 +37,24 @@ app = FastAPI(
     version="2.0.0"
 )
 
-# Habilitar CORS
+# Habilitar CORS — allow_credentials=False é deliberado (achado P2/P3-2,
+# herdr-review mfc-69, mfc-rev + mfc-rev-2): allow_origins="*" combinado com
+# allow_credentials=True vira, na prática, "qualquer origem pode mandar
+# credenciais" (é assim que os middlewares CORS contornam o spec recusar
+# Access-Control-Allow-Origin: * com credenciais — ecoam a Origin da
+# requisição). Isso importava pouco enquanto a auth do backtest era uma
+# chave estática (um terceiro precisava CONHECER o segredo pra montar a
+# requisição); com sessão em cookie, o navegador anexa a credencial sozinho
+# — e este host roda outros serviços não relacionados em outras portas
+# (ver CLAUDE.md, pairtrading-server.service na 8080), que SameSite=Strict
+# não isola entre si (mesmo host = "same site", independente da porta). O
+# SPA é servido pela MESMA origem que a API, então nunca precisou de
+# credential cross-origin — desligar isto não muda nada do uso legítimo,
+# só fecha a superfície de CSRF que dependia só do SameSite do cookie.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -193,6 +206,12 @@ BACKTEST_USERNAME = os.environ.get("CSS_BACKTEST_USERNAME")
 BACKTEST_PASSWORD = os.environ.get("CSS_BACKTEST_PASSWORD")
 
 _BACKTEST_SESSION_COOKIE = "mfc_backtest_session"
+# Escopo do cookie restrito ao prefixo que de fato usa sessão — achado
+# (herdr-review mfc-69, `mfc-rev-2`): com path="/" o token viajaria em toda
+# requisição da aplicação (inclusive o polling de 3s do dashboard, que não
+# precisa dele), multiplicando à toa a exposição do token em texto claro
+# sobre HTTP puro na LAN.
+_BACKTEST_SESSION_COOKIE_PATH = "/api/backtest-history"
 _BACKTEST_SESSION_TTL_SECONDS = 12 * 3600  # 12h — cobre um dia de trabalho
 _BACKTEST_LOGIN_LOCKOUT_THRESHOLD = 5
 _BACKTEST_LOGIN_LOCKOUT_SECONDS = 60
@@ -265,23 +284,23 @@ class BacktestLoginPayload(BaseModel):
 
 
 @app.post("/api/backtest-history/login")
-async def backtest_login(payload: BacktestLoginPayload, response: Response):
+async def backtest_login(payload: BacktestLoginPayload, request: Request, response: Response):
     """Login único compartilhado — sem cadastro de usuários, é o mesmo
     segredo compartilhado que a chave de API antiga já era, só que digitado
     num formulário em vez de colado num campo. Lockout global (não por IP,
     de propósito: login único compartilhado não distingue quem está
-    tentando) depois de 5 falhas seguidas, 60s — senha memorizável é mais
+    tentando) depois de 5 falhas SEGUIDAS, 60s — senha memorizável é mais
     adivinhável que uma chave aleatória longa, então vale uma trava barata
-    mesmo sendo uso interno."""
+    mesmo sendo uso interno.
+
+    A credencial CORRETA nunca é bloqueada pelo lockout, mesmo com um
+    lockout ativo (achado P3-4, herdr-review mfc-69, `mfc-rev-2`): a versão
+    anterior checava o lockout ANTES de comparar a senha, então qualquer um
+    que alcançasse a porta conseguia trancar o operador legítimo fora por
+    tempo indefinido só errando de propósito a cada 60s — um botão de DoS
+    trivial contra o próprio dono da senha certa. Agora o lockout só entra
+    em jogo DEPOIS de confirmar que a tentativa era mesmo errada."""
     global _backtest_login_failures, _backtest_login_locked_until
-    now = time.time()
-    with _backtest_auth_lock:
-        if now < _backtest_login_locked_until:
-            wait_s = int(_backtest_login_locked_until - now) + 1
-            raise HTTPException(
-                status_code=429,
-                detail=f"Muitas tentativas de login com falha — espere {wait_s}s.",
-            )
     if not BACKTEST_USERNAME or not BACKTEST_PASSWORD:
         raise HTTPException(
             status_code=503,
@@ -289,21 +308,38 @@ async def backtest_login(payload: BacktestLoginPayload, response: Response):
         )
     if not _backtest_credentials_match(payload.username, payload.password):
         with _backtest_auth_lock:
-            _backtest_login_failures += 1
-            if _backtest_login_failures >= _BACKTEST_LOGIN_LOCKOUT_THRESHOLD:
-                _backtest_login_locked_until = time.time() + _BACKTEST_LOGIN_LOCKOUT_SECONDS
-                _backtest_login_failures = 0
+            now = time.time()
+            wait_remaining = _backtest_login_locked_until - now
+            if wait_remaining <= 0:
+                _backtest_login_failures += 1
+                if _backtest_login_failures >= _BACKTEST_LOGIN_LOCKOUT_THRESHOLD:
+                    _backtest_login_locked_until = now + _BACKTEST_LOGIN_LOCKOUT_SECONDS
+                    _backtest_login_failures = 0
+                    wait_remaining = _BACKTEST_LOGIN_LOCKOUT_SECONDS
+        if wait_remaining > 0:
+            raise HTTPException(
+                status_code=429,
+                detail=f"Muitas tentativas de login com falha — espere {int(wait_remaining) + 1}s.",
+            )
         raise HTTPException(status_code=401, detail="Usuário ou senha incorretos.")
     with _backtest_auth_lock:
         _backtest_login_failures = 0
+        _backtest_login_locked_until = 0.0
     token = _create_backtest_session()
     response.set_cookie(
         key=_BACKTEST_SESSION_COOKIE,
         value=token,
         httponly=True,
         samesite="strict",
+        # Secure exige HTTPS pra o cookie sequer ser enviado — hoje este
+        # servidor roda em HTTP puro na LAN, então fixar True quebraria o
+        # login (achado, herdr-review mfc-69, `mfc-rev-2`: ausência de
+        # Secure está correta na implantação atual). Condicionado ao esquema
+        # da requisição pra ficar automaticamente correto se um dia isto
+        # ficar atrás de um proxy/túnel HTTPS (achado, `mfc-rev`).
+        secure=request.url.scheme == "https",
         max_age=_BACKTEST_SESSION_TTL_SECONDS,
-        path="/",
+        path=_BACKTEST_SESSION_COOKIE_PATH,
     )
     return {"success": True}
 
@@ -313,7 +349,7 @@ async def backtest_logout(response: Response, mfc_backtest_session: str = Cookie
     if mfc_backtest_session:
         with _backtest_auth_lock:
             _backtest_sessions.pop(mfc_backtest_session, None)
-    response.delete_cookie(_BACKTEST_SESSION_COOKIE, path="/")
+    response.delete_cookie(_BACKTEST_SESSION_COOKIE, path=_BACKTEST_SESSION_COOKIE_PATH)
     return {"success": True}
 
 

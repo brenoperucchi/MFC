@@ -39,6 +39,29 @@ except ImportError as e:
                  allow_module_level=True)
 
 
+class TestCorsNeverAllowsCredentialedCrossOrigin(unittest.TestCase):
+    """Achado (herdr-review mfc-69, mfc-rev P2 + mfc-rev-2 P3-2):
+    allow_origins="*" + allow_credentials=True vira, na prática, "qualquer
+    origem pode mandar credenciais" — inofensivo enquanto a auth do backtest
+    era uma chave estática (um terceiro precisava CONHECER o segredo), mas
+    perigoso com sessão em cookie (o navegador anexa sozinho). Este host
+    roda outros serviços não relacionados noutras portas (ver CLAUDE.md,
+    pairtrading-server.service na 8080) que SameSite=Strict não isola entre
+    si (mesmo host = "same site", independente da porta) — CORS vira a
+    ÚNICA camada real contra um desses serviços fazendo fetch() com
+    credentials:'include' pro endpoint de trigger."""
+
+    def test_cors_never_advertises_credentials_allowed(self):
+        resp = TestClient(server.app).options(
+            "/api/backtest-history/trigger",
+            headers={
+                "Origin": "http://192.168.0.125:8080",  # outro serviço, mesmo host
+                "Access-Control-Request-Method": "POST",
+            },
+        )
+        self.assertNotEqual(resp.headers.get("access-control-allow-credentials"), "true")
+
+
 class TestBacktestCredentialsMatch(unittest.TestCase):
     """Login único compartilhado — usuário E senha comparados sempre via
     hmac.compare_digest (nunca `and` de curto-circuito, pra não vazar por
@@ -366,6 +389,21 @@ class TestBacktestHistoryEndpointsIntegration(unittest.TestCase):
         self.assertTrue(resp.json()["success"])
         self.assertIn(server._BACKTEST_SESSION_COOKIE, resp.cookies)
 
+    def test_session_cookie_is_scoped_to_the_backtest_path_not_the_whole_app(self):
+        """Achado (herdr-review mfc-69, mfc-rev-2): com path="/" o token
+        viajaria em toda requisição da aplicação (inclusive o polling de 3s
+        do dashboard, que não usa a sessão) — expondo o token à toa em texto
+        claro sobre HTTP puro na LAN."""
+        resp = self._login()
+        set_cookie = resp.headers.get("set-cookie", "")
+        self.assertIn(f"Path={server._BACKTEST_SESSION_COOKIE_PATH}", set_cookie)
+
+    def test_session_cookie_is_httponly_and_samesite_strict(self):
+        resp = self._login()
+        set_cookie = resp.headers.get("set-cookie", "").lower()
+        self.assertIn("httponly", set_cookie)
+        self.assertIn("samesite=strict", set_cookie)
+
     def test_login_rejects_extra_fields_with_422(self):
         resp = self.client.post(
             "/api/backtest-history/login",
@@ -373,19 +411,50 @@ class TestBacktestHistoryEndpointsIntegration(unittest.TestCase):
         )
         self.assertEqual(resp.status_code, 422)
 
-    def test_login_locks_out_after_repeated_failures(self):
-        for _ in range(server._BACKTEST_LOGIN_LOCKOUT_THRESHOLD):
+    def _exhaust_login_lockout(self):
+        """As primeiras THRESHOLD-1 tentativas erradas devolvem 401 normal;
+        a que CRUZA o limiar já sinaliza o lockout nela mesma (429, não
+        401) — é a resposta mais correta (avisa na hora, não só na
+        tentativa seguinte). Devolve a resposta da tentativa que disparou o
+        lockout, pra quem chama poder conferir o 429."""
+        for _ in range(server._BACKTEST_LOGIN_LOCKOUT_THRESHOLD - 1):
             resp = self.client.post(
                 "/api/backtest-history/login",
                 json={"username": "test-user", "password": "senha-errada"},
             )
             self.assertEqual(resp.status_code, 401)
-        # a próxima tentativa, mesmo com a senha CERTA, esbarra no lockout
+        return self.client.post(
+            "/api/backtest-history/login",
+            json={"username": "test-user", "password": "senha-errada"},
+        )
+
+    def test_login_locks_out_wrong_attempts_after_repeated_failures(self):
+        triggering_resp = self._exhaust_login_lockout()
+        self.assertEqual(triggering_resp.status_code, 429)
+        # e a tentativa SEGUINTE, ainda errada, continua esbarrando no lockout
+        resp = self.client.post(
+            "/api/backtest-history/login",
+            json={"username": "test-user", "password": "ainda-errada"},
+        )
+        self.assertEqual(resp.status_code, 429)
+
+    def test_login_with_correct_password_never_blocked_by_lockout(self):
+        """Achado P3-4 (herdr-review mfc-69, mfc-rev-2): a versão anterior
+        checava o lockout ANTES de comparar a senha — qualquer um que
+        alcançasse a porta conseguia trancar o operador legítimo fora só
+        errando de propósito a cada 60s (5 POSTs bastam), sem precisar
+        conhecer nada. A senha CERTA precisa continuar funcionando mesmo com
+        um lockout ativo causado por outra pessoa (ou pelo próprio operador
+        errando antes)."""
+        self._exhaust_login_lockout()
+        # lockout está ativo agora (confirmado pelo teste acima) — mas a
+        # senha CERTA ainda entra, sem esperar nada.
         resp = self.client.post(
             "/api/backtest-history/login",
             json={"username": "test-user", "password": "test-pass"},
         )
-        self.assertEqual(resp.status_code, 429)
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.json()["success"])
 
     def test_session_endpoint_reflects_logged_out_by_default(self):
         resp = self.client.get("/api/backtest-history/session")
