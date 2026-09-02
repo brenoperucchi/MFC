@@ -2707,6 +2707,19 @@ function fmtBacktestMoney(value) {
     return (value >= 0 ? "+$" : "-$") + Math.abs(value).toFixed(2);
 }
 
+// Achado do Breno: clicar em "Disparar" com a descrição vazia EXECUTAVA a
+// validação corretamente, mas a mensagem saía na mesma cor cinza apagada
+// (--text-muted) usada pra texto de status neutro — fácil de ler como "não
+// aconteceu nada". `kind` distingue visualmente erro/validação (vermelho,
+// negrito) de estados neutros/de sucesso (cor original).
+function setBacktestTriggerMsg(text, kind) {
+    const msgEl = document.getElementById("backtestTriggerStatusMsg");
+    if (!msgEl) return;
+    msgEl.textContent = text;
+    msgEl.style.color = kind === "error" ? "var(--color-red)" : "var(--text-muted)";
+    msgEl.style.fontWeight = kind === "error" ? "700" : "400";
+}
+
 function setupBacktestTriggerForm() {
     const keyInput = document.getElementById("backtestTriggerApiKey");
     if (keyInput) {
@@ -2719,18 +2732,23 @@ function setupBacktestTriggerForm() {
     btn.addEventListener("click", async () => {
         const descInput = document.getElementById("backtestTriggerDescription");
         const runsInput = document.getElementById("backtestTriggerRuns");
-        const msgEl = document.getElementById("backtestTriggerStatusMsg");
         const description = (descInput && descInput.value || "").trim();
         const runs = parseInt((runsInput && runsInput.value) || "2", 10);
         const apiKey = getBacktestApiKey();
 
         if (description.length < 3) {
-            if (msgEl) msgEl.textContent = "Descrição precisa ter pelo menos 3 caracteres.";
+            setBacktestTriggerMsg("Descrição precisa ter pelo menos 3 caracteres.", "error");
+            if (descInput) descInput.focus();
+            return;
+        }
+        if (!apiKey) {
+            setBacktestTriggerMsg("Preencha a X-Css-Api-Key antes de disparar.", "error");
+            if (keyInput) keyInput.focus();
             return;
         }
 
         btn.disabled = true;
-        if (msgEl) msgEl.textContent = "Disparando...";
+        setBacktestTriggerMsg("Disparando...", "info");
         try {
             const res = await fetch("/api/backtest-history/trigger", {
                 method: "POST",
@@ -2739,14 +2757,14 @@ function setupBacktestTriggerForm() {
             });
             const body = await res.json().catch(() => ({}));
             if (!res.ok) {
-                if (msgEl) msgEl.textContent = `Erro (${res.status}): ${body.detail || "falha ao disparar"}`;
+                setBacktestTriggerMsg(`Erro (${res.status}): ${body.detail || "falha ao disparar"}`, "error");
                 btn.disabled = false;
                 return;
             }
-            if (msgEl) msgEl.textContent = `Iniciado (run_id=${body.run_id}). Acompanhando...`;
+            setBacktestTriggerMsg(`Iniciado (run_id=${body.run_id}). Acompanhando...`, "info");
             startBacktestStatusPolling();
         } catch (err) {
-            if (msgEl) msgEl.textContent = "Erro de rede ao disparar.";
+            setBacktestTriggerMsg("Erro de rede ao disparar.", "error");
             btn.disabled = false;
         }
     });
