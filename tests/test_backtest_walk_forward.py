@@ -37,32 +37,52 @@ from scripts.backtest_engine_compare import (
     _find_walk_forward_entry,
     walk_forward,
 )
-from scripts.run_isolated_backtest import REGRESSION_WINDOW_DAYS, REGRESSION_WINDOW_END_BRT
+from scripts.run_isolated_backtest import (
+    REGRESSION_WINDOW_DAYS,
+    REGRESSION_WINDOW_END_BRT,
+    _assert_regression_window_after_holdout,
+)
 
 
 class TestDevelopmentStartBrtIsNotStale(unittest.TestCase):
-    """Achado CONFIRMADO (herdr-review mfc-72, mfc-rev P1 + mfc-rev-2 P2-1,
-    convergindo no mesmo ponto): DEVELOPMENT_START_BRT é uma cópia
+    """Achado original (herdr-review mfc-72, mfc-rev P1 + mfc-rev-2 P2-1,
+    convergindo no mesmo ponto): DEVELOPMENT_START_BRT era uma cópia
     duplicada de scripts/run_isolated_backtest.py::REGRESSION_WINDOW_END_BRT
-    - REGRESSION_WINDOW_DAYS — e nenhum teste checava a igualdade. Pior: os
-    outros testes deste arquivo constroem suas datas RELATIVAS à própria
-    constante, então nenhum deles pegaria a constante inteira tendo
-    "deslizado" pra um valor errado (mfc-rev-2, achado medido). Estes dois
-    testes existem só pra fechar esse buraco — nunca devem derivar `end_brt`
-    da própria DEVELOPMENT_START_BRT que estão verificando."""
+    - REGRESSION_WINDOW_DAYS, sem nenhuma checagem em runtime. A verificação
+    mfc-73 (mfc-rev) reclassificou a correção original (só um teste de
+    igualdade) como PARCIAL — resolvido de vez pela consulta herdr-ask
+    mfc-14 (2026-09-04): DEVELOPMENT_START_BRT agora mora só em
+    scripts/_backtest_results_log.py (fonte única, módulo folha, já dono da
+    semântica de holdout via validate_oos_window()), NUNCA derivada de
+    REGRESSION_WINDOW_END_BRT/DAYS — mfc-rev-2 mostrou que uma derivação
+    tornaria a checagem de igualdade abaixo tautológica, cega justamente à
+    edição perigosa (aumentar REGRESSION_WINDOW_DAYS sem revisar o holdout).
+    O guard real agora é a desigualdade em
+    scripts.run_isolated_backtest::_assert_regression_window_after_holdout().
 
-    def test_matches_the_regression_window_launcher_boundary(self):
-        launcher_boundary = (
-            datetime.fromisoformat(REGRESSION_WINDOW_END_BRT)
-            - timedelta(days=REGRESSION_WINDOW_DAYS)
-        )
-        self.assertEqual(
-            datetime.fromisoformat(DEVELOPMENT_START_BRT), launcher_boundary,
-            "DEVELOPMENT_START_BRT divergiu de REGRESSION_WINDOW_END_BRT - "
-            "REGRESSION_WINDOW_DAYS (scripts/run_isolated_backtest.py) — "
-            "walk_forward() pode estar deixando passar (ou recusando à toa) "
-            "uma janela perto do limite real do holdout OOS.",
-        )
+    Os outros testes deste arquivo constroem suas datas RELATIVAS à própria
+    constante, então nenhum deles pegaria a constante tendo "deslizado" pra
+    um valor errado (mfc-rev-2, achado medido) — os dois testes abaixo
+    existem só pra fechar esse buraco, ancorados fora da própria constante."""
+
+    def test_regression_window_guard_passes_for_the_real_constants(self):
+        """Positivo: com os valores reais do projeto hoje, o guard não
+        recusa nada — REGRESSION_WINDOW_END_BRT menos REGRESSION_WINDOW_DAYS
+        cai exatamente em DEVELOPMENT_START_BRT (fronteira independente)."""
+        _assert_regression_window_after_holdout()  # não deve levantar
+
+    def test_regression_window_guard_rejects_a_window_that_would_cross_the_holdout(self):
+        """Discriminância (achado MFC72-01, herdr-ask mfc-14, `mfc-rev-2`):
+        se REGRESSION_WINDOW_DAYS crescer no futuro (ex.: 45→90, pra reduzir
+        ruído) sem que ninguém revise a fronteira do holdout, a janela de
+        regressão passaria a começar DENTRO do holdout. Uma checagem de
+        igualdade contra um valor DERIVADO da mesma fórmula nunca pegaria
+        isso (seria tautológica por construção); esta desigualdade, contra a
+        fronteira declarada de forma independente, pega."""
+        with patch("scripts.run_isolated_backtest.REGRESSION_WINDOW_DAYS", 90):
+            with self.assertRaises(ValueError) as ctx:
+                _assert_regression_window_after_holdout()
+        self.assertIn("holdout", str(ctx.exception))
 
     def test_matches_the_development_start_brt_recorded_in_real_oos_journal_entries(self):
         """Ancorado na fonte de verdade de verdade (mfc-rev-2, "melhor

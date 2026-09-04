@@ -27,6 +27,27 @@ SCHEMA_VERSION = 2
 MIN_OOS_NIGHTS = 30
 BRT = timezone(timedelta(hours=-3))
 OOS_ENTRY_HOUR_BRT = 21
+
+# Fronteira canônica do holdout OOS — declarada aqui, e só aqui (herdr-ask
+# mfc-14, resolvendo o achado MFC72-01/mfc-rev x mfc-rev-2 divergentes sobre
+# onde essa constante deveria morar). Este módulo é folha pura (só stdlib,
+# nenhum import de scripts.*/agents.*/web.*) e já é o dono conceitual da
+# semântica de "o que é holdout" via validate_oos_window() abaixo — é
+# importado no nível de módulo por scripts/backtest_engine_compare.py e sob
+# demanda por scripts/run_isolated_backtest.py, então declarar a constante
+# aqui não inverte nem cria nenhuma dependência nova.
+#
+# DELIBERADAMENTE NÃO É DERIVADA de scripts/run_isolated_backtest.py::
+# REGRESSION_WINDOW_END_BRT − REGRESSION_WINDOW_DAYS: mfc-rev-2 mostrou que
+# essa derivação tornaria o próprio teste de proveniência tautológico — se
+# alguém aumentar REGRESSION_WINDOW_DAYS no futuro (ex.: 45→90 pra reduzir
+# ruído), a fronteira do holdout escorregaria JUNTO, silenciosamente, e o
+# teste que deveria pegar isso passaria porque a igualdade virou verdadeira
+# por construção. Em vez disso, esta constante é o valor PRIMÁRIO e
+# independente; scripts/run_isolated_backtest.py valida sua própria janela de
+# regressão CONTRA ela (desigualdade: início da janela >= esta fronteira),
+# nunca o contrário.
+DEVELOPMENT_START_BRT = "2026-07-16T21:00:00-03:00"
 _RESULT_DIGEST_EXCLUDED_FIELDS = {
     "recorded_at_utc", "timestamp_utc", "timestamp", "producer_provenance",
     "provenance", "schema_version", "script", "supersedes", "result_semantics",

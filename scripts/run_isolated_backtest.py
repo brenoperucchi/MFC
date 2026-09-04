@@ -568,6 +568,36 @@ def _call_backtest_analysis(entry, market_open):
         return None
 
 
+def _assert_regression_window_after_holdout():
+    """A janela de regressão fixa (REGRESSION_WINDOW_END_BRT menos
+    REGRESSION_WINDOW_DAYS) nunca pode começar antes de DEVELOPMENT_START_BRT
+    — cruzar essa fronteira contaminaria exatamente o holdout OOS que ela
+    protege.
+
+    Desigualdade, nunca igualdade contra um valor derivado desta mesma
+    fórmula (achado MFC72-01, consulta herdr-ask mfc-14, 2026-09-04,
+    `mfc-rev-2`): DEVELOPMENT_START_BRT é declarada de forma independente em
+    scripts/_backtest_results_log.py — se fosse derivada
+    (REGRESSION_WINDOW_END_BRT − REGRESSION_WINDOW_DAYS), uma checagem de
+    igualdade seria tautológica e nunca pegaria a edição perigosa (ex.:
+    aumentar REGRESSION_WINDOW_DAYS de 45 pra 90 no futuro pra reduzir ruído
+    — a fronteira do holdout escorregaria JUNTO, silenciosamente, e o teste
+    continuaria passando porque a igualdade virou verdadeira por
+    construção). Este guard é o que detecta esse caso pelo motivo certo."""
+    from scripts._backtest_results_log import DEVELOPMENT_START_BRT
+    window_start = datetime.fromisoformat(REGRESSION_WINDOW_END_BRT) - timedelta(days=REGRESSION_WINDOW_DAYS)
+    holdout_boundary = datetime.fromisoformat(DEVELOPMENT_START_BRT)
+    if window_start < holdout_boundary:
+        raise ValueError(
+            f"a janela de regressão fixa começaria em {window_start.isoformat()} "
+            f"(REGRESSION_WINDOW_END_BRT={REGRESSION_WINDOW_END_BRT} menos "
+            f"REGRESSION_WINDOW_DAYS={REGRESSION_WINDOW_DAYS} dias), antes de "
+            f"DEVELOPMENT_START_BRT={DEVELOPMENT_START_BRT} — isso cruzaria o "
+            "holdout OOS. Ajuste REGRESSION_WINDOW_DAYS/REGRESSION_WINDOW_END_BRT "
+            "antes de disparar."
+        )
+
+
 def _run_and_record(description, runs, run_id):
     """Corpo real da execução — chamado pelo processo filho, seja disparado
     pela web (spawn_isolated_backtest(), com build_isolated_env() já
@@ -645,6 +675,7 @@ def _run_and_record(description, runs, run_id):
                     })
                     return 0
             try:
+                _assert_regression_window_after_holdout()
                 ret = compare(
                     days=REGRESSION_WINDOW_DAYS,
                     runs=runs,

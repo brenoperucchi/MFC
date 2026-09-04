@@ -71,6 +71,7 @@ from agents.portfolio_executor import get_portfolio_pairs, CostModel, ensure_mt5
 from web.history_tracker import convert_pnl_to_usd
 from scripts._backtest_results_log import (
     RESULTS_LOG_PATH,
+    DEVELOPMENT_START_BRT,
     append_result,
     result_snapshot_digest,
     _code_provenance,
@@ -1561,13 +1562,20 @@ def threshold_sweep(days=45, thresholds=VECTOR_THRESHOLDS, end_brt=None):
 # Item 6 (matriz 5-TF em shadow mode, plano de reconciliação Miqueias): até
 # aqui só rodamos UMA janela fixa (snapshot). "walk-forward" pede várias
 # janelas pra ver se a conclusão se sustenta ao longo do tempo, não só numa
-# amostra de 31 noites. DEVE bater com
-# scripts/run_isolated_backtest.py::REGRESSION_WINDOW_END_BRT -
-# REGRESSION_WINDOW_DAYS (2026-08-30 menos 45 dias) — é o mesmo limite que
-# protege o holdout OOS em todo o resto do projeto; walk_forward() nunca deve
-# pedir uma janela que comece antes disto, senão contamina exatamente o que
-# development_start_brt existe pra proteger.
-DEVELOPMENT_START_BRT = "2026-07-16T21:00:00-03:00"
+# amostra de 31 noites. DEVE bater com scripts/run_isolated_backtest.py::
+# REGRESSION_WINDOW_END_BRT - REGRESSION_WINDOW_DAYS (2026-08-30 menos 45
+# dias) — é o mesmo limite que protege o holdout OOS em todo o resto do
+# projeto; walk_forward() nunca deve pedir uma janela que comece antes disto,
+# senão contamina exatamente o que DEVELOPMENT_START_BRT existe pra proteger.
+#
+# DEVELOPMENT_START_BRT em si mora em scripts/_backtest_results_log.py (import
+# no topo deste arquivo), não aqui — resolução da discordância genuína entre
+# mfc-rev e mfc-rev-2 (achado MFC72-01, consulta herdr-ask mfc-14, 2026-09-04):
+# esse módulo é folha pura, já é o dono conceitual de "o que é holdout" via
+# validate_oos_window(), e é importado tanto por este arquivo (nível de
+# módulo) quanto por run_isolated_backtest.py (sob demanda) — fonte única sem
+# inverter nenhuma dependência. Ver o comentário ao lado da constante lá para
+# o porquê de NÃO ser derivada de REGRESSION_WINDOW_END_BRT/DAYS.
 
 
 def _find_walk_forward_entry(batch_id, window_index, n_windows):
@@ -1752,6 +1760,18 @@ def walk_forward(n_windows=2, window_days=45, step_days=None, end_brt=None,
     overlapping = step_days < window_days
     engine_names = engine_names or list(ENGINES.keys())
     batch_id = uuid.uuid4().hex[:12]
+    # Achado MFC72-04 (P3, herdr-review mfc-72, `mfc-rev`): não existe
+    # manifesto persistido de status do lote (started/completed/failed) —
+    # cada janela é gravada individualmente por compare(), então um lote
+    # interrompido no meio deixa só as janelas anteriores no journal, sem
+    # nenhum registro central dizendo "faltaram N-i janelas". Aceito como
+    # residual (mfc-73 confirmou NÃO CORRIGIDO, sem discordância entre os
+    # revisores sobre a severidade): o marcador `[walk-forward:<batch_id>:
+    # <i>/<N>]` em cada entrada já é auto-descritivo — um consumidor que
+    # agrupe por batch_id sempre sabe quantas janelas o lote tinha (N, fixo
+    # no marcador) e quantas de fato foram gravadas, sem precisar de um
+    # manifesto separado. Corrigir isso de verdade exigiria escrever esse
+    # manifesto ANTES de disparar a primeira janela — não feito aqui.
 
     print("=" * 90)
     print(f"  WALK-FORWARD — {n_windows} janela(s) de {window_days}d, step={step_days}d"
