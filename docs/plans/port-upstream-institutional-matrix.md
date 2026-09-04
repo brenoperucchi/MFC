@@ -1395,3 +1395,82 @@ tocados: `scripts/backtest_canonical.py`, `scripts/backtest_engine_compare.py`,
 
 Rodada `herdr-review` disparada e fechada sobre esta cadeia inteira
 (`mfc-64`, achados acima todos corrigidos e reexecutados).
+
+### O item 6 (5-TF vs 3-TF) é estatisticamente irresolvível por PnL líquido — reformulado (herdr-ask mfc-15, 2026-09-04)
+
+Depois de retomar o item 6 com a automação de walk-forward (`scripts/backtest_engine_compare.py::walk_forward()`,
+implementada e revisada nas rodadas `mfc-72`/`mfc-73`), o Breno e o exec discutiram se
+`DEVELOPMENT_START_BRT` (a fronteira do holdout OOS, `2026-07-16`) poderia ser movida pra
+trás pra acelerar a comparação. Levado ao `herdr-ask` (`mfc-15`) em vez de decidido
+unilateralmente. Os dois revisores convergiram em **não mexer na fronteira agora** — mas o
+motivo decisivo, trazido por `mfc-rev-2` com uma análise de poder estatístico verificada
+contra o journal real, muda o que a pergunta do item 6 deveria ser:
+
+**O efeito observado é pequeno demais pra ser medido com qualquer quantidade razoável de
+dado.** Do delta pareado por noite (`3tf_baseline` vs `5tf_port_a`, `journal_seq=28`, 688
+dias/488 noites, a evidência mais recente ANTES desta rodada — ver caveat de elegibilidade
+abaixo): desvio padrão ≈ 56 USD/noite, efeito médio ≈ -0,65 USD/noite. Intervalo de confiança
+95% pra esse tamanho de amostra: ±4,99 — já **6,5x maior que o próprio efeito**. Uma janela de
+45 dias (31 noites) erra por ~20x; de 25 dias (17 noites), por ~35x. Excluir zero do intervalo
+exigiria **~21.000 noites (~83 anos de pregão)**; poder de 80%, **~43.000 (~170 anos)**. Mover
+`DEVELOPMENT_START_BRT` pra liberar mais janelas de 45 dias não mudaria essa conclusão — nem
+o holdout inteiro de 688 dias resolve.
+
+**Reformulação recomendada** (`mfc-rev-2`): em vez de "qual motor tem líquido melhor"
+(irresolvível), usar as quantidades que a MESMA amostra de 488 noites já resolve com precisão
+quase aritmética — contagem de cestas e custo por cesta não são médias ruidosas, são contagem
+e divisão:
+
+```
+3TF: 2806 cestas, custo/cesta=$1,90  |  5TF: 3533 cestas, custo/cesta=$1,91  (journal_seq=28)
+  5TF negocia 727 cestas a mais (+25,9%) e paga $1.429,74 a mais de custo total (+26,9%)
+  vantagem BRUTA do 5TF: +2,28/noite   |   desvantagem de CUSTO: -2,93/noite
+```
+
+Frase decidível: **"5-TF negocia ~26% mais e paga ~27% mais pedágio; se a vantagem bruta
+cobre esse pedágio é indetectável com o dado que existe e o que vai existir num horizonte
+razoável."** Não precisa de nenhuma noite de dado novo — os números acima vêm do journal já
+gravado. Turnover/exposição (métricas do item 6 acrescentadas na `mfc-70`) são contagens sobre
+8 moedas × N noites, com ordem de grandeza menos ruído que PnL, e conseguem distinguir os
+motores em janelas curtas onde PnL não consegue — preferir essas dimensões em qualquer
+walk-forward futuro de janela curta.
+
+**Achado à parte, maior que a pergunta original**: os 4 motores comparados são
+líquido-negativos no holdout inteiro (`3tf_baseline` -$7.716, `5tf_port_a` -$8.033,
+`5tf_upstream` -$8.134, `3tf_vector` -$2.411) — "qual perde menos" pode ser menos importante
+do que consertar a lucratividade em si (liga com o item 7, recalibração de custo/ATR).
+
+**Caveat de elegibilidade** (efeito colateral desta própria rodada, não um problema novo):
+neste exato momento, **nenhuma das 13 entradas `oos_disjoint` do journal está elegível**
+segundo `select_latest_oos_evidence()` — o commit que resolveu MFC72-01 tocou
+`scripts/_backtest_results_log.py`/`backtest_engine_compare.py`/`run_isolated_backtest.py`
+(todos em `_PROVENANCE_SOURCE_FILES`), mudando o `code_source_digest` esperado. Comportamento
+já documentado (P3-2, `mfc-rev-2`, rodada `mfc-65`/`mfc-66`): qualquer mudança de código nesses
+arquivos invalida a evidência OOS elegível até uma nova rodada no host Windows. Os números
+acima (baskets/bruto/custo) são o registro HISTÓRICO de `journal_seq=28` — confiáveis como
+fato já ocorrido (baskets é 100% determinístico, idêntico entre `journal_seq=25/26/28`; custo/
+líquido variam só pelo ruído normal de tick ao vivo entre reexecuções da mesma janela), mas não
+"a evidência OOS elegível atual" — essa continua pendente de uma nova rodada Windows, item já
+conhecido do plano, não causado especificamente por esta reformulação.
+
+**Smoke test do mecanismo pendente**: `walk_forward()` nunca rodou contra MT5 real — os 24
+testes de `tests/test_backtest_walk_forward.py` mockam `compare()` inteiro. Os dois revisores
+recomendaram rodar duas janelas disjuntas de 25 dias (os ~50 dias já decorridos desde
+`DEVELOPMENT_START_BRT`) como validação do CAMINHO real, não como evidência sobre motor
+(como evidência, IC ±26,74 contra efeito de -0,65 é ruído puro) — rotulado explicitamente
+como tal no `log_note` pra ninguém confundir depois. Comando (Ryzen9/WSL, terminal isolado
+`mfc-backtest`):
+
+```bash
+cd ~/Devs/miqueias/MFC
+export CSS_MT5_TERMINAL_PATH='D:\MetaTradersWSL\mfc-backtest\terminal64.exe'
+export MFC_BACKTEST_TERMINAL_ISOLATED=1
+export PYTHONPATH='.'
+export WSLENV="CSS_MT5_TERMINAL_PATH:MFC_BACKTEST_TERMINAL_ISOLATED:PYTHONPATH:$WSLENV"
+/mnt/c/WINDOWS/py.exe -3.12 scripts/backtest_engine_compare.py walk-forward \
+  "[mecanismo] smoke test walk_forward pos-mfc-14/15 -- NAO eh evidencia sobre motor (ver herdr-ask mfc-15: SD/efeito tornam 5TF vs 3TF irresolvivel em qualquer janela alcancavel)" \
+  --n-windows 2 --window-days 25 --step-days 25 --runs 2
+```
+
+Ainda não executado neste checkout (sem acesso a MT5/Windows a partir da máquina Linux deste
+exec) — pendente de execução manual.
