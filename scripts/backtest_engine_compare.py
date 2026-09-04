@@ -86,6 +86,12 @@ from scripts.backtest_canonical import (
     is_market_session_valid, check_contract_size_consistency,
     _brt_to_server, MT5_AVAILABLE, mt5, MT5_PATH,
 )
+# Só pra walk_forward() recusar começar dentro da janela crítica (achado
+# P3-2, herdr-review mfc-72, `mfc-rev-2`) — nunca importado por nenhuma
+# outra função deste arquivo. run_isolated_backtest.py chama compare() como
+# SUBPROCESSO isolado (nunca por import direto), então isto não cria
+# nenhuma dependência na direção contrária.
+from scripts.run_isolated_backtest import in_critical_window
 
 
 # ---------------------------------------------------------------------------
@@ -1577,6 +1583,21 @@ def _find_walk_forward_entry(batch_id, window_index, n_windows):
     return None
 
 
+def _mean_liquido(entry, name):
+    """Líquido médio das `runs` passadas de custo daquela janela/motor —
+    NUNCA o líquido de uma passada só (achado MFC72-03, herdr-review
+    mfc-72, `mfc-rev`): `entry["engines"][name]["liquido"]` é só a ÚLTIMA
+    passada, e o próprio módulo documenta que o CostModel usa tick ao vivo,
+    não custo histórico — ranquear motores por janela usando um número de
+    UMA amostra de ruído é exatamente o tipo de comparação que runs>1 existe
+    pra evitar. `runs_summary.aggregate.by_engine[name].liquido.mean` já é a
+    média entre as passadas, calculada por `_aggregate_pass_summaries()`."""
+    try:
+        return entry["runs_summary"]["aggregate"]["by_engine"][name]["liquido"]["mean"]
+    except (KeyError, TypeError):
+        return None
+
+
 def _print_walk_forward_summary(entries, engine_names, overlapping):
     print("\n" + "=" * 90)
     title = "  RESUMO WALK-FORWARD"
@@ -1585,18 +1606,17 @@ def _print_walk_forward_summary(entries, engine_names, overlapping):
     print(title)
     print("=" * 90)
 
-    print("\nlíquido por janela, por motor:")
+    print("\nlíquido médio (entre as passadas de custo) por janela, por motor:")
     hdr = f"{'janela':>8} {'journal_seq':>12} {'fim da janela':>22}" + "".join(
         f" {name:>16}" for name in engine_names
     )
     print(hdr)
     print("-" * len(hdr))
     for i, entry in enumerate(entries):
-        engines_data = entry.get("engines", {}) if isinstance(entry, dict) else {}
         row = (f"{i + 1:>8} {entry.get('journal_seq', '?'):>12} "
                f"{entry.get('window', {}).get('end_brt', '?'):>22}")
         for name in engine_names:
-            liquido = engines_data.get(name, {}).get("liquido")
+            liquido = _mean_liquido(entry, name)
             row += f" {liquido:>16.2f}" if isinstance(liquido, (int, float)) else f" {'n/a':>16}"
         print(row)
 
@@ -1612,13 +1632,12 @@ def _print_walk_forward_summary(entries, engine_names, overlapping):
             row += f" {rate * 100:>15.1f}%" if isinstance(rate, (int, float)) else f" {'n/a':>16}"
         print(row)
 
-    print("\nmotor com melhor líquido em cada janela (não é o mesmo que 'melhor no walk-forward inteiro'):")
+    print("\nmotor com melhor líquido MÉDIO em cada janela (não é o mesmo que 'melhor no walk-forward inteiro'):")
     wins = {name: 0 for name in engine_names}
     for i, entry in enumerate(entries):
-        engines_data = entry.get("engines", {}) if isinstance(entry, dict) else {}
         best, best_liquido = None, None
         for name in engine_names:
-            liquido = engines_data.get(name, {}).get("liquido")
+            liquido = _mean_liquido(entry, name)
             if isinstance(liquido, (int, float)) and (best_liquido is None or liquido > best_liquido):
                 best, best_liquido = name, liquido
         if best is not None:
@@ -1667,7 +1686,19 @@ def walk_forward(n_windows=2, window_days=45, step_days=None, end_brt=None,
     entradas depois pelo conteúdo, não por posição (mesmo raciocínio de
     scripts/run_isolated_backtest.py::_find_journal_entry — nunca "maior
     journal_seq antes/depois", que colidiria com qualquer append
-    concorrente)."""
+    concorrente).
+
+    Recusa (ValueError) se o horário de início já estiver dentro da janela
+    crítica de abertura/fechamento de cesta (achado P3-2, herdr-review
+    mfc-72, `mfc-rev-2`): o disparo web tem essa checagem (e um watchdog que
+    mata o filho ao entrar na janela) — o caminho de CLI nunca teve
+    nenhum dos dois, e antes desta função um comando de CLI era só UMA
+    janela; agora são N em sequência, multiplicando o tempo total e a
+    chance de um comando começado antes das 21h ainda estar rodando dentro
+    dela, no mesmo host que envia as ordens reais. Não é um watchdog
+    completo (o operador dispara à mão e sabe o que está fazendo) — só a
+    recusa barata no início, com a checagem que já existe e já é
+    importável."""
     if n_windows < 1:
         raise ValueError("n_windows deve ser >= 1")
     if window_days <= 0:
@@ -1680,6 +1711,13 @@ def walk_forward(n_windows=2, window_days=45, step_days=None, end_brt=None,
         raise ValueError(
             "walk_forward exige log_note_prefix — cada janela precisa ficar "
             "rastreável no journal, igual qualquer outro disparo"
+        )
+    if in_critical_window():
+        raise ValueError(
+            "Horário atual dentro da janela crítica de abertura/fechamento de "
+            "cesta (20:55-22:00 ou 07:55-08:20 BRT) — walk_forward() dispara N "
+            "comparações em sequência, o que pode facilmente atravessar essa "
+            "janela mesmo tendo começado antes dela. Espere passar."
         )
 
     final_end = _normalize_window_end(end_brt)
@@ -1711,7 +1749,16 @@ def walk_forward(n_windows=2, window_days=45, step_days=None, end_brt=None,
 
     print("=" * 90)
     print(f"  WALK-FORWARD — {n_windows} janela(s) de {window_days}d, step={step_days}d"
-          + (" (SOBREPOSTAS)" if overlapping else " (disjuntas)"))
+          + (" (SOBREPOSTAS)" if overlapping else " (disjuntas)")
+          + f" — batch_id={batch_id}")
+    # Achado P3-2 (herdr-review mfc-72, `mfc-rev-2`): antes desta função,
+    # um comando de CLI era UMA janela; agora são N em sequência — o aviso
+    # barato de quantas passadas serão feitas ajuda o operador a decidir se
+    # dá tempo antes da próxima janela crítica, já que este caminho (ao
+    # contrário do disparo web) não tem watchdog nenhum.
+    print(f"  {n_windows} janela(s) x {runs} passada(s) de custo = {n_windows * runs} "
+          f"passada(s) totais — sem watchdog de janela crítica nesta CLI, só a "
+          f"recusa no início.")
     print("=" * 90)
 
     entries = []
@@ -1719,13 +1766,27 @@ def walk_forward(n_windows=2, window_days=45, step_days=None, end_brt=None,
         marker = f"[walk-forward:{batch_id}:{i + 1}/{n_windows}]"
         note = f"{marker} {log_note_prefix}"
         print(f"\n[*] Janela {i + 1}/{n_windows}: {_brt_iso(w_start)} -> {_brt_iso(w_end)}")
-        rc = compare(
-            days=window_days, engine_names=engine_names, runs=runs,
-            log_note=note, end_brt=w_end, sample_role="exploratory",
-        )
+        try:
+            rc = compare(
+                days=window_days, engine_names=engine_names, runs=runs,
+                log_note=note, end_brt=w_end, sample_role="exploratory",
+                development_start_brt=development_start,
+            )
+        except (KeyboardInterrupt, SystemExit):
+            raise
+        except Exception as exc:
+            # Achado MFC72-02 (herdr-review mfc-72, `mfc-rev`): sem isto,
+            # uma exceção de compare() (MT5, reconstrução, append_result())
+            # escapava sem virar o retorno prometido — traceback cru em vez
+            # da mensagem de aborto, e o chamador nunca via o 1 documentado.
+            print(f"[-] Janela {i + 1}/{n_windows} (batch_id={batch_id}) levantou "
+                  f"{type(exc).__name__}: {exc} — abortando walk-forward sem montar "
+                  f"o resumo (as janelas anteriores já ficaram gravadas no journal).")
+            return 1
         if rc != 0:
-            print(f"[-] Janela {i + 1}/{n_windows} falhou (rc={rc}) — abortando walk-forward "
-                  f"sem montar o resumo (as janelas anteriores já ficaram gravadas no journal).")
+            print(f"[-] Janela {i + 1}/{n_windows} (batch_id={batch_id}) falhou (rc={rc}) — "
+                  f"abortando walk-forward sem montar o resumo (as janelas anteriores já "
+                  f"ficaram gravadas no journal).")
             return 1
         entry = _find_walk_forward_entry(batch_id, i + 1, n_windows)
         if entry is None:

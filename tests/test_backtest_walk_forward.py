@@ -6,9 +6,15 @@ pedido explícito do Breno: "pode montar a automação do walk-forward".
 walk_forward() nunca conecta MT5 sozinho — ele chama compare() N vezes, que
 sim conecta. Os testes aqui cobrem o que É testável sem MT5: a validação de
 janela (nunca deixar uma janela cruzar DEVELOPMENT_START_BRT, protegendo o
-holdout OOS), a busca de entrada por marcador no journal
-(_find_walk_forward_entry), e o fluxo de orquestração inteiro com compare()
-mockado (nunca chamando MT5 de verdade).
+holdout OOS), a recusa na janela crítica de abertura/fechamento, a busca de
+entrada por marcador no journal (_find_walk_forward_entry), e o fluxo de
+orquestração inteiro com compare() mockado (nunca chamando MT5 de verdade).
+
+in_critical_window() é mockado como False por padrão em toda classe que
+chama walk_forward() — sem isso, a suíte ficaria dependente do horário real
+em que roda (achado ao escrever os testes: rodar por acidente entre 20:55 e
+22:00 BRT faria TUDO aqui falhar por um motivo sem relação nenhuma com o que
+está sendo testado).
 """
 
 import json
@@ -16,7 +22,7 @@ import os
 import sys
 import tempfile
 import unittest
-from datetime import datetime
+from datetime import datetime, timedelta
 from unittest.mock import patch
 
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -27,14 +33,83 @@ import scripts.backtest_engine_compare as engine_compare
 from scripts.backtest_engine_compare import (
     BRT,
     DEVELOPMENT_START_BRT,
+    RESULTS_LOG_PATH,
     _find_walk_forward_entry,
     walk_forward,
 )
+from scripts.run_isolated_backtest import REGRESSION_WINDOW_DAYS, REGRESSION_WINDOW_END_BRT
+
+
+class TestDevelopmentStartBrtIsNotStale(unittest.TestCase):
+    """Achado CONFIRMADO (herdr-review mfc-72, mfc-rev P1 + mfc-rev-2 P2-1,
+    convergindo no mesmo ponto): DEVELOPMENT_START_BRT é uma cópia
+    duplicada de scripts/run_isolated_backtest.py::REGRESSION_WINDOW_END_BRT
+    - REGRESSION_WINDOW_DAYS — e nenhum teste checava a igualdade. Pior: os
+    outros testes deste arquivo constroem suas datas RELATIVAS à própria
+    constante, então nenhum deles pegaria a constante inteira tendo
+    "deslizado" pra um valor errado (mfc-rev-2, achado medido). Estes dois
+    testes existem só pra fechar esse buraco — nunca devem derivar `end_brt`
+    da própria DEVELOPMENT_START_BRT que estão verificando."""
+
+    def test_matches_the_regression_window_launcher_boundary(self):
+        launcher_boundary = (
+            datetime.fromisoformat(REGRESSION_WINDOW_END_BRT)
+            - timedelta(days=REGRESSION_WINDOW_DAYS)
+        )
+        self.assertEqual(
+            datetime.fromisoformat(DEVELOPMENT_START_BRT), launcher_boundary,
+            "DEVELOPMENT_START_BRT divergiu de REGRESSION_WINDOW_END_BRT - "
+            "REGRESSION_WINDOW_DAYS (scripts/run_isolated_backtest.py) — "
+            "walk_forward() pode estar deixando passar (ou recusando à toa) "
+            "uma janela perto do limite real do holdout OOS.",
+        )
+
+    def test_matches_the_development_start_brt_recorded_in_real_oos_journal_entries(self):
+        """Ancorado na fonte de verdade de verdade (mfc-rev-2, "melhor
+        ainda"): não as duas constantes concordando entre si (as duas
+        podem ter deslizado juntas, pro mesmo valor errado) — o
+        `development_start_brt` de verdade GRAVADO nas entradas
+        `oos_disjoint` reais do journal, que é o que qualquer análise
+        futura vai efetivamente ler pra saber o que era holdout."""
+        try:
+            with open(RESULTS_LOG_PATH, "r", encoding="utf-8") as f:
+                log = json.load(f)
+        except FileNotFoundError:
+            self.skipTest(f"{RESULTS_LOG_PATH} não existe neste checkout")
+        oos_values = {
+            entry["window"]["development_start_brt"]
+            for entry in log
+            if isinstance(entry, dict)
+            and entry.get("window", {}).get("sample_role") == "oos_disjoint"
+            and entry.get("window", {}).get("development_start_brt")
+        }
+        if not oos_values:
+            self.skipTest("nenhuma entrada oos_disjoint com development_start_brt no journal")
+        self.assertEqual(
+            oos_values, {DEVELOPMENT_START_BRT},
+            f"DEVELOPMENT_START_BRT={DEVELOPMENT_START_BRT!r} não bate com o(s) "
+            f"development_start_brt real(is) gravado(s) nas entradas oos_disjoint "
+            f"do journal: {oos_values!r}",
+        )
+
+
+def _fixed_end_brt(days_after_development_start=50):
+    """`DEVELOPMENT_START_BRT` + N dias, SEM depender do relógio real — o
+    mesmo "hoje" usado na sessão real (2026-09-04, ~50 dias depois), fixado
+    explicitamente pra nenhum teste depender de quando a suíte roda."""
+    base = datetime.fromisoformat(DEVELOPMENT_START_BRT).astimezone(BRT).replace(tzinfo=None)
+    return base + timedelta(days=days_after_development_start)
 
 
 class TestWalkForwardValidation(unittest.TestCase):
     """Validação acontece ANTES de qualquer chamada a compare() — testável
-    sem MT5, sem mockar nada além do relógio (end_brt explícito)."""
+    sem MT5, sem mockar nada além do relógio (end_brt explícito) e da
+    janela crítica (sempre False aqui, não é o que estes testes cobrem)."""
+
+    def setUp(self):
+        patcher = patch.object(engine_compare, "in_critical_window", return_value=False)
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def test_rejects_n_windows_below_one(self):
         with self.assertRaises(ValueError):
@@ -54,23 +129,24 @@ class TestWalkForwardValidation(unittest.TestCase):
         with self.assertRaises(ValueError):
             walk_forward(log_note_prefix="")
 
+    def test_refuses_to_start_inside_the_critical_window(self):
+        """Achado P3-2 (herdr-review mfc-72, mfc-rev-2): N janelas em
+        sequência multiplicam a duração de um comando de CLI que nunca teve
+        watchdog nenhum — recusa no início em vez de arriscar atravessar a
+        janela de abertura/fechamento de cesta."""
+        with patch.object(engine_compare, "in_critical_window", return_value=True):
+            with self.assertRaises(ValueError) as ctx:
+                walk_forward(n_windows=1, end_brt=_fixed_end_brt(), log_note_prefix="teste")
+        self.assertIn("janela crítica", str(ctx.exception))
+
     def test_rejects_disjoint_windows_that_would_cross_development_start(self):
-        """Achado do próprio desenho: hoje (poucos dias depois de
-        DEVELOPMENT_START_BRT) não cabe nem uma SEGUNDA janela disjunta de
-        45 dias — pedir n_windows=2 com step_days=window_days=45 deve
-        recusar, nunca silenciosamente cruzar o limite do holdout OOS."""
-        end_brt = datetime.fromisoformat(DEVELOPMENT_START_BRT).astimezone(BRT).replace(
-            tzinfo=None
-        )
-        end_brt = end_brt.replace(year=end_brt.year, month=end_brt.month, day=end_brt.day)
-        # 50 dias depois de DEVELOPMENT_START_BRT — o mesmo "hoje" usado na
-        # sessão real (2026-09-04), só que fixado explicitamente pro teste
-        # não depender do relógio de verdade.
-        from datetime import timedelta
-        end_brt = end_brt + timedelta(days=50)
+        """Hoje (poucos dias depois de DEVELOPMENT_START_BRT) não cabe nem
+        uma SEGUNDA janela disjunta de 45 dias — pedir n_windows=2 com
+        step_days=window_days=45 deve recusar, nunca silenciosamente
+        cruzar o limite do holdout OOS."""
         with self.assertRaises(ValueError) as ctx:
             walk_forward(n_windows=2, window_days=45, step_days=45,
-                         end_brt=end_brt, log_note_prefix="teste")
+                         end_brt=_fixed_end_brt(), log_note_prefix="teste")
         message = str(ctx.exception)
         self.assertIn("DEVELOPMENT_START_BRT", message)
         # a mensagem precisa dizer quantas janelas disjuntas CABEM de verdade
@@ -80,11 +156,8 @@ class TestWalkForwardValidation(unittest.TestCase):
         """n_windows=1 nunca cruza DEVELOPMENT_START_BRT se window_days<=50
         (o que já decorreu) — a validação deve deixar passar (falha depois,
         em compare(), por falta de MT5 neste checkout — não na validação)."""
-        end_brt = datetime.fromisoformat(DEVELOPMENT_START_BRT).astimezone(BRT).replace(tzinfo=None)
-        from datetime import timedelta
-        end_brt = end_brt + timedelta(days=50)
         with patch.object(engine_compare, "compare", return_value=1) as mocked_compare:
-            result = walk_forward(n_windows=1, window_days=45, end_brt=end_brt,
+            result = walk_forward(n_windows=1, window_days=45, end_brt=_fixed_end_brt(),
                                   log_note_prefix="teste")
         # validação passou (chegou a chamar compare()); compare() mockado
         # devolve 1 (falha), então walk_forward propaga 1 também.
@@ -95,12 +168,9 @@ class TestWalkForwardValidation(unittest.TestCase):
         """step_days < window_days reduz quantos dias por janela são NOVOS,
         mas a janela MAIS ANTIGA ainda pode cruzar o limite se n_windows for
         grande demais pro tempo decorrido."""
-        end_brt = datetime.fromisoformat(DEVELOPMENT_START_BRT).astimezone(BRT).replace(tzinfo=None)
-        from datetime import timedelta
-        end_brt = end_brt + timedelta(days=50)
         with self.assertRaises(ValueError):
             walk_forward(n_windows=10, window_days=45, step_days=5,
-                         end_brt=end_brt, log_note_prefix="teste")
+                         end_brt=_fixed_end_brt(), log_note_prefix="teste")
 
 
 class TestFindWalkForwardEntry(unittest.TestCase):
@@ -156,6 +226,9 @@ class TestWalkForwardOrchestration(unittest.TestCase):
     a versão real teria, sem a parte cara)."""
 
     def setUp(self):
+        patcher = patch.object(engine_compare, "in_critical_window", return_value=False)
+        patcher.start()
+        self.addCleanup(patcher.stop)
         self._tmpdir = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmpdir.cleanup)
         self._journal_path = os.path.join(self._tmpdir.name, "journal.json")
@@ -164,9 +237,7 @@ class TestWalkForwardOrchestration(unittest.TestCase):
         patch_path = patch.object(engine_compare, "RESULTS_LOG_PATH", self._journal_path)
         patch_path.start()
         self.addCleanup(patch_path.stop)
-        self._end_brt = datetime.fromisoformat(DEVELOPMENT_START_BRT).astimezone(BRT).replace(tzinfo=None)
-        from datetime import timedelta
-        self._end_brt = self._end_brt + timedelta(days=50)
+        self._end_brt = _fixed_end_brt()
 
     def _append(self, note, liquido_by_engine, flip_rate_by_engine, window_end_brt):
         with open(self._journal_path, "r", encoding="utf-8") as f:
@@ -177,12 +248,21 @@ class TestWalkForwardOrchestration(unittest.TestCase):
             "window": {"end_brt": window_end_brt},
             "engines": {name: {"liquido": v} for name, v in liquido_by_engine.items()},
             "turnover": {name: {"flip_rate": v} for name, v in flip_rate_by_engine.items()},
+            "runs_summary": {
+                "aggregate": {
+                    "by_engine": {
+                        name: {"liquido": {"mean": v, "min": v, "max": v}}
+                        for name, v in liquido_by_engine.items()
+                    }
+                }
+            },
         })
         with open(self._journal_path, "w", encoding="utf-8") as f:
             json.dump(log, f)
 
     def test_single_window_writes_one_entry_and_returns_zero(self):
-        def fake_compare(days, engine_names, runs, log_note, end_brt, sample_role):
+        def fake_compare(days, engine_names, runs, log_note, end_brt, sample_role,
+                          development_start_brt=None):
             self._append(log_note, {"engine_a": -10.0}, {"engine_a": 0.3}, "2026-08-30")
             return 0
 
@@ -191,10 +271,32 @@ class TestWalkForwardOrchestration(unittest.TestCase):
                                   engine_names=["engine_a"], log_note_prefix="teste")
         self.assertEqual(result, 0)
 
+    def test_passes_development_start_brt_through_to_compare(self):
+        """Achado MFC72-01 (herdr-review mfc-72, mfc-rev): registrar a
+        fronteira efetivamente usada em cada entrada — antes,
+        window.development_start_brt ficava ausente nas entradas do
+        walk-forward, mesmo a função respeitando o limite."""
+        received = {}
+
+        def fake_compare(days, engine_names, runs, log_note, end_brt, sample_role,
+                          development_start_brt=None):
+            received["development_start_brt"] = development_start_brt
+            self._append(log_note, {"engine_a": -10.0}, {"engine_a": 0.3}, "2026-08-30")
+            return 0
+
+        with patch.object(engine_compare, "compare", side_effect=fake_compare):
+            walk_forward(n_windows=1, window_days=45, end_brt=self._end_brt,
+                        engine_names=["engine_a"], log_note_prefix="teste")
+        self.assertEqual(
+            received["development_start_brt"],
+            datetime.fromisoformat(DEVELOPMENT_START_BRT).astimezone(BRT).replace(tzinfo=None),
+        )
+
     def test_two_overlapping_windows_are_assembled_in_order(self):
         calls = []
 
-        def fake_compare(days, engine_names, runs, log_note, end_brt, sample_role):
+        def fake_compare(days, engine_names, runs, log_note, end_brt, sample_role,
+                          development_start_brt=None):
             calls.append(end_brt)
             liquido = -10.0 if len(calls) == 1 else -5.0
             self._append(log_note, {"engine_a": liquido}, {"engine_a": 0.3}, str(end_brt))
@@ -211,7 +313,8 @@ class TestWalkForwardOrchestration(unittest.TestCase):
         self.assertLess(calls[0], calls[-1])
 
     def test_aborts_without_crashing_when_a_window_fails(self):
-        def fake_compare(days, engine_names, runs, log_note, end_brt, sample_role):
+        def fake_compare(days, engine_names, runs, log_note, end_brt, sample_role,
+                          development_start_brt=None):
             return 1  # simula MT5 fora do ar na primeira janela
 
         with patch.object(engine_compare, "compare", side_effect=fake_compare):
@@ -220,17 +323,78 @@ class TestWalkForwardOrchestration(unittest.TestCase):
                                   log_note_prefix="teste")
         self.assertEqual(result, 1)
 
+    def test_aborts_without_crashing_when_compare_raises(self):
+        """Achado MFC72-02 (herdr-review mfc-72, mfc-rev): uma exceção de
+        compare() (MT5, reconstrução, append_result()) precisa virar o
+        retorno 1 documentado, não escapar como traceback cru."""
+        def fake_compare(days, engine_names, runs, log_note, end_brt, sample_role,
+                          development_start_brt=None):
+            raise RuntimeError("MT5 caiu no meio da reconstrução")
+
+        with patch.object(engine_compare, "compare", side_effect=fake_compare):
+            result = walk_forward(n_windows=1, window_days=45, end_brt=self._end_brt,
+                                  engine_names=["engine_a"], log_note_prefix="teste")
+        self.assertEqual(result, 1)
+
+    def test_does_not_swallow_keyboard_interrupt(self):
+        def fake_compare(days, engine_names, runs, log_note, end_brt, sample_role,
+                          development_start_brt=None):
+            raise KeyboardInterrupt()
+
+        with patch.object(engine_compare, "compare", side_effect=fake_compare):
+            with self.assertRaises(KeyboardInterrupt):
+                walk_forward(n_windows=1, window_days=45, end_brt=self._end_brt,
+                            engine_names=["engine_a"], log_note_prefix="teste")
+
     def test_aborts_when_compare_succeeds_but_entry_is_not_found(self):
         """compare() devolve 0 mas não grava nada rastreável (bug
         hipotético do lado de compare()) — walk_forward() não pode fingir
         que montou um resumo sem dado nenhum."""
-        def fake_compare(days, engine_names, runs, log_note, end_brt, sample_role):
+        def fake_compare(days, engine_names, runs, log_note, end_brt, sample_role,
+                          development_start_brt=None):
             return 0  # não grava nada no journal
 
         with patch.object(engine_compare, "compare", side_effect=fake_compare):
             result = walk_forward(n_windows=1, window_days=45, end_brt=self._end_brt,
                                   engine_names=["engine_a"], log_note_prefix="teste")
         self.assertEqual(result, 1)
+
+    def test_summary_ranks_by_mean_liquido_across_runs_not_a_single_pass(self):
+        """Achado MFC72-03 (herdr-review mfc-72, mfc-rev): o "melhor motor
+        por janela" precisa vir da MÉDIA entre as passadas de custo
+        (runs_summary), nunca do líquido de uma passada só — que é ruído de
+        tick ao vivo, não o resultado da janela. Este teste monta uma
+        entrada onde o líquido "cru" (última passada) e a média das
+        passadas discordam sobre quem venceu, e confirma que o resumo usa a
+        média."""
+        def fake_compare(days, engine_names, runs, log_note, end_brt, sample_role,
+                          development_start_brt=None):
+            with open(self._journal_path, "r", encoding="utf-8") as f:
+                log = json.load(f)
+            log.append({
+                "journal_seq": 1,
+                "note": log_note,
+                "window": {"end_brt": "2026-08-30"},
+                # "líquido" cru (última passada) diz que engine_b venceu —
+                "engines": {"engine_a": {"liquido": -5.0}, "engine_b": {"liquido": 10.0}},
+                "turnover": {"engine_a": {"flip_rate": 0.3}, "engine_b": {"flip_rate": 0.3}},
+                # mas a MÉDIA entre as passadas diz que engine_a venceu —
+                "runs_summary": {"aggregate": {"by_engine": {
+                    "engine_a": {"liquido": {"mean": 20.0, "min": -5.0, "max": 45.0}},
+                    "engine_b": {"liquido": {"mean": -8.0, "min": -20.0, "max": 10.0}},
+                }}},
+            })
+            with open(self._journal_path, "w", encoding="utf-8") as f:
+                json.dump(log, f)
+            return 0
+
+        with patch.object(engine_compare, "compare", side_effect=fake_compare), \
+                patch.object(engine_compare, "_print_walk_forward_summary") as mocked_summary:
+            walk_forward(n_windows=1, window_days=45, end_brt=self._end_brt,
+                        engine_names=["engine_a", "engine_b"], log_note_prefix="teste")
+        entries_arg = mocked_summary.call_args[0][0]
+        self.assertEqual(engine_compare._mean_liquido(entries_arg[0], "engine_a"), 20.0)
+        self.assertEqual(engine_compare._mean_liquido(entries_arg[0], "engine_b"), -8.0)
 
 
 if __name__ == "__main__":
