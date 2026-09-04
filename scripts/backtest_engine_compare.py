@@ -55,6 +55,7 @@ import hashlib
 import json
 import ntpath
 import socket
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import NamedTuple
 
@@ -69,6 +70,7 @@ from agents.confluence_engine import BRT, evaluate_currency_confluence as evalua
 from agents.portfolio_executor import get_portfolio_pairs, CostModel, ensure_mt5
 from web.history_tracker import convert_pnl_to_usd
 from scripts._backtest_results_log import (
+    RESULTS_LOG_PATH,
     append_result,
     result_snapshot_digest,
     _code_provenance,
@@ -1544,6 +1546,198 @@ def threshold_sweep(days=45, thresholds=VECTOR_THRESHOLDS, end_brt=None):
     return 0
 
 
+# Item 6 (matriz 5-TF em shadow mode, plano de reconciliação Miqueias): até
+# aqui só rodamos UMA janela fixa (snapshot). "walk-forward" pede várias
+# janelas pra ver se a conclusão se sustenta ao longo do tempo, não só numa
+# amostra de 31 noites. DEVE bater com
+# scripts/run_isolated_backtest.py::REGRESSION_WINDOW_END_BRT -
+# REGRESSION_WINDOW_DAYS (2026-08-30 menos 45 dias) — é o mesmo limite que
+# protege o holdout OOS em todo o resto do projeto; walk_forward() nunca deve
+# pedir uma janela que comece antes disto, senão contamina exatamente o que
+# development_start_brt existe pra proteger.
+DEVELOPMENT_START_BRT = "2026-07-16T21:00:00-03:00"
+
+
+def _find_walk_forward_entry(batch_id, window_index, n_windows):
+    """Acha a entrada gravada por UMA janela do walk-forward, por conteúdo
+    (marcador único no note) — mesmo padrão de
+    scripts/run_isolated_backtest.py::_find_journal_entry(), nunca "maior
+    journal_seq antes/depois" (colidiria com qualquer append concorrente,
+    inclusive outra janela do mesmo walk-forward rodando em paralelo)."""
+    marker = f"[walk-forward:{batch_id}:{window_index}/{n_windows}]"
+    try:
+        with open(RESULTS_LOG_PATH, "r", encoding="utf-8") as f:
+            log = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return None
+    for entry in log:
+        note = entry.get("note") if isinstance(entry, dict) else None
+        if isinstance(note, str) and note.startswith(marker):
+            return entry
+    return None
+
+
+def _print_walk_forward_summary(entries, engine_names, overlapping):
+    print("\n" + "=" * 90)
+    title = "  RESUMO WALK-FORWARD"
+    if overlapping:
+        title += " — janelas SOBREPOSTAS, NÃO é evidência independente entre elas"
+    print(title)
+    print("=" * 90)
+
+    print("\nlíquido por janela, por motor:")
+    hdr = f"{'janela':>8} {'journal_seq':>12} {'fim da janela':>22}" + "".join(
+        f" {name:>16}" for name in engine_names
+    )
+    print(hdr)
+    print("-" * len(hdr))
+    for i, entry in enumerate(entries):
+        engines_data = entry.get("engines", {}) if isinstance(entry, dict) else {}
+        row = (f"{i + 1:>8} {entry.get('journal_seq', '?'):>12} "
+               f"{entry.get('window', {}).get('end_brt', '?'):>22}")
+        for name in engine_names:
+            liquido = engines_data.get(name, {}).get("liquido")
+            row += f" {liquido:>16.2f}" if isinstance(liquido, (int, float)) else f" {'n/a':>16}"
+        print(row)
+
+    print("\nturnover (flip_rate) por janela, por motor:")
+    print(hdr)
+    print("-" * len(hdr))
+    for i, entry in enumerate(entries):
+        turnover_data = entry.get("turnover", {}) if isinstance(entry, dict) else {}
+        row = (f"{i + 1:>8} {entry.get('journal_seq', '?'):>12} "
+               f"{entry.get('window', {}).get('end_brt', '?'):>22}")
+        for name in engine_names:
+            rate = turnover_data.get(name, {}).get("flip_rate")
+            row += f" {rate * 100:>15.1f}%" if isinstance(rate, (int, float)) else f" {'n/a':>16}"
+        print(row)
+
+    print("\nmotor com melhor líquido em cada janela (não é o mesmo que 'melhor no walk-forward inteiro'):")
+    wins = {name: 0 for name in engine_names}
+    for i, entry in enumerate(entries):
+        engines_data = entry.get("engines", {}) if isinstance(entry, dict) else {}
+        best, best_liquido = None, None
+        for name in engine_names:
+            liquido = engines_data.get(name, {}).get("liquido")
+            if isinstance(liquido, (int, float)) and (best_liquido is None or liquido > best_liquido):
+                best, best_liquido = name, liquido
+        if best is not None:
+            wins[best] += 1
+            print(f"  janela {i + 1}: {best} ({best_liquido:.2f})")
+        else:
+            print(f"  janela {i + 1}: n/a")
+
+    print(f"\nvitórias por motor (de {len(entries)} janela(s)):")
+    for name in engine_names:
+        print(f"  {name:<14} {wins[name]}")
+    if overlapping:
+        print("\n[!] Janelas sobrepostas compartilham a maior parte das noites entre si — "
+              "essas contagens NÃO são N experimentos independentes, só mostram a tendência "
+              "evoluindo incrementalmente enquanto dado genuinamente novo ainda não acumulou "
+              "o suficiente pra janelas disjuntas (ver docstring de walk_forward()).")
+
+
+def walk_forward(n_windows=2, window_days=45, step_days=None, end_brt=None,
+                  engine_names=None, runs=2, log_note_prefix=None):
+    """Roda compare() N vezes, cada janela um `step_days` mais recente que a
+    anterior — "andar pra frente" no calendário, NUNCA pra trás: testar
+    janelas mais antigas que DEVELOPMENT_START_BRT arriscaria contaminar o
+    holdout OOS que essa data protege em todo o resto do projeto. Por isso
+    walk_forward() sempre anda em direção a `end_brt` (ou hoje, se omitido),
+    nunca pro passado distante.
+
+    `step_days` (default None = window_days, janelas DISJUNTAS): controla a
+    sobreposição entre janelas consecutivas.
+      - step_days == window_days: janelas disjuntas, evidência
+        independente entre si — a forma estatisticamente correta, mas exige
+        step_days*(n_windows-1) dias de calendário JÁ DECORRIDOS desde
+        DEVELOPMENT_START_BRT (refutado com ValueError se não couber, com o
+        número real de janelas disjuntas possíveis HOJE no erro).
+      - step_days < window_days: janelas SOBREPOSTAS (rolling) — cada uma
+        compartilha a maior parte das noites com a anterior, só adiciona
+        `step_days` noites novas por vez. NÃO é evidência independente
+        entre janelas — é só um jeito de ver a tendência evoluindo aos
+        poucos enquanto dado genuinamente novo ainda não acumulou o
+        suficiente pra janelas disjuntas de verdade. Sinalizado explicitamente
+        no resumo impresso, nunca escondido.
+
+    `log_note_prefix` é obrigatório — cada janela vira uma entrada própria
+    no journal (mesmo padrão de sempre), com um marcador de lote único
+    (`[walk-forward:<batch_id>:<i>/<N>]`) que permite reencontrar as N
+    entradas depois pelo conteúdo, não por posição (mesmo raciocínio de
+    scripts/run_isolated_backtest.py::_find_journal_entry — nunca "maior
+    journal_seq antes/depois", que colidiria com qualquer append
+    concorrente)."""
+    if n_windows < 1:
+        raise ValueError("n_windows deve ser >= 1")
+    if window_days <= 0:
+        raise ValueError("window_days deve ser positivo")
+    if step_days is None:
+        step_days = window_days
+    if step_days <= 0:
+        raise ValueError("step_days deve ser positivo")
+    if not log_note_prefix:
+        raise ValueError(
+            "walk_forward exige log_note_prefix — cada janela precisa ficar "
+            "rastreável no journal, igual qualquer outro disparo"
+        )
+
+    final_end = _normalize_window_end(end_brt)
+    development_start = _normalize_window_end(datetime.fromisoformat(DEVELOPMENT_START_BRT))
+
+    window_ends = [
+        final_end - timedelta(days=step_days * (n_windows - 1 - i))
+        for i in range(n_windows)
+    ]
+    window_starts = [end - timedelta(days=window_days) for end in window_ends]
+
+    earliest_start = window_starts[0]
+    if earliest_start < development_start:
+        available_days = (final_end - development_start).days
+        max_disjoint = max(0, available_days // window_days) if window_days else 0
+        raise ValueError(
+            f"walk_forward pediria uma janela começando em {_brt_iso(earliest_start)}, "
+            f"antes de DEVELOPMENT_START_BRT={DEVELOPMENT_START_BRT} — isso arriscaria "
+            f"contaminar o holdout OOS. Há {available_days} dia(s) decorrido(s) desde então; "
+            f"com window_days={window_days} cabem no máximo {max_disjoint} janela(s) "
+            f"DISJUNTA(S) agora (step_days={window_days}). Reduza n_windows, reduza "
+            f"window_days, ou passe step_days < window_days pra janelas sobrepostas "
+            f"(não é evidência independente — ver docstring)."
+        )
+
+    overlapping = step_days < window_days
+    engine_names = engine_names or list(ENGINES.keys())
+    batch_id = uuid.uuid4().hex[:12]
+
+    print("=" * 90)
+    print(f"  WALK-FORWARD — {n_windows} janela(s) de {window_days}d, step={step_days}d"
+          + (" (SOBREPOSTAS)" if overlapping else " (disjuntas)"))
+    print("=" * 90)
+
+    entries = []
+    for i, (w_start, w_end) in enumerate(zip(window_starts, window_ends)):
+        marker = f"[walk-forward:{batch_id}:{i + 1}/{n_windows}]"
+        note = f"{marker} {log_note_prefix}"
+        print(f"\n[*] Janela {i + 1}/{n_windows}: {_brt_iso(w_start)} -> {_brt_iso(w_end)}")
+        rc = compare(
+            days=window_days, engine_names=engine_names, runs=runs,
+            log_note=note, end_brt=w_end, sample_role="exploratory",
+        )
+        if rc != 0:
+            print(f"[-] Janela {i + 1}/{n_windows} falhou (rc={rc}) — abortando walk-forward "
+                  f"sem montar o resumo (as janelas anteriores já ficaram gravadas no journal).")
+            return 1
+        entry = _find_walk_forward_entry(batch_id, i + 1, n_windows)
+        if entry is None:
+            print(f"[-] Não encontrei a entrada gravada da janela {i + 1}/{n_windows} no "
+                  f"journal (marcador {marker!r}) — não dá pra montar o resumo final.")
+            return 1
+        entries.append(entry)
+
+    _print_walk_forward_summary(entries, engine_names, overlapping)
+    return 0
+
+
 if __name__ == "__main__":
     def _parse_iso_datetime(value):
         try:
@@ -1562,6 +1756,26 @@ if __name__ == "__main__":
         parser.add_argument("--end-brt", type=_parse_iso_datetime)
         args = parser.parse_args(sys.argv[2:])
         sys.exit(threshold_sweep(days=args.days, end_brt=args.end_brt))
+    elif len(sys.argv) > 1 and sys.argv[1] == "walk-forward":
+        parser = argparse.ArgumentParser(
+            description="Roda compare() em N janelas consecutivas, andando pra frente no calendário"
+        )
+        parser.add_argument("note", help="Prefixo da descrição gravada em cada janela do journal")
+        parser.add_argument("--n-windows", type=int, default=2)
+        parser.add_argument("--window-days", type=int, default=45)
+        parser.add_argument("--step-days", type=int, default=None,
+                             help="Default: igual a --window-days (janelas disjuntas)")
+        parser.add_argument("--runs", type=int, default=2)
+        parser.add_argument("--end-brt", type=_parse_iso_datetime)
+        args = parser.parse_args(sys.argv[2:])
+        sys.exit(walk_forward(
+            n_windows=args.n_windows,
+            window_days=args.window_days,
+            step_days=args.step_days,
+            end_brt=args.end_brt,
+            runs=args.runs,
+            log_note_prefix=args.note,
+        ))
     else:
         parser = argparse.ArgumentParser(description="Compara motores de confluência")
         parser.add_argument("days", nargs="?", type=int, default=45)
