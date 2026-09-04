@@ -88,9 +88,15 @@ from scripts.backtest_canonical import (
 )
 # Só pra walk_forward() recusar começar dentro da janela crítica (achado
 # P3-2, herdr-review mfc-72, `mfc-rev-2`) — nunca importado por nenhuma
-# outra função deste arquivo. run_isolated_backtest.py chama compare() como
-# SUBPROCESSO isolado (nunca por import direto), então isto não cria
-# nenhuma dependência na direção contrária.
+# outra função deste arquivo. Descrição corrigida (achado MFC73-03,
+# herdr-review mfc-73, `mfc-rev`): run_isolated_backtest.py IMPORTA
+# `compare` diretamente, sim — mas SOB DEMANDA, dentro do corpo de
+# `_run_and_record()`, nunca no nível do módulo (`scripts/
+# run_isolated_backtest.py:614-615`). É esse adiamento — não a ausência de
+# import — que evita um ciclo: quando este arquivo é carregado, ele já
+# consegue importar `in_critical_window` daqui porque
+# run_isolated_backtest.py, no seu próprio nível de módulo, nunca importa
+# nada deste arquivo de volta.
 from scripts.run_isolated_backtest import in_critical_window
 
 
@@ -1757,8 +1763,18 @@ def walk_forward(n_windows=2, window_days=45, step_days=None, end_brt=None,
     # dá tempo antes da próxima janela crítica, já que este caminho (ao
     # contrário do disparo web) não tem watchdog nenhum.
     print(f"  {n_windows} janela(s) x {runs} passada(s) de custo = {n_windows * runs} "
-          f"passada(s) totais — sem watchdog de janela crítica nesta CLI, só a "
-          f"recusa no início.")
+          f"passada(s) totais.")
+    # Achado MFC73-01 (herdr-review mfc-73, `mfc-rev`, verify mode): a
+    # recusa acima só barra o INÍCIO — não há checagem por janela nem
+    # watchdog durante o lote, então um walk-forward longo iniciado antes
+    # de 20:55/07:55 BRT ainda pode atravessar a janela crítica no meio do
+    # caminho. Residual aceito (ferramenta de CLI manual, operador
+    # presente), mas a aceitação precisa ficar explícita EM RUNTIME, não só
+    # na docstring — "se o risco manual for aceito, a aceitação deve ser
+    # explícita" (texto do próprio achado).
+    print(f"  [!] Só o INÍCIO é checado — nenhuma janela crítica é reavaliada "
+          f"durante o lote. Se {n_windows * runs} passada(s) não couberem com "
+          f"folga antes de 20:55/07:55 BRT, interrompa manualmente (Ctrl+C).")
     print("=" * 90)
 
     entries = []

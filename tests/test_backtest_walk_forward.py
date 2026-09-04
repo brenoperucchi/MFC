@@ -360,13 +360,21 @@ class TestWalkForwardOrchestration(unittest.TestCase):
         self.assertEqual(result, 1)
 
     def test_summary_ranks_by_mean_liquido_across_runs_not_a_single_pass(self):
-        """Achado MFC72-03 (herdr-review mfc-72, mfc-rev): o "melhor motor
-        por janela" precisa vir da MÉDIA entre as passadas de custo
-        (runs_summary), nunca do líquido de uma passada só — que é ruído de
-        tick ao vivo, não o resultado da janela. Este teste monta uma
-        entrada onde o líquido "cru" (última passada) e a média das
-        passadas discordam sobre quem venceu, e confirma que o resumo usa a
-        média."""
+        """Achado MFC72-03 (herdr-review mfc-72, `mfc-rev`) + achado sobre
+        o PRÓPRIO teste (MFC73-02, herdr-review mfc-73, `mfc-rev`, verify
+        mode: a primeira versão deste teste mockava
+        _print_walk_forward_summary e só chamava o helper _mean_liquido()
+        direto nas asserções — se o RESUMO REAL voltasse a usar
+        entry["engines"][name]["liquido"] (a última passada, não a média),
+        este teste continuaria verde, porque o código do resumo nem
+        chegava a rodar. Corrigido: chama walk_forward() de ponta a ponta
+        SEM mockar _print_walk_forward_summary, captura a saída impressa de
+        verdade, e confirma que o motor apontado como vencedor é o que
+        vence pela MÉDIA (engine_a), não pelo líquido cru da última
+        passada (que apontaria engine_b)."""
+        import contextlib
+        import io
+
         def fake_compare(days, engine_names, runs, log_note, end_brt, sample_role,
                           development_start_brt=None):
             with open(self._journal_path, "r", encoding="utf-8") as f:
@@ -388,13 +396,19 @@ class TestWalkForwardOrchestration(unittest.TestCase):
                 json.dump(log, f)
             return 0
 
-        with patch.object(engine_compare, "compare", side_effect=fake_compare), \
-                patch.object(engine_compare, "_print_walk_forward_summary") as mocked_summary:
-            walk_forward(n_windows=1, window_days=45, end_brt=self._end_brt,
-                        engine_names=["engine_a", "engine_b"], log_note_prefix="teste")
-        entries_arg = mocked_summary.call_args[0][0]
-        self.assertEqual(engine_compare._mean_liquido(entries_arg[0], "engine_a"), 20.0)
-        self.assertEqual(engine_compare._mean_liquido(entries_arg[0], "engine_b"), -8.0)
+        captured = io.StringIO()
+        with patch.object(engine_compare, "compare", side_effect=fake_compare):
+            with contextlib.redirect_stdout(captured):
+                result = walk_forward(n_windows=1, window_days=45, end_brt=self._end_brt,
+                                      engine_names=["engine_a", "engine_b"],
+                                      log_note_prefix="teste")
+        self.assertEqual(result, 0)
+        output = captured.getvalue()
+        winner_line = next(
+            line for line in output.splitlines() if line.strip().startswith("janela 1:")
+        )
+        self.assertIn("engine_a", winner_line)
+        self.assertNotIn("engine_b", winner_line)
 
 
 if __name__ == "__main__":
