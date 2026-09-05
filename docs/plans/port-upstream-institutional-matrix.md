@@ -1472,5 +1472,23 @@ export WSLENV="CSS_MT5_TERMINAL_PATH:MFC_BACKTEST_TERMINAL_ISOLATED:PYTHONPATH:$
   --n-windows 2 --window-days 25 --step-days 25 --runs 2
 ```
 
-Ainda não executado neste checkout (sem acesso a MT5/Windows a partir da máquina Linux deste
-exec) — pendente de execução manual.
+**Executado com sucesso (2026-09-04, 22:27 BRT)** — acesso SSH ao Ryzen9 descoberto e usado
+pra rodar remotamente (código sincronizado via `git push`/`git merge --ff-only`, sem tocar
+em nenhum arquivo de estado da produção já modificado localmente lá). Primeira execução real
+de `walk_forward()` contra MT5, via terminal isolado `mfc-backtest`:
+
+```
+journal_seq=36  janela [2026-07-16,2026-08-10)  17 noites
+journal_seq=37  janela [2026-08-10,2026-09-04)  19 noites
+```
+
+As duas invariantes baratas (`mfc-70`) confirmadas nas duas janelas, nos 4 motores:
+`exposure.nights_total == window.nights_evaluated` e `turnover.night_pairs_total ==
+8×(nights_evaluated−1)` — todas `True`. Mecanismo validado ponta a ponta contra dado real
+pela primeira vez (os 24 testes anteriores só mockavam `compare()`).
+
+Confirmando a análise do `mfc-rev-2` (herdr-ask mfc-15): líquido médio por janela negativo
+pros 4 motores nas duas janelas (`3tf_vector` "vence" as duas, por negociar menos, não por
+ser melhor); delta pareado líquido `-2,69±7,75 (n=19)` na janela 2 — ruído puro, como
+esperado pra 17-19 noites. **Não é evidência nova sobre motor** — só confirma que o
+mecanismo funciona e que a conclusão estatística da mfc-15 se sustenta na prática.
