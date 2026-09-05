@@ -302,11 +302,17 @@ def evaluate_currency_confluence_3tf(ccy, mn_s, w1_s, d1_s, h4_s, h1_s, ref_dt):
     assinatura com o motor 5-TF (usados apenas para os campos informativos
     ``macro``/``operational`` do retorno, nunca para a decisão em si).
 
-    Preservado byte-a-byte igual à cópia congelada em
-    scripts/backtest_engine_compare.py::_run_3tf (usada lá pra comparar
-    antes/depois do Port A) — qualquer mudança aqui deve espelhar lá, e
-    vice-versa, ou a comparação A/B deixa de significar o que diz
-    significar."""
+    À época da extração (2026-09-05) reproduz exatamente
+    scripts/backtest_engine_compare.py::_run_3tf — mas as duas NÃO devem
+    ficar acopladas daqui pra frente (achado MFC74-06/P3-1, herdr-review
+    mfc-74, os dois revisores independentemente): _run_3tf existe pra
+    comparar "antes vs depois do Port A" e por isso precisa ficar
+    congelada PRA SEMPRE no comportamento pré-Port-A, mesmo que este motor
+    de PRODUÇÃO evolua legitimamente mais tarde (ex.: recalibrar o limiar
+    0.10). Uma mudança aqui não deve ser espelhada lá — é exatamente o
+    oposto do que a docstring anterior dizia. tests/test_confluence_matrix_port_a.py
+    verifica os valores FIXOS conhecidos, não uma comparação viva contra
+    _run_3tf, por esse motivo."""
     macro = analyze_macro_currency(ccy, mn_s, w1_s, d1_s)
     op = analyze_operational_currency(ccy, h4_s, h1_s, macro)
     d1_curr = float(d1_s[-1]) if len(d1_s) > 0 else 0.0
@@ -348,6 +354,16 @@ CONFLUENCE_ENGINE_3TF = "3tf"
 CONFLUENCE_ENGINE_5TF = "5tf"
 DEFAULT_CONFLUENCE_ENGINE = CONFLUENCE_ENGINE_3TF
 
+# Achado P3-2 (herdr-review mfc-74, `mfc-rev-2`, medido): sem isso, um valor
+# inválido avisa uma vez POR MOEDA POR NOITE (o dispatcher roda por moeda) —
+# ~8 linhas/noite, ~3.900 numa janela do tamanho do holdout OOS (8x488),
+# enterrando os avisos de qualidade histórica que o backtest_canonical
+# imprime no mesmo stdout (o `log_tail` do disparo web só guarda os últimos
+# 4000 caracteres). Guarda o ÚLTIMO valor inválido já avisado nesta
+# execução do processo — muda de valor inválido pra outro, avisa de novo;
+# processo novo (restart do serviço), avisa nele também.
+_last_warned_invalid_engine_value = None
+
 
 def _resolve_confluence_engine():
     """Lê CSS_CONFLUENCE_ENGINE a cada chamada — nunca cacheado numa
@@ -355,12 +371,17 @@ def _resolve_confluence_engine():
     check_execution_config() em agents/portfolio_executor.py) — pra um
     valor mudado em runtime, ou um teste que monkeypatcha os.environ,
     sempre valer sem precisar recarregar o módulo."""
+    global _last_warned_invalid_engine_value
     raw = os.environ.get(CSS_CONFLUENCE_ENGINE_ENV_VAR, DEFAULT_CONFLUENCE_ENGINE).strip().lower()
     if raw not in (CONFLUENCE_ENGINE_3TF, CONFLUENCE_ENGINE_5TF):
-        print(
-            f"[!] {CSS_CONFLUENCE_ENGINE_ENV_VAR}={raw!r} inválido "
-            f"(use {CONFLUENCE_ENGINE_3TF!r} ou {CONFLUENCE_ENGINE_5TF!r}) "
-            f"— usando default {DEFAULT_CONFLUENCE_ENGINE!r}."
+        if raw != _last_warned_invalid_engine_value:
+            _last_warned_invalid_engine_value = raw
+            print(
+                f"[!] {CSS_CONFLUENCE_ENGINE_ENV_VAR}={raw!r} inválido "
+                f"(use {CONFLUENCE_ENGINE_3TF!r} ou {CONFLUENCE_ENGINE_5TF!r}) "
+                f"— usando default {DEFAULT_CONFLUENCE_ENGINE!r}. "
+                f"(aviso impresso só uma vez por valor inválido, achado "
+                f"P3-2 herdr-review mfc-74)"
         )
         return DEFAULT_CONFLUENCE_ENGINE
     return raw

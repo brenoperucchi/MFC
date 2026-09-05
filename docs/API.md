@@ -18,6 +18,7 @@ Retorna todos os dados calculados do CSS para as 8 moedas em todos os 5 timefram
   "timestamp": "2026-08-19 19:15:00",
   "mt5_connected": true,
   "engine_mode": "standard",
+  "confluence_engine": "3tf",
   "currencies": [
     {
       "symbol": "USD",
@@ -47,11 +48,23 @@ Retorna todos os dados calculados do CSS para as 8 moedas em todos os 5 timefram
 }
 ```
 
-No mesmo payload, cada item de `currencies` expõe `total_score` como o score
-normalizado da matriz institucional 5-TF: `weighted_score / 13.5 * 10`, sem
-clamp nesta etapa do Port A. Esse campo não deve ser comparado diretamente ao
-`total_score` dos itens de `pairs`, que continua sendo o score do ranking de
-pares em escala própria.
+**`confluence_engine` (achado MFC74-03, herdr-review mfc-74) muda a escala e a
+semântica de `total_score` de cada item em `currencies`** — leia esse campo
+antes de interpretar `total_score`:
+- `"3tf"` (default desde 2026-09-05, ver `CLAUDE.md`/`.env.example`
+  `CSS_CONFLUENCE_ENGINE`): `total_score` é o score BRUTO
+  `D1*0.40 + H4*0.35 + H1*0.25`, sem normalização — mesma escala aproximada
+  de um score de tríade isolado.
+- `"5tf"` (Port A, matriz institucional com soberania macro MN1/W1):
+  `total_score` é o score normalizado `weighted_score / 13.5 * 10`, sem
+  clamp nesta etapa — escala aproximada -10 a +10.
+
+Um consumidor que compare `total_score` entre duas chamadas precisa checar
+se `confluence_engine` mudou entre elas antes de tratar a diferença como
+sinal — os dois motores não estão na mesma escala. Esse campo não deve ser
+comparado diretamente ao `total_score` dos itens de `pairs`, que continua
+sendo o score do ranking de pares em escala própria (não afetado por
+`CSS_CONFLUENCE_ENGINE`).
 
 ---
 

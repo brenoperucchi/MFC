@@ -2,6 +2,16 @@
 
 Documentação técnica oficial do algoritmo de tomada de decisão para a escolha de direção (**COMPRA / FORÇA**, **VENDA / FRAQUEZA** ou **NEUTRO / PRESERVAÇÃO**) no ecossistema **CSS Institutional Platform**.
 
+> [!IMPORTANT]
+> **Achado MFC74-03 (herdr-review mfc-74, 2026-09-05):** este documento descreve o motor **5-TF** (Port A,
+> `agents/confluence_engine.py::evaluate_currency_confluence_5tf`). Desde 2026-09-05 esse NÃO é mais o
+> comportamento default em produção — `CSS_CONFLUENCE_ENGINE` (default `3tf`) decide qual motor roda de
+> verdade; ver `CLAUDE.md`/`.env.example` e `docs/plans/port-upstream-institutional-matrix.md` ("item 6")
+> pelo porquê. O motor `3tf` (pré-Port-A) não usa nada do que está descrito abaixo — decide só por
+> `D1*0.40 + H4*0.35 + H1*0.25` sobre o score bruto da tríade, sem soberania macro nem maturação temporal.
+> Confira o campo `confluence_engine` no payload da API (`docs/API.md`) antes de assumir qual dos dois
+> algoritmos gerou um `trade_bias`/`total_score` específico.
+
 ---
 
 ## 1. Filosofia Operacional & Superação de Filtros Estáticos

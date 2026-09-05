@@ -44,6 +44,7 @@ if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
 
 from agents.portfolio_executor import get_portfolio_pairs, CostModel, ensure_mt5
+from agents.confluence_engine import _resolve_confluence_engine
 from web.history_tracker import convert_pnl_to_usd
 from scripts.backtest_canonical import (
     BRT, LOT, ENTRY_HOUR_BRT, CURRENCIES, load_series, load_h1_prices, h1_bars_for_days,
@@ -286,7 +287,13 @@ def compare_composition(days=45, log_note=None):
             "hypothesis": "Remover GBPNZD reduz o custo da cesta sem alterar o PnL bruto das seis pernas mantidas.",
             "implementation": {
                 "diagnostic": "composition_effect",
-                "signal_engine": "5tf_port_a",
+                # Achado MFC74-04/P2-1 (herdr-review mfc-74, convergente): era
+                # literal fixo "5tf_port_a" — errado desde que
+                # CSS_CONFLUENCE_ENGINE existe (evaluate_at(), importado de
+                # backtest_canonical.py, passa pelo dispatcher). Grava o motor
+                # EFETIVO desta execução, não o que o script foi escrito pra
+                # medir originalmente.
+                "signal_engine": _resolve_confluence_engine(),
                 "port": "A",
                 "upstream_commit": "544d660",
             },

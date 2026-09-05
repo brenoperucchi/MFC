@@ -64,7 +64,7 @@ from web.css_service import (
     get_tf_constant, required_full_history_bars, to_broker_symbol,
 )
 import scripts.fetch_histdata_mn1_warmup as fetch_histdata_mn1_warmup
-from agents.confluence_engine import BRT, evaluate_currency_confluence
+from agents.confluence_engine import BRT, evaluate_currency_confluence, _resolve_confluence_engine
 # CostModel mora em agents/portfolio_executor.py (o executor de verdade) —
 # era duplicada aqui até 24/08; agora o backtest importa a mesma classe que
 # o sistema ao vivo usa pra ESTIMAR o custo de cada cesta aberta (achado em
@@ -928,6 +928,15 @@ def run(days=45, log_note=None):
                 "port": "A",
                 "upstream_commit": "544d660",
                 "thresholds": {"stop_zone": 0.20, "equilibrium": 0.05},
+                # Achado MFC74-04/P2-1 (herdr-review mfc-74, convergente): "port"/
+                # "upstream_commit" acima descrevem só o PROPÓSITO histórico deste
+                # script (comparar Port A contra o 3-TF antigo), não o motor que
+                # de fato rodou nesta execução — evaluate_at() chama o dispatcher
+                # (evaluate_currency_confluence), que resolve por
+                # CSS_CONFLUENCE_ENGINE e pode ser 3-TF desde 2026-09-05. Campo
+                # novo grava o motor EFETIVO, pra uma entrada não ficar atribuída
+                # pra sempre ao motor errado.
+                "signal_engine": _resolve_confluence_engine(),
             },
             "baseline": {
                 "name": "pre_port_3tf",

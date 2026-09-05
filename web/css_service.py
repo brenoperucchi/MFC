@@ -65,6 +65,7 @@ from agents.confluence_engine import (
     BRT,
     evaluate_currency_confluence,
     evaluate_28_pairs_confluence,
+    _resolve_confluence_engine,
 )
 from agents.triad_analyzer import analyze_tf_triad
 
@@ -1235,6 +1236,13 @@ class CSSDataEngine:
         # Captura única por snapshot: MN1/W1 precisam usar a mesma maturação
         # para todas as moedas, e o motor recebe o instante explicitamente.
         reference_dt = datetime.now(BRT)
+        # Achado MFC74-03 (herdr-review mfc-74, `mfc-rev`): total_score muda
+        # de escala/semântica conforme o motor ativo (score bruto 3-TF vs
+        # normalizado 5-TF), e nada no payload dizia qual dos dois produziu
+        # o número. Capturado UMA vez por snapshot (não recalculado por
+        # moeda) e exposto em cada card — resolve isso e a nota operacional
+        # do `mfc-rev-2` de que nada mostrava qual motor estava selecionado.
+        active_confluence_engine = _resolve_confluence_engine()
         for c in CURRENCIES:
             mn_s = tf_data_raw["MN1"][0][c]
             w1_s = tf_data_raw["W1"][0][c]
@@ -1344,6 +1352,11 @@ class CSSDataEngine:
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "mt5_connected": self.is_mt5_connected,
             "engine_mode": mode,
+            # Achado MFC74-03 (herdr-review mfc-74): total_score muda de
+            # escala/semântica conforme este valor ("3tf" = score bruto
+            # D1*0.40+H4*0.35+H1*0.25; "5tf" = normalizado -10..+10) — ver
+            # docs/API.md.
+            "confluence_engine": active_confluence_engine,
             "engine_mode_label": "MODO GAUSS (Nadaraya-Watson Kernel)" if mode == "gauss" else "MODO PADRÃO (TMA / LWMA)",
             "currencies": currency_cards,
             "charts": tf_charts,
@@ -1451,6 +1464,7 @@ class CSSDataEngine:
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "mt5_connected": False,
             "engine_mode": mode,
+            "confluence_engine": _resolve_confluence_engine(),
             "engine_mode_label": "MODO GAUSS (Nadaraya-Watson Kernel)" if mode == "gauss" else "MODO PADRÃO (TMA / LWMA)",
             "currencies": currency_cards,
             "charts": charts,

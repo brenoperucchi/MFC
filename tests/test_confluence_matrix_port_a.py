@@ -723,14 +723,30 @@ class TestConfluenceEngineFlag(unittest.TestCase):
     _ARGS = ("AUD", [0.1, 0.1], [0.1, 0.1], [0.15, 0.16], [0.05, 0.06], [-0.02, -0.03])
     _REF_DT = datetime(2026, 9, 5, 21, tzinfo=BRT)
 
-    def _clean_env(self):
-        os.environ.pop(CSS_CONFLUENCE_ENGINE_ENV_VAR, None)
-
     def setUp(self):
-        self._clean_env()
+        # Achado MFC74-05 (herdr-review mfc-74, `mfc-rev`): a versão anterior
+        # dava pop() sem guardar o valor original — se a suíte fosse
+        # iniciada com CSS_CONFLUENCE_ENGINE já setada no ambiente, esta
+        # classe apagava e nunca devolvia, contaminando testes rodados
+        # depois dela na mesma sessão de processo. Guarda o valor original
+        # (ou a ausência dele) e restaura de verdade no tearDown.
+        self._original_env_value = os.environ.pop(CSS_CONFLUENCE_ENGINE_ENV_VAR, None)
+        # Achado P3-2 (herdr-review mfc-74, `mfc-rev-2`) introduziu um guard
+        # de módulo pra avisar só uma vez por valor inválido — sem resetar
+        # isso aqui, testes desta classe que dependem de OBSERVAR o aviso
+        # ficam dependentes da ordem de execução (o unittest roda em ordem
+        # alfabética por padrão), já que o guard é estado global do processo.
+        import agents.confluence_engine as _ce_module
+        self._ce_module = _ce_module
+        self._original_last_warned = _ce_module._last_warned_invalid_engine_value
+        _ce_module._last_warned_invalid_engine_value = None
 
     def tearDown(self):
-        self._clean_env()
+        if self._original_env_value is None:
+            os.environ.pop(CSS_CONFLUENCE_ENGINE_ENV_VAR, None)
+        else:
+            os.environ[CSS_CONFLUENCE_ENGINE_ENV_VAR] = self._original_env_value
+        self._ce_module._last_warned_invalid_engine_value = self._original_last_warned
 
     def test_default_with_no_env_var_matches_3tf_directly(self):
         direct = evaluate_currency_confluence_3tf(*self._ARGS, ref_dt=self._REF_DT)
@@ -794,13 +810,41 @@ class TestConfluenceEngineFlag(unittest.TestCase):
                 with self.assertRaises(TypeError):
                     evaluate_currency_confluence(*self._ARGS, ref_dt=None)
 
-    def test_production_3tf_engine_matches_the_frozen_backtest_baseline(self):
-        """evaluate_currency_confluence_3tf (produção) e _run_3tf
-        (scripts/backtest_engine_compare.py, congelado pro comparativo
-        antes/depois do Port A) são duas cópias mantidas à mão da MESMA
-        lógica — precisam continuar idênticas byte a byte. Discriminância:
-        provado manualmente alterando um dos dois limiares (0.10) e
-        confirmando que este teste falha."""
+    def test_production_3tf_engine_matches_known_fixed_values(self):
+        """Valores FIXOS, não uma comparação viva contra _run_3tf (achado
+        MFC74-06/P3-1, herdr-review mfc-74, os dois revisores
+        independentemente): _run_3tf é um baseline histórico que precisa
+        ficar congelado pra sempre, e uma comparação viva contra ele
+        bloquearia qualquer evolução legítima futura do 3-TF de produção
+        (ex.: recalibrar o limiar 0.10). Este teste verifica o
+        comportamento de produção diretamente, incluindo os casos que
+        cruzam o limiar ±0.10 mas não ±0.15 (discriminância provada
+        manualmente contra um deslize de limiar)."""
+        cases = [
+            (("AUD", [0.0], [0.0], [0.30], [0.30], [0.30]), "COMPRA", 0.3),
+            (("AUD", [0.0], [0.0], [-0.30], [-0.30], [-0.30]), "VENDA", -0.3),
+            (("AUD", [0.0], [0.0], [0.05], [0.05], [0.05]), "NEUTRO", 0.05),
+            (("AUD", [0.0], [0.0], [0.0], [0.0], [0.0]), "NEUTRO", 0.0),
+            (("AUD", [0.0], [0.0], [0.25], [-0.30], [0.05]), "NEUTRO", 0.01),
+            (("AUD", [0.0], [0.0], [], [], []), "NEUTRO", 0.0),
+            (("AUD", [0.0], [0.0], [0.30], [0.0], [0.0]), "COMPRA", 0.12),
+            (("AUD", [0.0], [0.0], [-0.30], [0.0], [0.0]), "VENDA", -0.12),
+        ]
+        for args, expected_bias, expected_score in cases:
+            with self.subTest(args=args):
+                result = evaluate_currency_confluence_3tf(*args, ref_dt=self._REF_DT)
+                self.assertEqual(result["trade_bias"], expected_bias)
+                self.assertEqual(result["score_total"], expected_score)
+
+    def test_production_3tf_extraction_matched_the_frozen_baseline_at_migration_time(self):
+        """Snapshot histórico, não um gate: em 2026-09-05, no momento da
+        extração de evaluate_currency_confluence_3tf a partir de _run_3tf,
+        os dois batiam byte a byte nestes casos — registrado aqui só como
+        evidência de migração correta, não como trava pra mudanças futuras
+        (ver docstrings dos dois: _run_3tf nunca deve mudar, produção pode).
+        Se um dia divergirem porque a produção evoluiu legitimamente, é
+        esperado — troque este teste por uma nota no commit, não reverta a
+        mudança de produção pra fazer ele passar de novo."""
         cases = [
             ("AUD", [0.0], [0.0], [0.30], [0.30], [0.30]),
             ("AUD", [0.0], [0.0], [-0.30], [-0.30], [-0.30]),
@@ -808,8 +852,6 @@ class TestConfluenceEngineFlag(unittest.TestCase):
             ("AUD", [0.0], [0.0], [0.0], [0.0], [0.0]),
             ("AUD", [0.0], [0.0], [0.25], [-0.30], [0.05]),
             ("AUD", [0.0], [0.0], [], [], []),
-            ("AUD", [0.0], [0.0], [0.30], [0.0], [0.0]),  # score=0.12: cruza limiar 0.10 mas não 0.15
-            ("AUD", [0.0], [0.0], [-0.30], [0.0], [0.0]),  # score=-0.12: cruza -0.10 mas não -0.15
         ]
         for args in cases:
             with self.subTest(args=args):

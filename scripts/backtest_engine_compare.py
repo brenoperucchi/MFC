@@ -312,10 +312,14 @@ def evaluate_currency_confluence_5tf(ccy, mn_s, w1_s, d1_s, h4_s, h1_s, ref_dt):
 # Adicionar uma comparação nova (ex.: ATR diferenciado, item 7) é registrar
 # outra entrada aqui, não escrever um script novo do zero.
 def _run_3tf(ccy, mn, w1, d1, h4, h1, ref_dt=None):
-    """Baseline congelado do motor local anterior ao Port A.
+    """Baseline HISTORICAMENTE CONGELADO do motor local anterior ao Port A —
+    NUNCA deve mudar, nem que a produção evolua o 3-TF legitimamente mais
+    tarde (achado MFC74-06/P3-1, herdr-review mfc-74). Existe só pra
+    comparação "antes vs depois do Port A" continuar significando a mesma
+    coisa; ver agents/confluence_engine.py::evaluate_currency_confluence_3tf
+    pro motor de PRODUÇÃO (que pode evoluir sem tocar esta função).
 
-    Mantém exatamente os pesos e o limiar da decisão 3-TF pré-port para que
-    o backtest compare a mesma implementação antes e depois da mudança.
+    Mantém exatamente os pesos e o limiar da decisão 3-TF pré-port.
     """
     macro = analyze_macro_currency(ccy, mn, w1, d1)
     op = analyze_operational_currency(ccy, h4, h1, macro)
