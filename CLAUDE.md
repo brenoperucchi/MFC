@@ -248,19 +248,26 @@ dict verdict out. Called from both `web/css_service.py` (live web platform) and
 3. `agents/operational_analyzer.py::analyze_operational_currency` — H4/H1 timing/momentum,
    including "retomada de força/fraqueza" (box invalidation) triggers, checked against the macro
    verdict for divergence alerts.
-4. `agents/confluence_engine.py` — `evaluate_currency_confluence` is the single production entry
-   point (called by `web/css_service.py` and by `scripts/backtest_canonical.py`, which explicitly
-   documents itself as "o mesmo motor que decide ao vivo"); it dispatches per-currency `trade_bias`
-   to one of two engines via `CSS_CONFLUENCE_ENGINE` (`.env.example`, default `3tf`, missing/invalid
-   value warns and falls back to the default rather than refusing — neither option sends an order by
-   itself or is "more dangerous" than the other, it only changes which math decides `trade_bias`):
-   `evaluate_currency_confluence_3tf` (the pre-Port-A engine: `D1*0.40+H4*0.35+H1*0.25` on raw
-   triad scores) or `evaluate_currency_confluence_5tf` (Port A, the 5-TF institutional matrix with
-   MN1/W1 macro-sovereignty penalizing/reinforcing D1/H4/H1). The default reverted to `3tf` on
-   2026-09-05 — even though Port A (5-TF) had already been the live engine — after the `herdr-ask`
-   mfc-15 statistical-power analysis (`docs/plans/port-upstream-institutional-matrix.md`, "item 6")
-   showed the net-PnL difference between the two is undetectable at any practically-reachable
-   sample size, while 5-TF measurably trades ~26% more baskets and pays ~27% more transaction cost.
+4. `agents/confluence_engine.py` — `evaluate_currency_confluence(..., engine=)` is the single
+   production entry point (called by `web/css_service.py` and by `scripts/backtest_canonical.py`,
+   which explicitly documents itself as "o mesmo motor que decide ao vivo"); it dispatches
+   per-currency `trade_bias` to one of two engines via the explicit `engine` argument — PURE, never
+   reads `os.environ` itself (achado MFC74-01, `herdr-ask` mfc-17: doing so broke the `agents/`
+   layer's `f(series, ref_dt) → dict` determinism contract, which is exactly why journal provenance
+   had drifted from the real engine and why the comparison harness had to route around it).
+   `resolve_confluence_engine()` is the boundary helper each caller invokes ONCE per round (never
+   per-currency) to read `CSS_CONFLUENCE_ENGINE` (`.env.example`, default `3tf`): missing uses the
+   default; an explicitly invalid value RAISES (`ValueError`) instead of warning-and-falling-back —
+   achado MFC74-02, the project's own `.env` invariant is "used ≠ written," not "which side is more
+   dangerous," and both reviewers converged that it applies here even with neither engine being
+   objectively riskier. `evaluate_currency_confluence_3tf` (the pre-Port-A engine:
+   `D1*0.40+H4*0.35+H1*0.25` on raw triad scores) or `evaluate_currency_confluence_5tf` (Port A, the
+   5-TF institutional matrix with MN1/W1 macro-sovereignty penalizing/reinforcing D1/H4/H1). The
+   default reverted to `3tf` on 2026-09-05 — even though Port A (5-TF) had already been the live
+   engine — after the `herdr-ask` mfc-15 statistical-power analysis
+   (`docs/plans/port-upstream-institutional-matrix.md`, "item 6") showed the net-PnL difference
+   between the two is undetectable at any practically-reachable sample size, while 5-TF measurably
+   trades ~26% more baskets and pays ~27% more transaction cost.
    `scripts/backtest_engine_compare.py` (the comparison harness) never goes through the flag — it
    imports `evaluate_currency_confluence_3tf`/`_5tf` directly, so an A/B backtest always compares
    both engines regardless of which one is live. `evaluate_28_pairs_confluence` derives the 28-pair

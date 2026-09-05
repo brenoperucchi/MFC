@@ -9,12 +9,15 @@ import pandas as pd
 
 from agents.confluence_engine import (
     BRT,
+    CONFLUENCE_ENGINE_3TF,
+    CONFLUENCE_ENGINE_5TF,
     CSS_CONFLUENCE_ENGINE_ENV_VAR,
     _calculate_tf_vector,
     _get_tf_maturity,
     evaluate_currency_confluence,
     evaluate_currency_confluence_3tf,
     evaluate_currency_confluence_5tf as evaluate_currency_confluence_engine_5tf,
+    resolve_confluence_engine,
 )
 from scripts.backtest_engine_compare import (
     _get_tf_maturity as _get_upstream_tf_maturity,
@@ -561,7 +564,7 @@ class TestPortAVectors(unittest.TestCase):
                 patch.object(canonical, "is_market_session_valid", return_value=True):
             assert canonical.evaluate_at(
                 series, times[-1].to_pydatetime(),
-                datetime(2026, 8, 2, 21, tzinfo=BRT),
+                datetime(2026, 8, 2, 21, tzinfo=BRT), "3tf",
             ) is None
 
     def test_oos_contract_gate_fails_closed_without_mt5(self):
@@ -718,7 +721,15 @@ class TestConfluenceEngineFlag(unittest.TestCase):
     (pré-Port-A), 5tf disponível pra testar junto de funcionalidades
     futuras do Miquéias sem precisar reverter código. Ver a análise de
     poder estatístico da herdr-ask mfc-15 sobre por que o default voltou a
-    ser 3tf mesmo com o Port A (5-TF) já em produção."""
+    ser 3tf mesmo com o Port A (5-TF) já em produção.
+
+    Desenho reescrito pela herdr-ask mfc-17 (achados MFC74-01/02, herdr-
+    review mfc-74, os dois revisores convergiram após uma rodada de
+    correção mútua): evaluate_currency_confluence() é PURA — recebe
+    `engine` como argumento explícito, nunca lê os.environ.
+    resolve_confluence_engine() é o helper de fronteira que lê o ambiente
+    e falha fechado (ValueError) num valor explicitamente inválido, em vez
+    de avisar e cair silenciosamente no default."""
 
     _ARGS = ("AUD", [0.1, 0.1], [0.1, 0.1], [0.15, 0.16], [0.05, 0.06], [-0.02, -0.03])
     _REF_DT = datetime(2026, 9, 5, 21, tzinfo=BRT)
@@ -731,84 +742,93 @@ class TestConfluenceEngineFlag(unittest.TestCase):
         # depois dela na mesma sessão de processo. Guarda o valor original
         # (ou a ausência dele) e restaura de verdade no tearDown.
         self._original_env_value = os.environ.pop(CSS_CONFLUENCE_ENGINE_ENV_VAR, None)
-        # Achado P3-2 (herdr-review mfc-74, `mfc-rev-2`) introduziu um guard
-        # de módulo pra avisar só uma vez por valor inválido — sem resetar
-        # isso aqui, testes desta classe que dependem de OBSERVAR o aviso
-        # ficam dependentes da ordem de execução (o unittest roda em ordem
-        # alfabética por padrão), já que o guard é estado global do processo.
-        import agents.confluence_engine as _ce_module
-        self._ce_module = _ce_module
-        self._original_last_warned = _ce_module._last_warned_invalid_engine_value
-        _ce_module._last_warned_invalid_engine_value = None
 
     def tearDown(self):
         if self._original_env_value is None:
             os.environ.pop(CSS_CONFLUENCE_ENGINE_ENV_VAR, None)
         else:
             os.environ[CSS_CONFLUENCE_ENGINE_ENV_VAR] = self._original_env_value
-        self._ce_module._last_warned_invalid_engine_value = self._original_last_warned
 
-    def test_default_with_no_env_var_matches_3tf_directly(self):
+    # --- evaluate_currency_confluence(): pura, `engine` explícito ---
+
+    def test_engine_3tf_matches_direct_call(self):
         direct = evaluate_currency_confluence_3tf(*self._ARGS, ref_dt=self._REF_DT)
-        dispatched = evaluate_currency_confluence(*self._ARGS, ref_dt=self._REF_DT)
+        dispatched = evaluate_currency_confluence(*self._ARGS, ref_dt=self._REF_DT, engine="3tf")
         self.assertEqual(dispatched, direct)
 
-    def test_explicit_3tf_matches_3tf_directly(self):
-        with patch.dict(os.environ, {CSS_CONFLUENCE_ENGINE_ENV_VAR: "3tf"}):
-            direct = evaluate_currency_confluence_3tf(*self._ARGS, ref_dt=self._REF_DT)
-            dispatched = evaluate_currency_confluence(*self._ARGS, ref_dt=self._REF_DT)
+    def test_engine_5tf_matches_direct_call(self):
+        direct = evaluate_currency_confluence_engine_5tf(*self._ARGS, ref_dt=self._REF_DT)
+        dispatched = evaluate_currency_confluence(*self._ARGS, ref_dt=self._REF_DT, engine="5tf")
         self.assertEqual(dispatched, direct)
 
-    def test_explicit_5tf_matches_5tf_directly(self):
+    def test_invalid_engine_argument_is_rejected(self):
+        with self.assertRaises(ValueError):
+            evaluate_currency_confluence(*self._ARGS, ref_dt=self._REF_DT, engine="sei-la")
+
+    def test_dispatcher_never_reads_os_environ(self):
+        """Discriminância: com CSS_CONFLUENCE_ENGINE=5tf no ambiente,
+        passar engine="3tf" explicitamente tem que decidir 3tf mesmo
+        assim — se o dispatcher regredisse pra ler o ambiente por baixo
+        dos panos (desenho da mfc-74), o resultado seria 5tf em vez
+        disso."""
         with patch.dict(os.environ, {CSS_CONFLUENCE_ENGINE_ENV_VAR: "5tf"}):
-            direct = evaluate_currency_confluence_engine_5tf(*self._ARGS, ref_dt=self._REF_DT)
-            dispatched = evaluate_currency_confluence(*self._ARGS, ref_dt=self._REF_DT)
-        self.assertEqual(dispatched, direct)
-
-    def test_uppercase_and_surrounding_whitespace_are_tolerated(self):
-        with patch.dict(os.environ, {CSS_CONFLUENCE_ENGINE_ENV_VAR: "  5TF  "}):
-            direct = evaluate_currency_confluence_engine_5tf(*self._ARGS, ref_dt=self._REF_DT)
-            dispatched = evaluate_currency_confluence(*self._ARGS, ref_dt=self._REF_DT)
-        self.assertEqual(dispatched, direct)
-
-    def test_invalid_value_falls_back_to_default_instead_of_crashing(self):
-        with patch.dict(os.environ, {CSS_CONFLUENCE_ENGINE_ENV_VAR: "sei-la"}):
-            direct = evaluate_currency_confluence_3tf(*self._ARGS, ref_dt=self._REF_DT)
-            dispatched = evaluate_currency_confluence(*self._ARGS, ref_dt=self._REF_DT)
-        self.assertEqual(dispatched, direct)
-
-    def test_invalid_value_prints_a_warning_naming_the_bad_value(self):
-        """A queda pra 3tf num valor inválido já é garantida estruturalmente
-        pelo dispatcher (só compara contra "5tf", qualquer outra coisa cai
-        no else) — o que só o fallback explícito garante é o aviso. Sem ele
-        o operador nunca saberia que digitou/configurou um valor que não
-        faz nada. Discriminância: comentando o print() em
-        _resolve_confluence_engine() faz este teste falhar (confirmado
-        manualmente); os dois testes acima continuariam passando do mesmo
-        jeito, por isso precisam dos dois."""
-        import io
-        import contextlib
-        with patch.dict(os.environ, {CSS_CONFLUENCE_ENGINE_ENV_VAR: "sei-la"}):
-            buf = io.StringIO()
-            with contextlib.redirect_stdout(buf):
-                evaluate_currency_confluence(*self._ARGS, ref_dt=self._REF_DT)
-        self.assertIn("sei-la", buf.getvalue())
-        self.assertIn(CSS_CONFLUENCE_ENGINE_ENV_VAR, buf.getvalue())
-
-    def test_engine_selection_is_read_per_call_not_cached(self):
-        with patch.dict(os.environ, {CSS_CONFLUENCE_ENGINE_ENV_VAR: "3tf"}):
-            three = evaluate_currency_confluence(*self._ARGS, ref_dt=self._REF_DT)
-        with patch.dict(os.environ, {CSS_CONFLUENCE_ENGINE_ENV_VAR: "5tf"}):
-            five = evaluate_currency_confluence(*self._ARGS, ref_dt=self._REF_DT)
-        self.assertEqual(three, evaluate_currency_confluence_3tf(*self._ARGS, ref_dt=self._REF_DT))
-        self.assertEqual(five, evaluate_currency_confluence_engine_5tf(*self._ARGS, ref_dt=self._REF_DT))
-        self.assertNotEqual(three["confluence_state"], five["confluence_state"])
+            result = evaluate_currency_confluence(*self._ARGS, ref_dt=self._REF_DT, engine="3tf")
+        expected = evaluate_currency_confluence_3tf(*self._ARGS, ref_dt=self._REF_DT)
+        self.assertEqual(result, expected)
 
     def test_missing_ref_dt_is_rejected_regardless_of_engine(self):
         for engine in ("3tf", "5tf"):
-            with patch.dict(os.environ, {CSS_CONFLUENCE_ENGINE_ENV_VAR: engine}):
+            with self.subTest(engine=engine):
                 with self.assertRaises(TypeError):
-                    evaluate_currency_confluence(*self._ARGS, ref_dt=None)
+                    evaluate_currency_confluence(*self._ARGS, ref_dt=None, engine=engine)
+
+    # --- resolve_confluence_engine(): fronteira, lê ambiente, fail-closed ---
+
+    def test_resolve_defaults_to_3tf_when_env_var_absent(self):
+        self.assertEqual(resolve_confluence_engine(), CONFLUENCE_ENGINE_3TF)
+
+    def test_resolve_returns_explicit_valid_value(self):
+        with patch.dict(os.environ, {CSS_CONFLUENCE_ENGINE_ENV_VAR: "5tf"}):
+            self.assertEqual(resolve_confluence_engine(), CONFLUENCE_ENGINE_5TF)
+
+    def test_resolve_tolerates_case_and_surrounding_whitespace(self):
+        with patch.dict(os.environ, {CSS_CONFLUENCE_ENGINE_ENV_VAR: "  5TF  "}):
+            self.assertEqual(resolve_confluence_engine(), CONFLUENCE_ENGINE_5TF)
+
+    def test_resolve_raises_on_explicitly_invalid_value(self):
+        """Achado MFC74-02 (herdr-review mfc-74) resolvido pela herdr-ask
+        mfc-17: os dois revisores convergiram (mfc-rev-2 concedeu depois
+        de reler a invariante 2 do projeto — "usado != escrito", não "qual
+        lado é mais perigoso") que um valor EXPLICITAMENTE inválido deve
+        recusar, nunca cair silenciosamente no default com só um aviso."""
+        with patch.dict(os.environ, {CSS_CONFLUENCE_ENGINE_ENV_VAR: "5-tf"}):
+            with self.assertRaises(ValueError) as ctx:
+                resolve_confluence_engine()
+        self.assertIn("5-tf", str(ctx.exception))
+        self.assertIn(CSS_CONFLUENCE_ENGINE_ENV_VAR, str(ctx.exception))
+
+    def test_resolve_raises_on_explicitly_empty_value(self):
+        """Presente-mas-vazio não é a mesma coisa que ausente — só a
+        AUSÊNCIA da própria chave usa o default; uma chave presente com
+        valor vazio (`CSS_CONFLUENCE_ENGINE=` no .env) é uma configuração
+        explícita inválida como qualquer outra."""
+        with patch.dict(os.environ, {CSS_CONFLUENCE_ENGINE_ENV_VAR: ""}):
+            with self.assertRaises(ValueError):
+                resolve_confluence_engine()
+
+    def test_resolve_never_prints_anything(self):
+        """Achado MFC74-01 (herdr-review mfc-74) resolvido pela herdr-ask
+        mfc-17: `print()` saiu do caminho de erro — uma função de
+        fronteira que RECUSA não precisa avisar por stdout também, o
+        chamador decide como reportar o ValueError."""
+        import contextlib
+        import io
+        buf = io.StringIO()
+        with patch.dict(os.environ, {CSS_CONFLUENCE_ENGINE_ENV_VAR: "sei-la"}), \
+                contextlib.redirect_stdout(buf):
+            with self.assertRaises(ValueError):
+                resolve_confluence_engine()
+        self.assertEqual(buf.getvalue(), "")
 
     def test_production_3tf_engine_matches_known_fixed_values(self):
         """Valores FIXOS, não uma comparação viva contra _run_3tf (achado

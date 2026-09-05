@@ -63,9 +63,10 @@ _load_dotenv_if_present()
 
 from agents.confluence_engine import (
     BRT,
+    DEFAULT_CONFLUENCE_ENGINE,
     evaluate_currency_confluence,
     evaluate_28_pairs_confluence,
-    _resolve_confluence_engine,
+    resolve_confluence_engine,
 )
 from agents.triad_analyzer import analyze_tf_triad
 
@@ -585,6 +586,18 @@ def _stamp_provenance(payload, is_live: bool):
     stamped = dict(payload)
     stamped["mt5_connected"] = bool(is_live)
     return stamped
+
+
+def _fallback_confluence_engine_label():
+    """Só pro payload 100% simulado de _generate_fallback_data() (nunca
+    passa por evaluate_currency_confluence de verdade) — informativo, não
+    pode derrubar a última rede de segurança do serviço por causa de um
+    CSS_CONFLUENCE_ENGINE inválido, então cai no default em vez de
+    propagar o ValueError de resolve_confluence_engine()."""
+    try:
+        return resolve_confluence_engine()
+    except ValueError:
+        return DEFAULT_CONFLUENCE_ENGINE
 
 
 def from_broker_symbol(symbol: str) -> str:
@@ -1239,10 +1252,28 @@ class CSSDataEngine:
         # Achado MFC74-03 (herdr-review mfc-74, `mfc-rev`): total_score muda
         # de escala/semântica conforme o motor ativo (score bruto 3-TF vs
         # normalizado 5-TF), e nada no payload dizia qual dos dois produziu
-        # o número. Capturado UMA vez por snapshot (não recalculado por
-        # moeda) e exposto em cada card — resolve isso e a nota operacional
-        # do `mfc-rev-2` de que nada mostrava qual motor estava selecionado.
-        active_confluence_engine = _resolve_confluence_engine()
+        # o número. Resolvido UMA vez por snapshot (nunca recalculado por
+        # moeda dentro do loop — achados MFC74-01/mfc-rev e a 3ª releitura
+        # que o `mfc-rev-2` achou na consulta mfc-17) e passado explícito
+        # pra evaluate_currency_confluence(), que agora NUNCA lê
+        # os.environ (a leitura só existe aqui, na fronteira). Valor
+        # AUSENTE cai no default (3tf); PRESENTE E INVÁLIDO recusa
+        # (fail-closed, achado MFC74-02 — os dois revisores convergiram na
+        # mfc-17: "usado ≠ escrito" da invariante 2 se aplica aqui mesmo
+        # sem um motor objetivamente mais perigoso que o outro) — recusar
+        # gerar um snapshot NOVO com um motor que ninguém pediu é mais
+        # seguro que produzir um silenciosamente, mas um erro de config
+        # não pode derrubar o processo inteiro (mesma regra de
+        # agents/portfolio_executor.py pros seis tunáveis de execução):
+        # serve o cache/fallback já existente, como se o MT5 tivesse
+        # caído.
+        try:
+            active_confluence_engine = resolve_confluence_engine()
+        except ValueError as exc:
+            print(f"[!] {exc} — recusando gerar snapshot novo, servindo cache/fallback.")
+            if cached:
+                return _stamp_provenance(cached, False)
+            return _stamp_provenance(self._generate_fallback_data(mode=mode), False)
         for c in CURRENCIES:
             mn_s = tf_data_raw["MN1"][0][c]
             w1_s = tf_data_raw["W1"][0][c]
@@ -1251,7 +1282,7 @@ class CSSDataEngine:
             h1_s = tf_data_raw["H1"][0][c]
             
             conf = evaluate_currency_confluence(
-                c, mn_s, w1_s, d1_s, h4_s, h1_s, ref_dt=reference_dt
+                c, mn_s, w1_s, d1_s, h4_s, h1_s, ref_dt=reference_dt, engine=active_confluence_engine
             )
             ccy_confluence_results[c] = conf
             
@@ -1464,7 +1495,11 @@ class CSSDataEngine:
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "mt5_connected": False,
             "engine_mode": mode,
-            "confluence_engine": _resolve_confluence_engine(),
+            # Dado 100% simulado (sem MT5) — trade_bias/scores aqui nunca
+            # passaram por evaluate_currency_confluence(), então um valor
+            # inválido de CSS_CONFLUENCE_ENGINE não deve derrubar nem esta
+            # última rede de segurança; cai no default só informativamente.
+            "confluence_engine": _fallback_confluence_engine_label(),
             "engine_mode_label": "MODO GAUSS (Nadaraya-Watson Kernel)" if mode == "gauss" else "MODO PADRÃO (TMA / LWMA)",
             "currencies": currency_cards,
             "charts": charts,

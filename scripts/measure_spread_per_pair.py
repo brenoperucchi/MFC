@@ -54,6 +54,7 @@ from scripts.backtest_canonical import (
     usd_cross_rates_dict, _brt_to_server, evaluate_at, is_market_session_valid,
     check_contract_size_consistency,
 )
+from agents.confluence_engine import resolve_confluence_engine
 
 
 def measure_static_spread(lot=0.01):
@@ -89,6 +90,13 @@ def measure_pair_frequency(days=45):
     series = load_series(window_start_brt=datetime.now(BRT) - timedelta(days=days))
     if not series:
         return None
+    # Achado MFC74-01/02 (herdr-review mfc-74, herdr-ask mfc-17): resolvido
+    # uma vez pra esta medição inteira, não uma vez por noite.
+    try:
+        signal_engine = resolve_confluence_engine()
+    except ValueError as exc:
+        print(f"[-] {exc}")
+        return None
 
     freq = {pair: 0 for pair in ALL_28_PAIRS}
     nights_evaluated = 0
@@ -97,7 +105,7 @@ def measure_pair_frequency(days=45):
             hour=ENTRY_HOUR_BRT, minute=0, second=0, microsecond=0, tzinfo=None)
         srv_dt = _brt_to_server(brt_day)
         exit_srv = srv_dt + timedelta(hours=11)
-        verdicts = evaluate_at(series, srv_dt, brt_day.replace(tzinfo=BRT))
+        verdicts = evaluate_at(series, srv_dt, brt_day.replace(tzinfo=BRT), signal_engine)
         if verdicts is None:
             continue
         if not is_market_session_valid(series["H1"]["times"], exit_srv):
@@ -121,13 +129,20 @@ def measure_valid_nights(days=45):
     series = load_series(window_start_brt=datetime.now(BRT) - timedelta(days=days))
     if not series:
         return None, None
+    # Achado MFC74-01/02 (herdr-review mfc-74, herdr-ask mfc-17): resolvido
+    # uma vez pra esta medição inteira, não uma vez por noite.
+    try:
+        signal_engine = resolve_confluence_engine()
+    except ValueError as exc:
+        print(f"[-] {exc}")
+        return None, None
     nights = []
     for d in range(days, 0, -1):
         brt_day = (datetime.now(BRT) - timedelta(days=d)).replace(
             hour=ENTRY_HOUR_BRT, minute=0, second=0, microsecond=0, tzinfo=None)
         srv_dt = _brt_to_server(brt_day)
         exit_srv = srv_dt + timedelta(hours=11)
-        if evaluate_at(series, srv_dt, brt_day.replace(tzinfo=BRT)) is None:
+        if evaluate_at(series, srv_dt, brt_day.replace(tzinfo=BRT), signal_engine) is None:
             continue
         if not is_market_session_valid(series["H1"]["times"], exit_srv):
             continue

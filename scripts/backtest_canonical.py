@@ -64,7 +64,7 @@ from web.css_service import (
     get_tf_constant, required_full_history_bars, to_broker_symbol,
 )
 import scripts.fetch_histdata_mn1_warmup as fetch_histdata_mn1_warmup
-from agents.confluence_engine import BRT, evaluate_currency_confluence, _resolve_confluence_engine
+from agents.confluence_engine import BRT, evaluate_currency_confluence, resolve_confluence_engine
 # CostModel mora em agents/portfolio_executor.py (o executor de verdade) —
 # era duplicada aqui até 24/08; agora o backtest importa a mesma classe que
 # o sistema ao vivo usa pra ESTIMAR o custo de cada cesta aberta (achado em
@@ -706,12 +706,17 @@ def is_market_session_valid(h1_times, target):
     return gap is not None and gap <= MAX_MARKET_GAP_HOURS
 
 
-def evaluate_at(series, entry_server_dt, ref_dt):
+def evaluate_at(series, entry_server_dt, ref_dt, engine):
     """Roda o pipeline canônico como se fosse `entry_server_dt`.
     Devolve {ccy: veredito} — mesmo formato que a dashboard usa.
 
     ``ref_dt`` é o instante explícito da decisão em BRT; ele é separado do
     horário do servidor usado para localizar as barras históricas.
+
+    ``engine`` (achado MFC74-01, herdr-ask mfc-17): resolvido UMA VEZ por
+    `run()`/chamador, nunca aqui dentro — evaluate_currency_confluence()
+    agora é puro e exige o motor como argumento explícito, nunca lê
+    os.environ sozinho.
 
     Usa a última barra FECHADA de cada TF (`_closed_bar_index`, não
     `_idx_at_or_before` puro) — ver docstring de `_closed_bar_index` sobre
@@ -727,13 +732,25 @@ def evaluate_at(series, entry_server_dt, ref_dt):
     out = {}
     for ccy in CURRENCIES:
         args = [series[tf]["scores"][ccy][: slices[tf] + 1] for tf in TFS]
-        out[ccy] = evaluate_currency_confluence(ccy, *args, ref_dt=ref_dt)
+        out[ccy] = evaluate_currency_confluence(ccy, *args, ref_dt=ref_dt, engine=engine)
     return out
 
 
 def run(days=45, log_note=None):
     if not ensure_mt5():
         print("[-] MT5 não conectado.")
+        return 1
+
+    # Achado MFC74-01/02 (herdr-review mfc-74, herdr-ask mfc-17): resolvido
+    # UMA VEZ pra toda a execução, nunca dentro de evaluate_at() (que
+    # rodaria por noite) nem redundantemente na hora de gravar o journal —
+    # essa era exatamente a 3ª releitura independente que o `mfc-rev-2`
+    # achou na consulta mfc-17. Valor ausente cai no default (3tf);
+    # explicitamente inválido recusa antes de tocar MT5.
+    try:
+        signal_engine = resolve_confluence_engine()
+    except ValueError as exc:
+        print(f"[-] {exc}")
         return 1
 
     check_contract_size_consistency()
@@ -813,7 +830,7 @@ def run(days=45, log_note=None):
     swap_unmodeled_baskets = 0
 
     for brt_dt, srv_dt in entries:
-        verdicts = evaluate_at(series, srv_dt, brt_dt.replace(tzinfo=BRT))
+        verdicts = evaluate_at(series, srv_dt, brt_dt.replace(tzinfo=BRT), signal_engine)
         if verdicts is None:
             continue
         exit_srv = srv_dt + timedelta(hours=11)
@@ -931,12 +948,13 @@ def run(days=45, log_note=None):
                 # Achado MFC74-04/P2-1 (herdr-review mfc-74, convergente): "port"/
                 # "upstream_commit" acima descrevem só o PROPÓSITO histórico deste
                 # script (comparar Port A contra o 3-TF antigo), não o motor que
-                # de fato rodou nesta execução — evaluate_at() chama o dispatcher
-                # (evaluate_currency_confluence), que resolve por
-                # CSS_CONFLUENCE_ENGINE e pode ser 3-TF desde 2026-09-05. Campo
-                # novo grava o motor EFETIVO, pra uma entrada não ficar atribuída
-                # pra sempre ao motor errado.
-                "signal_engine": _resolve_confluence_engine(),
+                # de fato rodou nesta execução. Grava `signal_engine` — o MESMO
+                # valor já resolvido uma vez no topo de run() e usado em todas as
+                # noites via evaluate_at(), nunca uma releitura nova (achado da
+                # herdr-ask mfc-17: reler aqui seria a mesma classe de bug do
+                # MFC74-04, um nível abaixo — proveniência como releitura
+                # independente em vez do valor que realmente decidiu).
+                "signal_engine": signal_engine,
             },
             "baseline": {
                 "name": "pre_port_3tf",

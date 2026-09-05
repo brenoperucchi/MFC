@@ -203,7 +203,7 @@ class TestRunWiresCostQualityIntoSummary(unittest.TestCase):
 
         fake_prices = {pair: _FakePriceSeries() for pair in bc.ALL_28_PAIRS}
 
-        def fake_evaluate_at(series, entry_server_dt, ref_dt):
+        def fake_evaluate_at(series, entry_server_dt, ref_dt, engine):
             return {"USD": {"trade_bias": "COMPRA"}}
 
         buf = io.StringIO()

@@ -44,7 +44,7 @@ if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
 
 from agents.portfolio_executor import get_portfolio_pairs, CostModel, ensure_mt5
-from agents.confluence_engine import _resolve_confluence_engine
+from agents.confluence_engine import resolve_confluence_engine
 from web.history_tracker import convert_pnl_to_usd
 from scripts.backtest_canonical import (
     BRT, LOT, ENTRY_HOUR_BRT, CURRENCIES, load_series, load_h1_prices, h1_bars_for_days,
@@ -109,6 +109,14 @@ def compare_composition(days=45, log_note=None):
     if not ensure_mt5():
         print("[-] MT5 não conectado — abortando comparação; não usar dados degradados.")
         return 1
+    # Achado MFC74-01/02 (herdr-review mfc-74, herdr-ask mfc-17): resolvido
+    # UMA VEZ pra toda a execução, nunca dentro de evaluate_at() nem
+    # redundantemente na hora de gravar o journal.
+    try:
+        signal_engine = resolve_confluence_engine()
+    except ValueError as exc:
+        print(f"[-] {exc}")
+        return 1
     check_contract_size_consistency()
     window_start_brt = datetime.now(BRT) - timedelta(days=days)
     print("[*] Carregando séries canônicas...")
@@ -141,7 +149,7 @@ def compare_composition(days=45, log_note=None):
             hour=ENTRY_HOUR_BRT, minute=0, second=0, microsecond=0, tzinfo=None)
         srv_dt = _brt_to_server(brt_day)
         exit_srv = srv_dt + timedelta(hours=11)
-        verdicts = evaluate_at(series, srv_dt, brt_day.replace(tzinfo=BRT))
+        verdicts = evaluate_at(series, srv_dt, brt_day.replace(tzinfo=BRT), signal_engine)
         if verdicts is None:
             continue
         if not is_market_session_valid(series["H1"]["times"], exit_srv):
@@ -289,11 +297,11 @@ def compare_composition(days=45, log_note=None):
                 "diagnostic": "composition_effect",
                 # Achado MFC74-04/P2-1 (herdr-review mfc-74, convergente): era
                 # literal fixo "5tf_port_a" — errado desde que
-                # CSS_CONFLUENCE_ENGINE existe (evaluate_at(), importado de
-                # backtest_canonical.py, passa pelo dispatcher). Grava o motor
-                # EFETIVO desta execução, não o que o script foi escrito pra
-                # medir originalmente.
-                "signal_engine": _resolve_confluence_engine(),
+                # CSS_CONFLUENCE_ENGINE existe. Grava o MESMO valor já
+                # resolvido uma vez no topo de compare_composition() e usado
+                # em todas as noites via evaluate_at(), nunca uma releitura
+                # nova (achado da herdr-ask mfc-17).
+                "signal_engine": signal_engine,
                 "port": "A",
                 "upstream_commit": "544d660",
             },
