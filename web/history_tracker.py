@@ -20,12 +20,39 @@ from agents.triad_analyzer import analyze_tf_triad
 from web.css_service import (
     ALL_28_PAIRS, CURRENCIES, CCY_FLAGS, CCY_COLORS,
     calc_lwma, calc_atr_sma, MT5_AVAILABLE, mt5, MT5_PATH,
-    to_broker_symbol
+    to_broker_symbol, ATR_PERIOD, required_full_history_bars
 )
 
 DATA_DIR = os.path.join(BASE_DIR, "data")
 os.makedirs(DATA_DIR, exist_ok=True)
 HISTORY_FILE = os.path.join(DATA_DIR, "simulated_trades_history.json")
+
+# Este módulo calcula seu próprio slope pontual (não usa calculate_full_css)
+# e, até esta correção, chamava calc_atr_sma() com período 20 e min_periods
+# implícito (default 1) — um segundo motor de ATR, divergente do canônico
+# (ATR_PERIOD=100, docs/MATHEMATICAL_MODELS.md §1.2), decidindo
+# qualified_currencies (quais moedas entram no track record). Achado via
+# herdr-ask mfc-18: drift, não escolha deliberada — o próprio Miquéias já
+# tinha corrigido isto no fork dele (upstream/main commit 1e0bda3, "unify
+# ATR 100"), mas esse commit nunca chegou a este `main`. Medido antes do fix
+# (15 noites reais, instância isolada mfc-backtest): 17/120 pontos
+# moeda-noite divergiam do canônico, sempre na mesma direção — o motor
+# antigo SUBcontava qualificações, nunca o contrário. `required_full_history_bars(1)`
+# é o mínimo de barras cruas pra UM ponto de decisão ter o ATR(100) com
+# janela cheia no índice lido (pos-10). A margem de 20 NÃO é folga contra
+# fim de semana/feriado — copy_rates_from(sym, tf, t, N) devolve N barras que
+# EXISTEM (fim de semana/feriado não consome slot, só não gera barra). Ela
+# TAMBÉM não tolera uma corretora com menos profundidade de histórico —
+# TRACK_RECORD_MIN_BARS é ao mesmo tempo o que se pede E o piso da guarda
+# (`len(rates) < TRACK_RECORD_MIN_BARS` descarta), então menos profundidade
+# vira skip/neutro, nunca um resultado tolerado. O único efeito real da
+# margem é dar folga no ÍNDICE LIDO: com ela, pos-10 fica 20 barras dentro
+# da janela válida em vez de exatamente no limite. Correções herdr-review
+# mfc-79 (mfc-rev-2, achado P3-1) e mfc-80 (mfc-rev, achado MFC-80-02) — duas
+# rodadas seguidas corrigindo o motivo, o valor sempre esteve certo. Mesmo
+# espírito da margem de calculate_full_css() em css_service.py (lá +150,
+# aqui bem menor pois só precisamos de UM ponto, não uma série inteira).
+TRACK_RECORD_MIN_BARS = required_full_history_bars(1) + 20
 
 # Mesmo offset do InpGmtOffset do EA (mt5/CSS_Portfolio_Basket_EA.mq5) — medido
 # empiricamente em 24/08 contra a conta real (Exness-MT5Trial11 = UTC+0,
@@ -141,6 +168,33 @@ def convert_pnl_to_usd(pair, action, entry_price, exit_price, lot_size=0.01, rat
             else: pnl_usd = pnl_quote
             
     return round(float(pnl_usd), 2), round(float(pips), 1)
+
+
+def _aggregate_pair_slopes_to_ccy_slopes(pair_slopes):
+    """pair_slopes: {símbolo: slope} SÓ dos pares que sobreviveram ao fetch
+    de um timeframe -> {moeda: slope médio} pras 8 moedas.
+
+    Cobertura parcial de pares NÃO vira média de subconjunto — mesmo
+    princípio do gate canônico de calculate_full_css() (web/css_service.py:
+    "um timeframe com 27/28 pares não é um snapshot válido... a média por
+    moeda mudaria silenciosamente"). Achado herdr-ask mfc-18 / herdr-review
+    mfc-79 (mfc-rev-2): uniformizar TRACK_RECORD_MIN_BARS trocou "MN1 sempre
+    ausente pra todo mundo" (consistente, pois count=24 < guard antiga de 25
+    nunca passava) por "MN1 calculado a partir de 1-2 dos 28 pares" nos
+    TFs/corretoras onde a profundidade de histórico é menor que
+    TRACK_RECORD_MIN_BARS pra maioria dos pares — uma amostra enviesada que
+    parece um score válido mas não é. Um TF incompleto fica neutro (0.0) pra
+    TODAS as moedas, igual ao comportamento seguro que já existia quando a
+    contagem sobrevivente batia zero."""
+    if len(pair_slopes) < len(ALL_28_PAIRS):
+        return {c: 0.0 for c in CURRENCIES}
+
+    ccy_slopes = {c: [] for c in CURRENCIES}
+    for sym, sl in pair_slopes.items():
+        b, q = sym[:3], sym[3:6]
+        if b in ccy_slopes: ccy_slopes[b].append(sl)
+        if q in ccy_slopes: ccy_slopes[q].append(-sl)
+    return {c: float(np.mean(ccy_slopes[c])) if ccy_slopes[c] else 0.0 for c in CURRENCIES}
 
 
 class TrackRecordEngine:
@@ -589,17 +643,18 @@ class TrackRecordEngine:
         return h1_vals, h4_vals
 
     def _calc_single_tf_ccy_slope(self, ccy, tf_val, target_time):
+        expected_pairs = sum(1 for sym in ALL_28_PAIRS if ccy in sym)
         slopes = []
         for sym in ALL_28_PAIRS:
             if ccy not in sym:
                 continue
-            rates = mt5.copy_rates_from(to_broker_symbol(sym), tf_val, target_time, 35)
-            if rates is None or len(rates) < 25:
+            rates = mt5.copy_rates_from(to_broker_symbol(sym), tf_val, target_time, TRACK_RECORD_MIN_BARS)
+            if rates is None or len(rates) < TRACK_RECORD_MIN_BARS:
                 continue
             closes = [r[4] for r in rates]
             highs = [r[2] for r in rates]
             lows = [r[3] for r in rates]
-            atr = calc_atr_sma(np.array(highs), np.array(lows), np.array(closes), 20)
+            atr = calc_atr_sma(np.array(highs), np.array(lows), np.array(closes), ATR_PERIOD, min_periods=ATR_PERIOD)
             lwma = calc_lwma(np.array(closes), 21)
             pos = len(closes) - 1
             if pos > 0:
@@ -614,32 +669,60 @@ class TrackRecordEngine:
                 base, quote = sym[:3], sym[3:6]
                 if base == ccy: slopes.append(sl)
                 elif quote == ccy: slopes.append(-sl)
-                
+
+        # Mesmo princípio de _aggregate_pair_slopes_to_ccy_slopes(): cobertura
+        # parcial das pernas de UMA moeda (aqui 7, não os 28 pares inteiros)
+        # não vira média de subconjunto — herdr-review mfc-80 achado MFC-80-01
+        # (mfc-rev): usado pelas curvas H1/H4 do painel de auditoria, e o
+        # aumento de TRACK_RECORD_MIN_BARS pra 130 tornou mais provável faltar
+        # alguma perna curta/indisponível do que quando o piso era 35.
+        #
+        # RESÍDUO ACEITO (herdr-review mfc-81, mfc-rev): 0.0 aqui significa
+        # tanto "cobertura incompleta" quanto "slope genuinamente neutro" — o
+        # chamador da curva não distingue os dois casos. Resolver isso de
+        # verdade exigiria propagar um sentinel explícito de "sem dado" pelo
+        # único consumidor desta função (a curva H1/H4 do painel de
+        # auditoria) e pelo contrato da API/frontend que a exibe — mudança de
+        # escopo maior que este fix de período do ATR. Aceito como está: é
+        # estritamente melhor que o comportamento anterior (média enviesada
+        # de subconjunto, nunca sinalizada de jeito nenhum), não um risco de
+        # execução (não decide ordem), e a ambiguidade já existia em espírito
+        # antes desta correção.
+        if len(slopes) < expected_pairs:
+            return 0.0
         return np.mean(slopes) if slopes else 0.0
 
     def _evaluate_css_at_time(self, target_time):
         qualified = []
+        # As 5 contagens usam o MESMO valor: o requisito de barras cruas do
+        # ATR(100) é por QUANTIDADE de barras, não pelo calendário que cada
+        # timeframe cobre — o TF só muda o que cada barra representa, não
+        # quantas são necessárias pra fechar a janela de 100 (ver
+        # TRACK_RECORD_MIN_BARS acima). As contagens antigas (24/40/60/100/150)
+        # eram calibradas pro ATR(20) anterior e, mesmo assim, MN1=24 já
+        # ficava abaixo do mínimo que aquele período exigia — achado
+        # herdr-ask mfc-18 (mfc-rev-2).
         tf_map = {
-            "MN1": (mt5.TIMEFRAME_MN1, 24),
-            "W1":  (mt5.TIMEFRAME_W1, 40),
-            "D1":  (mt5.TIMEFRAME_D1, 60),
-            "H4":  (mt5.TIMEFRAME_H4, 100),
-            "H1":  (mt5.TIMEFRAME_H1, 150)
+            "MN1": (mt5.TIMEFRAME_MN1, TRACK_RECORD_MIN_BARS),
+            "W1":  (mt5.TIMEFRAME_W1, TRACK_RECORD_MIN_BARS),
+            "D1":  (mt5.TIMEFRAME_D1, TRACK_RECORD_MIN_BARS),
+            "H4":  (mt5.TIMEFRAME_H4, TRACK_RECORD_MIN_BARS),
+            "H1":  (mt5.TIMEFRAME_H1, TRACK_RECORD_MIN_BARS)
         }
-        
+
         tf_slopes = {}
         for tf_name, (tf_val, count) in tf_map.items():
             pair_slopes = {}
             for sym in ALL_28_PAIRS:
                 rates = mt5.copy_rates_from(to_broker_symbol(sym), tf_val, target_time, count)
-                if rates is None or len(rates) < 25:
+                if rates is None or len(rates) < TRACK_RECORD_MIN_BARS:
                     continue
                 df = pd.DataFrame(rates)
                 closes = df['close'].values
                 highs = df['high'].values
                 lows = df['low'].values
-                
-                atr = calc_atr_sma(highs, lows, closes, 20)
+
+                atr = calc_atr_sma(highs, lows, closes, ATR_PERIOD, min_periods=ATR_PERIOD)
                 lwma = calc_lwma(closes, 21)
                 
                 pos = len(closes) - 1
@@ -653,12 +736,7 @@ class TrackRecordEngine:
                     sl = (ma0 - prev) / atr_val if atr_val > 0 else 0.0
                     pair_slopes[sym] = sl
             
-            ccy_slopes = {c: [] for c in CURRENCIES}
-            for sym, sl in pair_slopes.items():
-                b, q = sym[:3], sym[3:6]
-                if b in ccy_slopes: ccy_slopes[b].append(sl)
-                if q in ccy_slopes: ccy_slopes[q].append(-sl)
-            tf_slopes[tf_name] = {c: float(np.mean(ccy_slopes[c])) if ccy_slopes[c] else 0.0 for c in CURRENCIES}
+            tf_slopes[tf_name] = _aggregate_pair_slopes_to_ccy_slopes(pair_slopes)
 
         for c in CURRENCIES:
             green_cnt = 0
