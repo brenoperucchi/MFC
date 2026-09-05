@@ -11,9 +11,12 @@ Duas medições, combinadas na mesma tabela:
    CostModel.leg(), o mesmo cálculo que o backtest usa) — snapshot do
    tick corrente, mesma ressalva de sempre (varia com o momento em que
    roda, não é custo histórico).
-2. Frequência de SINAL ativo do Port A 5-TF (não necessariamente cesta REALMENTE aberta —
-   ver MFC22-01 abaixo) de cada par nas decisões do motor Port A 5-TF,
-   na mesma janela/máscara de `backtest_engine_compare.py`.
+2. Frequência de SINAL ativo (não necessariamente cesta REALMENTE aberta —
+   ver MFC22-01 abaixo) de cada par nas decisões do motor CONFIGURADO
+   (`CSS_CONFLUENCE_ENGINE`, resolvido uma vez em `main()` — achado
+   MFC76-03, herdr-review mfc-76: era rotulado "Port A 5-TF" incondicional
+   mesmo já rodando com o default 3-TF desde a flag existir), na mesma
+   janela/máscara de `backtest_engine_compare.py`.
 
 Correções da herdr-review rodada 22 (mfc-rev):
 - MFC22-02: `ensure_mt5()` agora roda ANTES de qualquer medição de spread —
@@ -72,30 +75,32 @@ def measure_static_spread(lot=0.01):
     return out
 
 
-def measure_pair_frequency(days=45):
+def measure_pair_frequency(days=45, engine=None):
     """Quantas vezes cada um dos 28 pares apareceu numa decisão de SINAL
-    ATIVO (trade_bias != NEUTRO) do motor Port A 5-TF, na mesma janela/máscara de
-    `backtest_engine_compare.py`.
+    ATIVO (trade_bias != NEUTRO) do motor configurado (`engine`), na mesma
+    janela/máscara de `backtest_engine_compare.py`.
 
     MFC22-01 (herdr-review rodada 22, mfc-rev): isto NÃO é frequência de
     cesta efetivamente aberta — não reproduz os gates de margem,
     idempotência, colisão netting/símbolo/tick/filling que
     `open_portfolio_basket()` aplica de verdade. É uma estimativa
     contrafactual de "quantas vezes o sinal apontaria pra essa perna", útil
-    pra ranquear pares por exposição típica, não pra contar execução real."""
+    pra ranquear pares por exposição típica, não pra contar execução real.
+
+    `engine` (achados MFC76-02/P3-2, herdr-review mfc-76): OBRIGATÓRIO —
+    resolvido uma única vez em main() antes de ensure_mt5(), nunca aqui
+    dentro. Reler por chamador violaria o contrato de
+    confluence_config.py ("uma vez por rodada"), e resolver DEPOIS de
+    ensure_mt5() gastaria a conexão MT5 antes de uma config inválida
+    conseguir abortar."""
+    if engine is None:
+        raise ValueError("measure_pair_frequency requer engine= resolvido pelo chamador")
     if not ensure_mt5():
         print("[-] MT5 não conectado.")
         return None
 
     series = load_series(window_start_brt=datetime.now(BRT) - timedelta(days=days))
     if not series:
-        return None
-    # Achado MFC74-01/02 (herdr-review mfc-74, herdr-ask mfc-17): resolvido
-    # uma vez pra esta medição inteira, não uma vez por noite.
-    try:
-        signal_engine = resolve_confluence_engine()
-    except ValueError as exc:
-        print(f"[-] {exc}")
         return None
 
     freq = {pair: 0 for pair in ALL_28_PAIRS}
@@ -105,7 +110,7 @@ def measure_pair_frequency(days=45):
             hour=ENTRY_HOUR_BRT, minute=0, second=0, microsecond=0, tzinfo=None)
         srv_dt = _brt_to_server(brt_day)
         exit_srv = srv_dt + timedelta(hours=11)
-        verdicts = evaluate_at(series, srv_dt, brt_day.replace(tzinfo=BRT), signal_engine)
+        verdicts = evaluate_at(series, srv_dt, brt_day.replace(tzinfo=BRT), engine)
         if verdicts is None:
             continue
         if not is_market_session_valid(series["H1"]["times"], exit_srv):
@@ -122,19 +127,17 @@ def measure_pair_frequency(days=45):
     return freq, nights_evaluated
 
 
-def measure_valid_nights(days=45):
+def measure_valid_nights(days=45, engine=None):
     """Lista de (srv_dt, exit_srv) das noites válidas (mesma máscara do
     backtest_canonical.py) — usado como referência temporal comum pra medir
-    movimento de TODOS os 28 pares, não só os que alguma cesta abriu."""
+    movimento de TODOS os 28 pares, não só os que alguma cesta abriu.
+
+    `engine` (achados MFC76-02/P3-2): OBRIGATÓRIO, resolvido uma única vez
+    em main() — ver docstring de measure_pair_frequency acima."""
+    if engine is None:
+        raise ValueError("measure_valid_nights requer engine= resolvido pelo chamador")
     series = load_series(window_start_brt=datetime.now(BRT) - timedelta(days=days))
     if not series:
-        return None, None
-    # Achado MFC74-01/02 (herdr-review mfc-74, herdr-ask mfc-17): resolvido
-    # uma vez pra esta medição inteira, não uma vez por noite.
-    try:
-        signal_engine = resolve_confluence_engine()
-    except ValueError as exc:
-        print(f"[-] {exc}")
         return None, None
     nights = []
     for d in range(days, 0, -1):
@@ -142,7 +145,7 @@ def measure_valid_nights(days=45):
             hour=ENTRY_HOUR_BRT, minute=0, second=0, microsecond=0, tzinfo=None)
         srv_dt = _brt_to_server(brt_day)
         exit_srv = srv_dt + timedelta(hours=11)
-        if evaluate_at(series, srv_dt, brt_day.replace(tzinfo=BRT), signal_engine) is None:
+        if evaluate_at(series, srv_dt, brt_day.replace(tzinfo=BRT), engine) is None:
             continue
         if not is_market_session_valid(series["H1"]["times"], exit_srv):
             continue
@@ -189,6 +192,17 @@ def measure_cost_ratio(nights, prices, lot=LOT):
 
 
 def main():
+    # Achados MFC76-02/P3-2 (herdr-review mfc-76): resolvido UMA VEZ aqui,
+    # ANTES de ensure_mt5() (uma config inválida não deve gastar a conexão
+    # MT5 pra abortar depois), e passado explícito pras duas funções
+    # abaixo — antes cada uma resolvia a própria cópia, violando o
+    # contrato de confluence_config.py ("uma vez por rodada").
+    try:
+        signal_engine = resolve_confluence_engine()
+    except ValueError as exc:
+        print(f"[-] {exc}")
+        return 1
+
     if not ensure_mt5():
         print("[-] MT5 não conectado — abortando (MFC22-02: medição de spread exige "
               "conexão confirmada, não só o import do binding).")
@@ -203,8 +217,8 @@ def main():
         print(f"[!] {len(degraded_pairs)} par(es) sem símbolo/tick/taxa disponível "
               f"(EXCLUÍDOS da tabela, não contados como custo zero): {degraded_pairs}")
 
-    print("[*] Medindo frequência de sinal ativo do motor Port A 5-TF...")
-    result = measure_pair_frequency(days=45)
+    print(f"[*] Medindo frequência de sinal ativo do motor {signal_engine!r}...")
+    result = measure_pair_frequency(days=45, engine=signal_engine)
     if result is None:
         return 1
     freq, nights_evaluated = result
@@ -221,7 +235,7 @@ def main():
     rows.sort(key=lambda r: r[3], reverse=True)
 
     print("=" * 70)
-    print("  SPREAD POR PAR — estático x frequência de SINAL (Port A 5-TF, 45 dias)")
+    print(f"  SPREAD POR PAR — estático x frequência de SINAL (motor {signal_engine!r}, 45 dias)")
     print("=" * 70)
     hdr = f"{'par':<10} {'spread ida+volta':>18} {'vezes SINAL ativo':>18} {'contribuição total':>20}"
     print(hdr)
@@ -240,7 +254,7 @@ def main():
           "par pesa mais, não custo de execução reconstruído.")
 
     print("\n[*] Calculando razão_custo (spread / mediana do movimento em 11h)...")
-    nights, series = measure_valid_nights(days=45)
+    nights, series = measure_valid_nights(days=45, engine=signal_engine)
     if not nights:
         print("[-] Sem noites válidas — pulando razão_custo.")
         return 0

@@ -738,20 +738,23 @@ def evaluate_at(series, entry_server_dt, ref_dt, engine):
 
 
 def run(days=45, log_note=None):
-    if not ensure_mt5():
-        print("[-] MT5 não conectado.")
-        return 1
-
     # Achado MFC74-01/02 (herdr-review mfc-74, herdr-ask mfc-17): resolvido
     # UMA VEZ pra toda a execução, nunca dentro de evaluate_at() (que
     # rodaria por noite) nem redundantemente na hora de gravar o journal —
     # essa era exatamente a 3ª releitura independente que o `mfc-rev-2`
     # achou na consulta mfc-17. Valor ausente cai no default (3tf);
-    # explicitamente inválido recusa antes de tocar MT5.
+    # explicitamente inválido recusa ANTES de tocar MT5 (achado MFC76-02,
+    # herdr-review mfc-76: antes esta checagem vinha DEPOIS de
+    # ensure_mt5(), então uma config inválida ainda gastava a conexão e o
+    # esforço de check_contract_size_consistency() só pra abortar depois).
     try:
         signal_engine = resolve_confluence_engine()
     except ValueError as exc:
         print(f"[-] {exc}")
+        return 1
+
+    if not ensure_mt5():
+        print("[-] MT5 não conectado.")
         return 1
 
     check_contract_size_consistency()

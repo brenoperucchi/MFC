@@ -2382,7 +2382,7 @@ def get_mt5_files_dir():
     return files_path
 
 
-def generate_and_save_daily_signals(currencies_data=None, mt5_connected=None):
+def generate_and_save_daily_signals(currencies_data=None, mt5_connected=None, confluence_engine=None):
     """
     Grava pontualmente às 21:02 BRT o arquivo oficial de sinais dos 8 portfólios
     (BUY, SELL, NEUTRAL) no diretório do projeto e na pasta MQL5/Files da
@@ -2406,16 +2406,29 @@ def generate_and_save_daily_signals(currencies_data=None, mt5_connected=None):
     # bloqueado — antes o default era "live", e o caminho da rotina das 21:00
     # (daily_css_routine.py, que descarta o flag do update_data) entrava por
     # aí carimbando tudo como live incondicionalmente.
+    # Achado MFC76-04 (herdr-review mfc-76, `mfc-rev`): o arquivo que
+    # execute_phase_2105() realmente lê pra decidir ordem não carregava
+    # NENHUMA informação de qual motor (3tf/5tf) gerou trade_bias — quem
+    # auditasse uma noite depois não tinha como reconstruir isso a partir
+    # do artefato oficial, só do payload da API (que pode já ter mudado).
+    # Mesmo padrão fail-closed de `mt5_connected` abaixo: quem passa
+    # currencies_data pronto e não declara confluence_engine grava
+    # "unknown", nunca um motor chutado.
     if not currencies_data:
         from web.css_service import css_engine
         raw_res = css_engine.update_data(force=False)
         currencies_data = raw_res.get("currencies", [])
         data_is_live = bool(raw_res.get("mt5_connected", False))
+        resolved_confluence_engine = raw_res.get("confluence_engine") or "unknown"
     else:
         data_is_live = bool(mt5_connected)
         if mt5_connected is None:
             print("[!] generate_and_save_daily_signals recebeu currencies_data sem declarar "
                   "mt5_connected — tratando como NÃO-live (fail closed).")
+        resolved_confluence_engine = confluence_engine or "unknown"
+        if confluence_engine is None:
+            print("[!] generate_and_save_daily_signals recebeu currencies_data sem declarar "
+                  "confluence_engine — gravando como 'unknown'.")
 
     if not data_is_live:
         print("[!] SINAL NÃO-OPERÁVEL: dados sem conexão MT5 confirmada "
@@ -2483,6 +2496,11 @@ def generate_and_save_daily_signals(currencies_data=None, mt5_connected=None):
         # Atesta a ORIGEM dos dados, não só a hora da escrita: quem consome
         # precisa distinguir "analisado com o MT5 conectado" de "cache/simulado".
         "mt5_connected": data_is_live,
+        # Achado MFC76-04: qual motor (3tf/5tf/simulated/unknown) decidiu o
+        # trade_bias que gerou esta rodada de sinais — sem isso, alternar
+        # CSS_CONFLUENCE_ENGINE deixava o artefato oficial sem identidade
+        # de proveniência nenhuma.
+        "confluence_engine": resolved_confluence_engine,
         "portfolios": portfolios_signals
     }
     

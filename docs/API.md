@@ -58,6 +58,13 @@ antes de interpretar `total_score`:
 - `"5tf"` (Port A, matriz institucional com soberania macro MN1/W1):
   `total_score` é o score normalizado `weighted_score / 13.5 * 10`, sem
   clamp nesta etapa — escala aproximada -10 a +10.
+- `"simulated"` (achado P3-3, herdr-review mfc-76, `mfc-rev-2`): `mt5_connected`
+  é `false` E os dados são 100% fabricados (nenhuma conexão MT5 nesta
+  chamada, nenhum dos dois motores calculou nada) — `total_score` aqui não
+  descreve nada real, é só pra manter o schema. Diferente de um payload
+  **em cache** com `mt5_connected: false` (dado antigo mas real, computado
+  por um motor de verdade quando foi gerado) — nesse caso `confluence_engine`
+  continua sendo `"3tf"`/`"5tf"`, a verdade de quando aquele snapshot rodou.
 
 Um consumidor que compare `total_score` entre duas chamadas precisa checar
 se `confluence_engine` mudou entre elas antes de tratar a diferença como

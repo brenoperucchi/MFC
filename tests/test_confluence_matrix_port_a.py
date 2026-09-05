@@ -833,6 +833,23 @@ class TestConfluenceEngineFlag(unittest.TestCase):
                 resolve_confluence_engine()
         self.assertEqual(buf.getvalue(), "")
 
+    def test_5tf_port_a_never_routes_through_the_dispatcher(self):
+        """Achado MFC76-01/P3-1 (herdr-review mfc-76): `confluence_config.py`
+        fica DELIBERADAMENTE fora de
+        scripts/_backtest_results_log.py::_PROVENANCE_SOURCE_FILES —
+        adicioná-lo invalidaria toda a evidência OOS elegível existente por
+        um arquivo que não pode afetar aquele caminho, PORQUE
+        `5tf_port_a` importa `evaluate_currency_confluence_5tf` direto,
+        nunca o dispatcher. Esta identidade de objeto É a premissa que
+        sustenta a exclusão — se algum dia isso mudar (ex.: alguém trocar
+        o import por `evaluate_currency_confluence`, o dispatcher), este
+        teste quebra e o comentário ao lado de
+        `_PROVENANCE_SOURCE_FILES` deixa de valer."""
+        self.assertIs(
+            engine_compare.evaluate_currency_confluence_port_a,
+            evaluate_currency_confluence_engine_5tf,
+        )
+
     def test_production_3tf_engine_matches_known_fixed_values(self):
         """Valores FIXOS, não uma comparação viva contra _run_3tf (achado
         MFC74-06/P3-1, herdr-review mfc-74, os dois revisores

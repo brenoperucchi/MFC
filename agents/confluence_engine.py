@@ -177,11 +177,15 @@ def evaluate_currency_confluence_5tf(ccy, mn_s, w1_s, d1_s, h4_s, h1_s, ref_dt):
     do ranking de pares, que continua em ``evaluate_28_pairs_confluence``.
 
     Não é chamada diretamente por produção nem pelo backtest canônico — os
-    dois passam por evaluate_currency_confluence(), que despacha pra cá só
-    quando CSS_CONFLUENCE_ENGINE=5tf. Chamada direta (como nos testes deste
-    arquivo, e como scripts/backtest_engine_compare.py::_run_port_a faz) é
-    pra quem precisa testar especificamente o motor 5-TF, independente do
-    que estiver selecionado ao vivo."""
+    dois passam por evaluate_currency_confluence(..., engine=), que despacha
+    pra cá só quando o argumento `engine` recebido é CONFLUENCE_ENGINE_5TF
+    (achado MFC76-05, herdr-review mfc-76: o dispatcher em si nunca olha
+    CSS_CONFLUENCE_ENGINE — quem resolve essa variável é
+    confluence_config.py, na fronteira; o `engine=` já vem decidido quando
+    chega aqui). Chamada direta (como nos testes deste arquivo, e como
+    scripts/backtest_engine_compare.py::_run_port_a faz) é pra quem precisa
+    testar especificamente o motor 5-TF, independente do que estiver
+    selecionado ao vivo."""
     ref_dt = _normalize_ref_dt(ref_dt)
     macro = analyze_macro_currency(ccy, mn_s, w1_s, d1_s)
     op = analyze_operational_currency(ccy, h4_s, h1_s, macro)

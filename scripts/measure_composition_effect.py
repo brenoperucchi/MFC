@@ -10,8 +10,11 @@ REMOVER essa perna das cestas de GBP e NZD, decompondo custo (esperado
 cair, determinístico) de bruto (efeito econômico real da perna removida,
 não necessariamente ruído — ver ressalva abaixo).
 
-Mesmos sinais do Port A 5-TF, mesma máscara de noites válidas, MESMO backtest —
-a única diferença entre as duas colunas é a composição da cesta.
+Mesmos sinais do motor CONFIGURADO (`CSS_CONFLUENCE_ENGINE`, resolvido uma
+vez em `compare_composition()` — achado MFC76-03, herdr-review mfc-76: era
+descrito como "Port A 5-TF" incondicional mesmo já rodando com o default
+3-TF desde a flag existir), mesma máscara de noites válidas, MESMO
+backtest — a única diferença entre as duas colunas é a composição da cesta.
 
 Correções da herdr-review rodada 22 (MFC22-06, mfc-rev; P3-3, mfc-rev-2):
 - Antes, cada variante podia descartar uma cesta independentemente (se
@@ -106,16 +109,18 @@ def _legs_pnl_and_cost(legs, prices, srv_dt, exit_srv, costs, lot=LOT):
 
 
 def compare_composition(days=45, log_note=None):
-    if not ensure_mt5():
-        print("[-] MT5 não conectado — abortando comparação; não usar dados degradados.")
-        return 1
     # Achado MFC74-01/02 (herdr-review mfc-74, herdr-ask mfc-17): resolvido
     # UMA VEZ pra toda a execução, nunca dentro de evaluate_at() nem
-    # redundantemente na hora de gravar o journal.
+    # redundantemente na hora de gravar o journal. ANTES de ensure_mt5()
+    # (achado MFC76-02, herdr-review mfc-76): uma config inválida não deve
+    # gastar a conexão MT5 só pra abortar depois.
     try:
         signal_engine = resolve_confluence_engine()
     except ValueError as exc:
         print(f"[-] {exc}")
+        return 1
+    if not ensure_mt5():
+        print("[-] MT5 não conectado — abortando comparação; não usar dados degradados.")
         return 1
     check_contract_size_consistency()
     window_start_brt = datetime.now(BRT) - timedelta(days=days)

@@ -63,6 +63,22 @@ _RESULT_DIGEST_EXCLUDED_FIELDS = {
     "llm_analysis",
 }
 _THREAD_LOCK = threading.Lock()
+# Achado MFC76-01/P3-1 (herdr-review mfc-76): `confluence_config.py` (a
+# fonte que decide QUAL motor CSS_CONFLUENCE_ENGINE resolve) NÃO está
+# nesta lista — DELIBERADAMENTE, não por esquecimento. Adicionar
+# invalidaria toda a evidência OOS elegível existente (mesmo custo já
+# pago quando run_isolated_backtest.py entrou, mfc-64), por um arquivo
+# que comprovadamente NÃO PODE afetar o caminho OOS: o comparador A/B
+# (scripts/backtest_engine_compare.py) importa
+# `evaluate_currency_confluence_5tf` DIRETO de `agents/confluence_engine.py`
+# pro motor `5tf_port_a` — nunca passa pelo dispatcher
+# (`evaluate_currency_confluence`) nem por `confluence_config.py`, então
+# uma mudança lá não pode mudar uma entrada `oos_disjoint`. Essa
+# premissa é o que sustenta a exclusão — está congelada em
+# tests/test_confluence_matrix_port_a.py::test_5tf_port_a_never_routes_through_the_dispatcher.
+# Se algum dia esse import mudar pra usar o dispatcher, aquele teste
+# quebra e ESTE comentário deixa de valer — adicionar
+# `confluence_config.py` aqui nesse momento, não antes.
 _PROVENANCE_SOURCE_FILES = (
     "agents/confluence_engine.py",
     "agents/triad_analyzer.py",

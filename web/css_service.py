@@ -66,7 +66,7 @@ from agents.confluence_engine import (
     evaluate_currency_confluence,
     evaluate_28_pairs_confluence,
 )
-from confluence_config import DEFAULT_CONFLUENCE_ENGINE, resolve_confluence_engine
+from confluence_config import resolve_confluence_engine
 from agents.triad_analyzer import analyze_tf_triad
 
 # Tentar importar MetaTrader5
@@ -608,16 +608,28 @@ def _warn_invalid_confluence_engine_once(exc):
     print(f"[!] {exc} — recusando gerar snapshot novo, servindo cache/fallback.")
 
 
+# Achado MFC76-04 (herdr-review mfc-76, `mfc-rev`): sentinela de payload,
+# NUNCA um valor válido de `engine=` pra evaluate_currency_confluence() —
+# distingue "nenhum motor real calculou estes números" (dado 100%
+# fabricado, sem qualquer conexão MT5 nesta chamada) de um motor de
+# verdade tê-los produzido. Antes disso, _generate_fallback_data() dizia
+# "3tf" (ou "5tf") mesmo quando os scores eram inteiramente inventados —
+# um consumidor lendo o contrato de docs/API.md concluiria o oposto do
+# que aconteceu.
+CONFLUENCE_ENGINE_SIMULATED = "simulated"
+
+
 def _fallback_confluence_engine_label():
     """Só pro payload 100% simulado de _generate_fallback_data() (nunca
-    passa por evaluate_currency_confluence de verdade) — informativo, não
-    pode derrubar a última rede de segurança do serviço por causa de um
-    CSS_CONFLUENCE_ENGINE inválido, então cai no default em vez de
-    propagar o ValueError de resolve_confluence_engine()."""
-    try:
-        return resolve_confluence_engine()
-    except ValueError:
-        return DEFAULT_CONFLUENCE_ENGINE
+    passa por evaluate_currency_confluence de verdade) — sempre
+    CONFLUENCE_ENGINE_SIMULATED, nunca o motor configurado: os scores
+    aqui não vieram de nenhum dos dois motores, então rotulá-los com
+    "3tf"/"5tf" seria uma mentira de proveniência, mesmo que
+    coincidentemente igual ao que CSS_CONFLUENCE_ENGINE diz. Não propaga
+    o ValueError de resolve_confluence_engine() — informativo, não pode
+    derrubar a última rede de segurança do serviço por causa de config
+    inválida."""
+    return CONFLUENCE_ENGINE_SIMULATED
 
 
 def from_broker_symbol(symbol: str) -> str:
@@ -1145,6 +1157,44 @@ class CSSDataEngine:
         if not force and last_up and (now_ts - last_up) < 3.0 and cached:
             return cached
 
+        # Achado MFC76-02 (herdr-review mfc-76): resolvido ANTES de
+        # conectar ao MT5 e antes de qualquer calculate_full_css() (28
+        # pares x 5 timeframes) — uma CSS_CONFLUENCE_ENGINE inválida não
+        # deve custar uma rodada inteira de consultas MT5 só pra descobrir
+        # isso depois. Resolvido UMA vez por snapshot (nunca recalculado
+        # por moeda dentro do loop — achados MFC74-01/mfc-rev e a 3ª
+        # releitura que o `mfc-rev-2` achou na consulta mfc-17) e passado
+        # explícito pra evaluate_currency_confluence(), que agora NUNCA lê
+        # os.environ (a leitura só existe aqui, na fronteira). Valor
+        # AUSENTE cai no default (3tf); PRESENTE E INVÁLIDO recusa
+        # (fail-closed, achado MFC74-02 — os dois revisores convergiram na
+        # mfc-17: "usado ≠ escrito" da invariante 2 se aplica aqui mesmo
+        # sem um motor objetivamente mais perigoso que o outro) — recusar
+        # gerar um snapshot NOVO com um motor que ninguém pediu é mais
+        # seguro que produzir um silenciosamente, mas um erro de config
+        # não pode derrubar o processo inteiro (mesma regra de
+        # agents/portfolio_executor.py pros seis tunáveis de execução):
+        # serve o cache já existente, ou grava e serve um fallback
+        # THROTTLED (achado MFC76-02, segunda metade: sem cachear o
+        # fallback aqui, cada requisição HTTP repetiria a tentativa de
+        # resolver — e, se algum dia a resolução voltasse a custar I/O,
+        # repetiria isso também) — mesmo padrão já usado abaixo pra MT5
+        # desconectado.
+        try:
+            active_confluence_engine = resolve_confluence_engine()
+        except ValueError as exc:
+            _warn_invalid_confluence_engine_once(exc)
+            if cached:
+                return _stamp_provenance(cached, False)
+            res = _stamp_provenance(self._generate_fallback_data(mode=mode), False)
+            if mode == "gauss":
+                self.cache_gauss = res
+                self.last_update_gauss = now_ts
+            else:
+                self.cache_standard = res
+                self.last_update_standard = now_ts
+            return res
+
         connected = self.connect_mt5()
         if not connected:
             if not cached:
@@ -1269,31 +1319,6 @@ class CSSDataEngine:
         # Captura única por snapshot: MN1/W1 precisam usar a mesma maturação
         # para todas as moedas, e o motor recebe o instante explicitamente.
         reference_dt = datetime.now(BRT)
-        # Achado MFC74-03 (herdr-review mfc-74, `mfc-rev`): total_score muda
-        # de escala/semântica conforme o motor ativo (score bruto 3-TF vs
-        # normalizado 5-TF), e nada no payload dizia qual dos dois produziu
-        # o número. Resolvido UMA vez por snapshot (nunca recalculado por
-        # moeda dentro do loop — achados MFC74-01/mfc-rev e a 3ª releitura
-        # que o `mfc-rev-2` achou na consulta mfc-17) e passado explícito
-        # pra evaluate_currency_confluence(), que agora NUNCA lê
-        # os.environ (a leitura só existe aqui, na fronteira). Valor
-        # AUSENTE cai no default (3tf); PRESENTE E INVÁLIDO recusa
-        # (fail-closed, achado MFC74-02 — os dois revisores convergiram na
-        # mfc-17: "usado ≠ escrito" da invariante 2 se aplica aqui mesmo
-        # sem um motor objetivamente mais perigoso que o outro) — recusar
-        # gerar um snapshot NOVO com um motor que ninguém pediu é mais
-        # seguro que produzir um silenciosamente, mas um erro de config
-        # não pode derrubar o processo inteiro (mesma regra de
-        # agents/portfolio_executor.py pros seis tunáveis de execução):
-        # serve o cache/fallback já existente, como se o MT5 tivesse
-        # caído.
-        try:
-            active_confluence_engine = resolve_confluence_engine()
-        except ValueError as exc:
-            _warn_invalid_confluence_engine_once(exc)
-            if cached:
-                return _stamp_provenance(cached, False)
-            return _stamp_provenance(self._generate_fallback_data(mode=mode), False)
         for c in CURRENCIES:
             mn_s = tf_data_raw["MN1"][0][c]
             w1_s = tf_data_raw["W1"][0][c]
