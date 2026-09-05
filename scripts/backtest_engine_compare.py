@@ -66,7 +66,12 @@ if BASE_DIR not in sys.path:
 from agents.macro_analyzer import analyze_macro_currency
 from agents.operational_analyzer import analyze_operational_currency
 from agents.triad_analyzer import analyze_tf_triad
-from agents.confluence_engine import BRT, evaluate_currency_confluence as evaluate_currency_confluence_port_a
+# Importa o motor 5-TF de PRODUÇÃO diretamente (não evaluate_currency_confluence,
+# que agora despacha por CSS_CONFLUENCE_ENGINE — flag introduzida 2026-09-05 pra
+# permitir default 3tf ao vivo mantendo 5tf testável) — 5tf_port_a precisa
+# testar sempre o motor 5-TF de verdade, nunca o que estiver selecionado ao
+# vivo no momento em que o backtest rodar.
+from agents.confluence_engine import BRT, evaluate_currency_confluence_5tf as evaluate_currency_confluence_port_a
 from agents.portfolio_executor import get_portfolio_pairs, CostModel, ensure_mt5
 from web.history_tracker import convert_pnl_to_usd
 from scripts._backtest_results_log import (

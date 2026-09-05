@@ -1,6 +1,14 @@
 """
-MOTOR DE CONFLUÊNCIA MULTI-AGENTE CSS — MATRIZ INSTITUCIONAL 5-TF
-Especialista em operações curtas e intraday baseadas no Fechamento de Alicate (Scissor / Pincer Convergence).
+MOTOR DE CONFLUÊNCIA MULTI-AGENTE CSS
+evaluate_currency_confluence() despacha entre dois motores conforme
+CSS_CONFLUENCE_ENGINE (default "3tf", pré-Port-A): o 3-TF congelado
+(D1+H4+H1 sobre score bruto) ou a MATRIZ INSTITUCIONAL 5-TF (Port A, com
+soberania macro MN1/W1, maturação temporal progressiva e penalização de
+contra-fluxo). Ver evaluate_currency_confluence_3tf/_5tf pra cada
+implementação e a análise de poder estatístico da consulta herdr-ask mfc-15
+(docs/plans/port-upstream-institutional-matrix.md) sobre por que o default
+voltou a ser 3-TF em 2026-09-05, mesmo com o Port A já em produção.
+
 Hierarquia de pesos 5-TF:
   - D1 (3.0): Contexto Direcional e Permissão do Dia
   - H4 (2.0): Estrutura e Momentum da Sessão
@@ -8,6 +16,7 @@ Hierarquia de pesos 5-TF:
   - H1 (1.0): Gatilho Imediato e Ponto de Ignição
 """
 
+import os
 from datetime import datetime, timedelta, timezone
 
 from agents.macro_analyzer import analyze_macro_currency
@@ -149,13 +158,19 @@ def detect_tf_alicate(b_score, b_diff, q_score, q_diff):
     return None
 
 
-def evaluate_currency_confluence(ccy, mn_s, w1_s, d1_s, h4_s, h1_s, ref_dt):
-    """Avalia a matriz institucional 5-TF para uma moeda.
+def evaluate_currency_confluence_5tf(ccy, mn_s, w1_s, d1_s, h4_s, h1_s, ref_dt):
+    """Avalia a matriz institucional 5-TF para uma moeda (Port A, 544d660).
 
     ``ref_dt`` é obrigatório na prática (``None`` gera erro) e representa o
     instante da decisão em BRT. O motor mantém a decisão por moeda separada
     do ranking de pares, que continua em ``evaluate_28_pairs_confluence``.
-    """
+
+    Não é chamada diretamente por produção nem pelo backtest canônico — os
+    dois passam por evaluate_currency_confluence(), que despacha pra cá só
+    quando CSS_CONFLUENCE_ENGINE=5tf. Chamada direta (como nos testes deste
+    arquivo, e como scripts/backtest_engine_compare.py::_run_port_a faz) é
+    pra quem precisa testar especificamente o motor 5-TF, independente do
+    que estiver selecionado ao vivo."""
     ref_dt = _normalize_ref_dt(ref_dt)
     macro = analyze_macro_currency(ccy, mn_s, w1_s, d1_s)
     op = analyze_operational_currency(ccy, h4_s, h1_s, macro)
@@ -277,6 +292,105 @@ def evaluate_currency_confluence(ccy, mn_s, w1_s, d1_s, h4_s, h1_s, ref_dt):
         "aligned_flat_count": len(flat_tfs),
         "ref_dt_brt": ref_dt.isoformat(),
     }
+
+
+def evaluate_currency_confluence_3tf(ccy, mn_s, w1_s, d1_s, h4_s, h1_s, ref_dt):
+    """Motor 3-TF congelado — o que decidia ao vivo antes do Port A (matriz
+    5-TF institucional). D1 (40%) + H4 (35%) + H1 (25%) sobre o score BRUTO
+    da tríade; nunca leu macro_bias, maturação temporal ou penalidade de
+    contra-fluxo. ``mn_s``/``w1_s`` são aceitos só por paridade de
+    assinatura com o motor 5-TF (usados apenas para os campos informativos
+    ``macro``/``operational`` do retorno, nunca para a decisão em si).
+
+    Preservado byte-a-byte igual à cópia congelada em
+    scripts/backtest_engine_compare.py::_run_3tf (usada lá pra comparar
+    antes/depois do Port A) — qualquer mudança aqui deve espelhar lá, e
+    vice-versa, ou a comparação A/B deixa de significar o que diz
+    significar."""
+    macro = analyze_macro_currency(ccy, mn_s, w1_s, d1_s)
+    op = analyze_operational_currency(ccy, h4_s, h1_s, macro)
+    d1_curr = float(d1_s[-1]) if len(d1_s) > 0 else 0.0
+    h4_curr = float(h4_s[-1]) if len(h4_s) > 0 else 0.0
+    h1_curr = float(h1_s[-1]) if len(h1_s) > 0 else 0.0
+    score_3tf = (d1_curr * 0.40) + (h4_curr * 0.35) + (h1_curr * 0.25)
+    if score_3tf >= 0.10:
+        confluence_state = "CONFLUÊNCIA DE ALTA (FLUXO COMPRADOR 3-TF)"
+        final_verdict = "COMPRA (BUSCANDO TOPO DO BOX)"
+        trade_bias = "COMPRA"
+    elif score_3tf <= -0.10:
+        confluence_state = "CONFLUÊNCIA DE QUEDA (FLUXO VENDEDOR 3-TF)"
+        final_verdict = "VENDA (BUSCANDO FUNDO DO BOX)"
+        trade_bias = "VENDA"
+    else:
+        confluence_state = "BOX DE EQUILÍBRIO (TESTE DO 0)"
+        final_verdict = "AGUARDAR DEFINIÇÃO"
+        trade_bias = "NEUTRO"
+    return {
+        "ccy": ccy,
+        "macro": macro,
+        "operational": op,
+        "confluence_state": confluence_state,
+        "final_verdict": final_verdict,
+        "trade_bias": trade_bias,
+        "has_divergence": op["has_divergence"],
+        "divergence_alert": op["divergence_alert"],
+        "score_total": round(score_3tf, 2),
+    }
+
+
+# Nome da env var e valores aceitos — troca só qual motor decide
+# trade_bias, nunca manda ordem sozinha nem é "mais perigosa" que a outra
+# (diferente de CSS_MIN_MARGIN_FREE e companhia em
+# agents/portfolio_executor.py), então um valor ausente ou inválido AVISA e
+# cai no default documentado em vez de recusar a operação inteira.
+CSS_CONFLUENCE_ENGINE_ENV_VAR = "CSS_CONFLUENCE_ENGINE"
+CONFLUENCE_ENGINE_3TF = "3tf"
+CONFLUENCE_ENGINE_5TF = "5tf"
+DEFAULT_CONFLUENCE_ENGINE = CONFLUENCE_ENGINE_3TF
+
+
+def _resolve_confluence_engine():
+    """Lê CSS_CONFLUENCE_ENGINE a cada chamada — nunca cacheado numa
+    constante de módulo lida só na importação (mesmo padrão de
+    check_execution_config() em agents/portfolio_executor.py) — pra um
+    valor mudado em runtime, ou um teste que monkeypatcha os.environ,
+    sempre valer sem precisar recarregar o módulo."""
+    raw = os.environ.get(CSS_CONFLUENCE_ENGINE_ENV_VAR, DEFAULT_CONFLUENCE_ENGINE).strip().lower()
+    if raw not in (CONFLUENCE_ENGINE_3TF, CONFLUENCE_ENGINE_5TF):
+        print(
+            f"[!] {CSS_CONFLUENCE_ENGINE_ENV_VAR}={raw!r} inválido "
+            f"(use {CONFLUENCE_ENGINE_3TF!r} ou {CONFLUENCE_ENGINE_5TF!r}) "
+            f"— usando default {DEFAULT_CONFLUENCE_ENGINE!r}."
+        )
+        return DEFAULT_CONFLUENCE_ENGINE
+    return raw
+
+
+def evaluate_currency_confluence(ccy, mn_s, w1_s, d1_s, h4_s, h1_s, ref_dt):
+    """Ponto de entrada público único, consumido por produção
+    (web/css_service.py) e pelo backtest canônico
+    (scripts/backtest_canonical.py — "o mesmo motor que decide ao vivo").
+    Despacha pro motor 3-TF (default, pré-Port-A) ou 5-TF (Port A, matriz
+    institucional com soberania macro) conforme CSS_CONFLUENCE_ENGINE —
+    pedido do Breno (2026-09-05) pra poder testar o 5-TF ao lado de
+    funcionalidades futuras do Miquéias antes de decidir se adota de vez,
+    sem precisar reverter código pra isso. Ver
+    docs/plans/port-upstream-institutional-matrix.md ("item 6") e a análise
+    de poder estatístico da consulta herdr-ask mfc-15 sobre por que o
+    default voltou a ser 3-TF mesmo com o Port A já em produção: o efeito
+    de PnL líquido entre os dois é estatisticamente indetectável em
+    qualquer amostra alcançável, mas o 5-TF negocia ~26% mais cestas e paga
+    ~27% mais custo de transação — sem vantagem bruta comprovada que cubra
+    isso.
+
+    scripts/backtest_engine_compare.py (ferramenta de comparação A/B) nunca
+    chama esta função — importa evaluate_currency_confluence_3tf/_5tf
+    diretamente, pra testar os dois motores lado a lado sempre, independente
+    de qual estiver selecionado ao vivo no momento."""
+    ref_dt = _normalize_ref_dt(ref_dt)
+    if _resolve_confluence_engine() == CONFLUENCE_ENGINE_5TF:
+        return evaluate_currency_confluence_5tf(ccy, mn_s, w1_s, d1_s, h4_s, h1_s, ref_dt)
+    return evaluate_currency_confluence_3tf(ccy, mn_s, w1_s, d1_s, h4_s, h1_s, ref_dt)
 
 
 def _get_val_and_diff(series):

@@ -1,3 +1,4 @@
+import os
 import unittest
 from datetime import datetime, timezone
 from types import SimpleNamespace
@@ -8,9 +9,12 @@ import pandas as pd
 
 from agents.confluence_engine import (
     BRT,
+    CSS_CONFLUENCE_ENGINE_ENV_VAR,
     _calculate_tf_vector,
     _get_tf_maturity,
     evaluate_currency_confluence,
+    evaluate_currency_confluence_3tf,
+    evaluate_currency_confluence_5tf as evaluate_currency_confluence_engine_5tf,
 )
 from scripts.backtest_engine_compare import (
     _get_tf_maturity as _get_upstream_tf_maturity,
@@ -22,6 +26,7 @@ from scripts.backtest_engine_compare import (
     _exposure_summary,
     _overall_quality_status,
     _quality_status,
+    _run_3tf,
     _turnover_summary,
     compare,
     evaluate_currency_confluence_5tf,
@@ -671,13 +676,13 @@ class TestPortAMacroDecision(unittest.TestCase):
 
         with patch("agents.confluence_engine.analyze_macro_currency", return_value=neutral_macro), \
              patch("agents.confluence_engine.analyze_operational_currency", return_value=operational):
-            neutral = evaluate_currency_confluence(
+            neutral = evaluate_currency_confluence_engine_5tf(
                 "AUD", [], [], [], [], [], ref_dt=ref_dt
             )
 
         with patch("agents.confluence_engine.analyze_macro_currency", return_value=bullish_macro), \
              patch("agents.confluence_engine.analyze_operational_currency", return_value=operational):
-            bullish = evaluate_currency_confluence(
+            bullish = evaluate_currency_confluence_engine_5tf(
                 "AUD", [], [], [], [], [], ref_dt=ref_dt
             )
 
@@ -701,11 +706,116 @@ class TestPortAMacroDecision(unittest.TestCase):
         operational = _operational(_triad(-0.30, 0.10), _triad(-0.30, 0.10))
         with patch("agents.confluence_engine.analyze_macro_currency", return_value=macro), \
              patch("agents.confluence_engine.analyze_operational_currency", return_value=operational):
-            result = evaluate_currency_confluence(
+            result = evaluate_currency_confluence_engine_5tf(
                 "AUD", [], [], [], [], [], ref_dt=datetime(2026, 8, 30, 21, tzinfo=BRT)
             )
         self.assertEqual(result["weighted_score"], 18.0)
         self.assertEqual(result["score_total"], 13.33)
+
+
+class TestConfluenceEngineFlag(unittest.TestCase):
+    """CSS_CONFLUENCE_ENGINE (2026-09-05, pedido do Breno): default 3tf
+    (pré-Port-A), 5tf disponível pra testar junto de funcionalidades
+    futuras do Miquéias sem precisar reverter código. Ver a análise de
+    poder estatístico da herdr-ask mfc-15 sobre por que o default voltou a
+    ser 3tf mesmo com o Port A (5-TF) já em produção."""
+
+    _ARGS = ("AUD", [0.1, 0.1], [0.1, 0.1], [0.15, 0.16], [0.05, 0.06], [-0.02, -0.03])
+    _REF_DT = datetime(2026, 9, 5, 21, tzinfo=BRT)
+
+    def _clean_env(self):
+        os.environ.pop(CSS_CONFLUENCE_ENGINE_ENV_VAR, None)
+
+    def setUp(self):
+        self._clean_env()
+
+    def tearDown(self):
+        self._clean_env()
+
+    def test_default_with_no_env_var_matches_3tf_directly(self):
+        direct = evaluate_currency_confluence_3tf(*self._ARGS, ref_dt=self._REF_DT)
+        dispatched = evaluate_currency_confluence(*self._ARGS, ref_dt=self._REF_DT)
+        self.assertEqual(dispatched, direct)
+
+    def test_explicit_3tf_matches_3tf_directly(self):
+        with patch.dict(os.environ, {CSS_CONFLUENCE_ENGINE_ENV_VAR: "3tf"}):
+            direct = evaluate_currency_confluence_3tf(*self._ARGS, ref_dt=self._REF_DT)
+            dispatched = evaluate_currency_confluence(*self._ARGS, ref_dt=self._REF_DT)
+        self.assertEqual(dispatched, direct)
+
+    def test_explicit_5tf_matches_5tf_directly(self):
+        with patch.dict(os.environ, {CSS_CONFLUENCE_ENGINE_ENV_VAR: "5tf"}):
+            direct = evaluate_currency_confluence_engine_5tf(*self._ARGS, ref_dt=self._REF_DT)
+            dispatched = evaluate_currency_confluence(*self._ARGS, ref_dt=self._REF_DT)
+        self.assertEqual(dispatched, direct)
+
+    def test_uppercase_and_surrounding_whitespace_are_tolerated(self):
+        with patch.dict(os.environ, {CSS_CONFLUENCE_ENGINE_ENV_VAR: "  5TF  "}):
+            direct = evaluate_currency_confluence_engine_5tf(*self._ARGS, ref_dt=self._REF_DT)
+            dispatched = evaluate_currency_confluence(*self._ARGS, ref_dt=self._REF_DT)
+        self.assertEqual(dispatched, direct)
+
+    def test_invalid_value_falls_back_to_default_instead_of_crashing(self):
+        with patch.dict(os.environ, {CSS_CONFLUENCE_ENGINE_ENV_VAR: "sei-la"}):
+            direct = evaluate_currency_confluence_3tf(*self._ARGS, ref_dt=self._REF_DT)
+            dispatched = evaluate_currency_confluence(*self._ARGS, ref_dt=self._REF_DT)
+        self.assertEqual(dispatched, direct)
+
+    def test_invalid_value_prints_a_warning_naming_the_bad_value(self):
+        """A queda pra 3tf num valor inválido já é garantida estruturalmente
+        pelo dispatcher (só compara contra "5tf", qualquer outra coisa cai
+        no else) — o que só o fallback explícito garante é o aviso. Sem ele
+        o operador nunca saberia que digitou/configurou um valor que não
+        faz nada. Discriminância: comentando o print() em
+        _resolve_confluence_engine() faz este teste falhar (confirmado
+        manualmente); os dois testes acima continuariam passando do mesmo
+        jeito, por isso precisam dos dois."""
+        import io
+        import contextlib
+        with patch.dict(os.environ, {CSS_CONFLUENCE_ENGINE_ENV_VAR: "sei-la"}):
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                evaluate_currency_confluence(*self._ARGS, ref_dt=self._REF_DT)
+        self.assertIn("sei-la", buf.getvalue())
+        self.assertIn(CSS_CONFLUENCE_ENGINE_ENV_VAR, buf.getvalue())
+
+    def test_engine_selection_is_read_per_call_not_cached(self):
+        with patch.dict(os.environ, {CSS_CONFLUENCE_ENGINE_ENV_VAR: "3tf"}):
+            three = evaluate_currency_confluence(*self._ARGS, ref_dt=self._REF_DT)
+        with patch.dict(os.environ, {CSS_CONFLUENCE_ENGINE_ENV_VAR: "5tf"}):
+            five = evaluate_currency_confluence(*self._ARGS, ref_dt=self._REF_DT)
+        self.assertEqual(three, evaluate_currency_confluence_3tf(*self._ARGS, ref_dt=self._REF_DT))
+        self.assertEqual(five, evaluate_currency_confluence_engine_5tf(*self._ARGS, ref_dt=self._REF_DT))
+        self.assertNotEqual(three["confluence_state"], five["confluence_state"])
+
+    def test_missing_ref_dt_is_rejected_regardless_of_engine(self):
+        for engine in ("3tf", "5tf"):
+            with patch.dict(os.environ, {CSS_CONFLUENCE_ENGINE_ENV_VAR: engine}):
+                with self.assertRaises(TypeError):
+                    evaluate_currency_confluence(*self._ARGS, ref_dt=None)
+
+    def test_production_3tf_engine_matches_the_frozen_backtest_baseline(self):
+        """evaluate_currency_confluence_3tf (produção) e _run_3tf
+        (scripts/backtest_engine_compare.py, congelado pro comparativo
+        antes/depois do Port A) são duas cópias mantidas à mão da MESMA
+        lógica — precisam continuar idênticas byte a byte. Discriminância:
+        provado manualmente alterando um dos dois limiares (0.10) e
+        confirmando que este teste falha."""
+        cases = [
+            ("AUD", [0.0], [0.0], [0.30], [0.30], [0.30]),
+            ("AUD", [0.0], [0.0], [-0.30], [-0.30], [-0.30]),
+            ("AUD", [0.0], [0.0], [0.05], [0.05], [0.05]),
+            ("AUD", [0.0], [0.0], [0.0], [0.0], [0.0]),
+            ("AUD", [0.0], [0.0], [0.25], [-0.30], [0.05]),
+            ("AUD", [0.0], [0.0], [], [], []),
+            ("AUD", [0.0], [0.0], [0.30], [0.0], [0.0]),  # score=0.12: cruza limiar 0.10 mas não 0.15
+            ("AUD", [0.0], [0.0], [-0.30], [0.0], [0.0]),  # score=-0.12: cruza -0.10 mas não -0.15
+        ]
+        for args in cases:
+            with self.subTest(args=args):
+                prod = evaluate_currency_confluence_3tf(*args, ref_dt=self._REF_DT)
+                frozen = _run_3tf(*args, ref_dt=self._REF_DT)
+                self.assertEqual(prod, frozen)
 
 
 if __name__ == "__main__":
