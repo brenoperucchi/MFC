@@ -64,7 +64,8 @@ from web.css_service import (
     get_tf_constant, required_full_history_bars, to_broker_symbol,
 )
 import scripts.fetch_histdata_mn1_warmup as fetch_histdata_mn1_warmup
-from agents.confluence_engine import BRT, evaluate_currency_confluence, resolve_confluence_engine
+from agents.confluence_engine import BRT, evaluate_currency_confluence
+from confluence_config import resolve_confluence_engine
 # CostModel mora em agents/portfolio_executor.py (o executor de verdade) —
 # era duplicada aqui até 24/08; agora o backtest importa a mesma classe que
 # o sistema ao vivo usa pra ESTIMAR o custo de cada cesta aberta (achado em

@@ -63,11 +63,10 @@ _load_dotenv_if_present()
 
 from agents.confluence_engine import (
     BRT,
-    DEFAULT_CONFLUENCE_ENGINE,
     evaluate_currency_confluence,
     evaluate_28_pairs_confluence,
-    resolve_confluence_engine,
 )
+from confluence_config import DEFAULT_CONFLUENCE_ENGINE, resolve_confluence_engine
 from agents.triad_analyzer import analyze_tf_triad
 
 # Tentar importar MetaTrader5
@@ -586,6 +585,27 @@ def _stamp_provenance(payload, is_live: bool):
     stamped = dict(payload)
     stamped["mt5_connected"] = bool(is_live)
     return stamped
+
+
+# Achado P3-2, resíduo pego na verificação mfc-75 (herdr-review mfc-74):
+# o print() original saiu de dentro de agents/confluence_engine.py (que
+# gerava 8 linhas/noite), mas sem deduplicar aqui na FRONTEIRA, uma
+# CSS_CONFLUENCE_ENGINE inválida persistente podia voltar a imprimir uma
+# linha por atualização HTTP (o throttle de 3s em update_data() só se
+# aplica quando já existe last_up/cached de uma atualização BOA anterior
+# — cold start ou force=True continuam batendo aqui a cada chamada).
+_last_warned_invalid_confluence_engine_value = None
+
+
+def _warn_invalid_confluence_engine_once(exc):
+    """Avisa só uma vez por valor inválido distinto — mesmo padrão já
+    usado (e removido de dentro de agents/) na correção original do P3-2."""
+    global _last_warned_invalid_confluence_engine_value
+    raw = str(exc)
+    if raw == _last_warned_invalid_confluence_engine_value:
+        return
+    _last_warned_invalid_confluence_engine_value = raw
+    print(f"[!] {exc} — recusando gerar snapshot novo, servindo cache/fallback.")
 
 
 def _fallback_confluence_engine_label():
@@ -1270,7 +1290,7 @@ class CSSDataEngine:
         try:
             active_confluence_engine = resolve_confluence_engine()
         except ValueError as exc:
-            print(f"[!] {exc} — recusando gerar snapshot novo, servindo cache/fallback.")
+            _warn_invalid_confluence_engine_once(exc)
             if cached:
                 return _stamp_provenance(cached, False)
             return _stamp_provenance(self._generate_fallback_data(mode=mode), False)

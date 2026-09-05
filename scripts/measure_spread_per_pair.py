@@ -54,7 +54,7 @@ from scripts.backtest_canonical import (
     usd_cross_rates_dict, _brt_to_server, evaluate_at, is_market_session_valid,
     check_contract_size_consistency,
 )
-from agents.confluence_engine import resolve_confluence_engine
+from confluence_config import resolve_confluence_engine
 
 
 def measure_static_spread(lot=0.01):

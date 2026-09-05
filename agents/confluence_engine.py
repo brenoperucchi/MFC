@@ -1,14 +1,19 @@
 """
 MOTOR DE CONFLUÊNCIA MULTI-AGENTE CSS
 evaluate_currency_confluence(..., engine=) despacha entre dois motores
-conforme o argumento `engine` (PURO — nunca lê ambiente): o 3-TF congelado
-(D1+H4+H1 sobre score bruto) ou a MATRIZ INSTITUCIONAL 5-TF (Port A, com
-soberania macro MN1/W1, maturação temporal progressiva e penalização de
-contra-fluxo). `resolve_confluence_engine()` é o helper de FRONTEIRA que lê
-CSS_CONFLUENCE_ENGINE (default "3tf", pré-Port-A) — chame uma vez por
-rodada/snapshot na fronteira (web/scheduler/backtest), nunca dentro de
-`agents/`. Ver evaluate_currency_confluence_3tf/_5tf pra cada implementação,
-a análise de poder estatístico da consulta herdr-ask mfc-15
+conforme o argumento `engine` (PURO — nunca lê ambiente, nunca importa
+`os`): o 3-TF congelado (D1+H4+H1 sobre score bruto) ou a MATRIZ
+INSTITUCIONAL 5-TF (Port A, com soberania macro MN1/W1, maturação temporal
+progressiva e penalização de contra-fluxo). `confluence_config.py` (raiz do
+repo, FORA de `agents/`) é o módulo de fronteira que lê CSS_CONFLUENCE_ENGINE
+(default "3tf", pré-Port-A) via `resolve_confluence_engine()` — chame-o uma
+vez por rodada/snapshot na fronteira (web/scheduler/backtest); este arquivo
+só importa de lá as duas STRINGS de nome (`CONFLUENCE_ENGINE_3TF`/`_5TF`),
+nunca o resolver nem `os.environ` (achado MFC74-01, herdr-review mfc-74/75:
+mesmo um resolver "conceitualmente de fronteira" DENTRO deste arquivo ainda
+violava a leitura de que o pacote `agents/` inteiro deve ser livre de I/O).
+Ver evaluate_currency_confluence_3tf/_5tf pra cada implementação, a análise
+de poder estatístico da consulta herdr-ask mfc-15
 (docs/plans/port-upstream-institutional-matrix.md) sobre por que o default
 voltou a ser 3-TF em 2026-09-05 mesmo com o Port A já em produção, e a
 herdr-ask mfc-17 sobre por que a resolução da env var saiu do dispatcher
@@ -22,7 +27,6 @@ Hierarquia de pesos 5-TF:
   - H1 (1.0): Gatilho Imediato e Ponto de Ignição
 """
 
-import os
 from datetime import datetime, timedelta, timezone
 
 from agents.macro_analyzer import analyze_macro_currency
@@ -31,6 +35,7 @@ from agents.triad_analyzer import (
     REGION_EQUILIBRIO,
     REGION_ZONA_PARADA,
 )
+from confluence_config import CONFLUENCE_ENGINE_3TF, CONFLUENCE_ENGINE_5TF
 
 
 # A maturação temporal precisa usar sempre a mesma referência entre live e
@@ -308,17 +313,18 @@ def evaluate_currency_confluence_3tf(ccy, mn_s, w1_s, d1_s, h4_s, h1_s, ref_dt):
     assinatura com o motor 5-TF (usados apenas para os campos informativos
     ``macro``/``operational`` do retorno, nunca para a decisão em si).
 
-    À época da extração (2026-09-05) reproduz exatamente
-    scripts/backtest_engine_compare.py::_run_3tf — mas as duas NÃO devem
-    ficar acopladas daqui pra frente (achado MFC74-06/P3-1, herdr-review
-    mfc-74, os dois revisores independentemente): _run_3tf existe pra
-    comparar "antes vs depois do Port A" e por isso precisa ficar
-    congelada PRA SEMPRE no comportamento pré-Port-A, mesmo que este motor
-    de PRODUÇÃO evolua legitimamente mais tarde (ex.: recalibrar o limiar
-    0.10). Uma mudança aqui não deve ser espelhada lá — é exatamente o
-    oposto do que a docstring anterior dizia. tests/test_confluence_matrix_port_a.py
-    verifica os valores FIXOS conhecidos, não uma comparação viva contra
-    _run_3tf, por esse motivo."""
+    Na extração (2026-09-05), reproduzia a mesma lógica observada em
+    scripts/backtest_engine_compare.py::_run_3tf nos casos verificados
+    então (não uma prova formal de identidade de fonte) — e as duas NÃO
+    devem ficar acopladas daqui pra frente (achado MFC74-06/P3-1,
+    herdr-review mfc-74/mfc-75, os dois revisores independentemente):
+    _run_3tf existe pra comparar "antes vs depois do Port A" e por isso
+    precisa ficar congelada PRA SEMPRE no comportamento pré-Port-A, mesmo
+    que este motor de PRODUÇÃO evolua legitimamente mais tarde (ex.:
+    recalibrar o limiar 0.10). Uma mudança aqui não deve ser espelhada lá.
+    tests/test_confluence_matrix_port_a.py verifica os valores FIXOS
+    conhecidos do comportamento de produção — não mantém uma comparação
+    viva contra _run_3tf, que quebraria numa evolução legítima futura."""
     macro = analyze_macro_currency(ccy, mn_s, w1_s, d1_s)
     op = analyze_operational_currency(ccy, h4_s, h1_s, macro)
     d1_curr = float(d1_s[-1]) if len(d1_s) > 0 else 0.0
@@ -350,59 +356,6 @@ def evaluate_currency_confluence_3tf(ccy, mn_s, w1_s, d1_s, h4_s, h1_s, ref_dt):
     }
 
 
-# Nome da env var e valores aceitos — troca só qual motor decide
-# trade_bias, nunca manda ordem sozinha nem é "mais perigosa" que a outra
-# (diferente de CSS_MIN_MARGIN_FREE e companhia em
-# agents/portfolio_executor.py).
-CSS_CONFLUENCE_ENGINE_ENV_VAR = "CSS_CONFLUENCE_ENGINE"
-CONFLUENCE_ENGINE_3TF = "3tf"
-CONFLUENCE_ENGINE_5TF = "5tf"
-DEFAULT_CONFLUENCE_ENGINE = CONFLUENCE_ENGINE_3TF
-_VALID_CONFLUENCE_ENGINES = (CONFLUENCE_ENGINE_3TF, CONFLUENCE_ENGINE_5TF)
-
-
-def resolve_confluence_engine():
-    """Helper de FRONTEIRA — NÃO é estágio do pipeline `agents/` e NÃO é
-    chamado por evaluate_currency_confluence() (que recebe `engine` como
-    argumento explícito e nunca lê os.environ). Resolvido pelas rodadas
-    corrigidas do herdr-review mfc-74 + herdr-ask mfc-17 (os dois
-    revisores convergiram após uma rodada de correção mútua — `mfc-rev-2`
-    concedeu os dois achados P1 que contestava na mfc-74):
-
-    - MFC74-01: `os.environ` dentro de `evaluate_currency_confluence()`
-      quebrava o contrato de determinismo da camada `agents/` (`f(séries,
-      ref_dt) → dict` reproduzível) — é por isso que o MFC74-04
-      (proveniência mentindo sobre o motor) e o desvio de
-      `scripts/backtest_engine_compare.py` (importa `_3tf`/`_5tf` direto,
-      nunca o dispatcher) tiveram que existir. Resolvido tirando a leitura
-      de ambiente de dentro do dispatcher.
-    - MFC74-02: um valor EXPLICITAMENTE inválido (ex.: typo `5-tf`) não
-      pode virar silenciosamente o default só com aviso — a invariante 2
-      deste projeto pra variáveis de `.env` é "usado ≠ escrito", não
-      "qual lado é mais perigoso", e essa regra se aplica aqui mesmo sem
-      um motor objetivamente mais arriscado que o outro. Ausente cai no
-      default (compatibilidade deliberada, pré-Port-A); presente e
-      inválido RECUSA.
-
-    Cada chamador (web/css_service.py::update_data(),
-    scripts/backtest_canonical.py) chama isto UMA VEZ por rodada/snapshot
-    e passa o resultado como `engine=` pras N avaliações daquela rodada —
-    nunca relido por avaliação individual (isso reintroduziria o mesmo
-    padrão de bug do MFC74-04, um nível abaixo: proveniência/decisão
-    sendo releituras independentes em vez do mesmo valor)."""
-    if CSS_CONFLUENCE_ENGINE_ENV_VAR not in os.environ:
-        return DEFAULT_CONFLUENCE_ENGINE
-    raw_original = os.environ[CSS_CONFLUENCE_ENGINE_ENV_VAR]
-    raw = raw_original.strip().lower()
-    if raw not in _VALID_CONFLUENCE_ENGINES:
-        raise ValueError(
-            f"{CSS_CONFLUENCE_ENGINE_ENV_VAR}={raw_original!r} inválido — use "
-            f"{CONFLUENCE_ENGINE_3TF!r} ou {CONFLUENCE_ENGINE_5TF!r}, ou remova "
-            f"a variável pra usar o default ({DEFAULT_CONFLUENCE_ENGINE!r})."
-        )
-    return raw
-
-
 def evaluate_currency_confluence(ccy, mn_s, w1_s, d1_s, h4_s, h1_s, ref_dt, engine):
     """Ponto de entrada público único do pipeline `agents/` pra decisão de
     `trade_bias`, consumido por produção (web/css_service.py) e pelo
@@ -431,10 +384,10 @@ def evaluate_currency_confluence(ccy, mn_s, w1_s, d1_s, h4_s, h1_s, ref_dt, engi
     diretamente, pra testar os dois motores lado a lado sempre, independente
     de qual estiver selecionado ao vivo no momento."""
     ref_dt = _normalize_ref_dt(ref_dt)
-    if engine not in _VALID_CONFLUENCE_ENGINES:
+    if engine not in (CONFLUENCE_ENGINE_3TF, CONFLUENCE_ENGINE_5TF):
         raise ValueError(
             f"engine deve ser {CONFLUENCE_ENGINE_3TF!r} ou {CONFLUENCE_ENGINE_5TF!r}, "
-            f"recebeu {engine!r} — resolva com resolve_confluence_engine() na fronteira."
+            f"recebeu {engine!r} — resolva com confluence_config.resolve_confluence_engine()."
         )
     if engine == CONFLUENCE_ENGINE_5TF:
         return evaluate_currency_confluence_5tf(ccy, mn_s, w1_s, d1_s, h4_s, h1_s, ref_dt)

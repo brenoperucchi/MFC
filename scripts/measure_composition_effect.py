@@ -44,7 +44,7 @@ if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
 
 from agents.portfolio_executor import get_portfolio_pairs, CostModel, ensure_mt5
-from agents.confluence_engine import resolve_confluence_engine
+from confluence_config import resolve_confluence_engine
 from web.history_tracker import convert_pnl_to_usd
 from scripts.backtest_canonical import (
     BRT, LOT, ENTRY_HOUR_BRT, CURRENCIES, load_series, load_h1_prices, h1_bars_for_days,

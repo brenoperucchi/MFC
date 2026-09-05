@@ -11,14 +11,13 @@ from agents.confluence_engine import (
     BRT,
     CONFLUENCE_ENGINE_3TF,
     CONFLUENCE_ENGINE_5TF,
-    CSS_CONFLUENCE_ENGINE_ENV_VAR,
     _calculate_tf_vector,
     _get_tf_maturity,
     evaluate_currency_confluence,
     evaluate_currency_confluence_3tf,
     evaluate_currency_confluence_5tf as evaluate_currency_confluence_engine_5tf,
-    resolve_confluence_engine,
 )
+from confluence_config import CSS_CONFLUENCE_ENGINE_ENV_VAR, resolve_confluence_engine
 from scripts.backtest_engine_compare import (
     _get_tf_maturity as _get_upstream_tf_maturity,
     _normalize_window_end,
@@ -29,7 +28,6 @@ from scripts.backtest_engine_compare import (
     _exposure_summary,
     _overall_quality_status,
     _quality_status,
-    _run_3tf,
     _turnover_summary,
     compare,
     evaluate_currency_confluence_5tf,
@@ -77,10 +75,15 @@ class TestPortAVectors(unittest.TestCase):
         self.assertEqual(_get_tf_maturity("MN1", datetime(2026, 8, 25, tzinfo=BRT)), 0.83)
 
     def test_missing_reference_is_rejected(self):
+        # Achado MFC75-01 (herdr-review mfc-75): `engine` virou obrigatório
+        # (mfc-74/mfc-17) — sem passar um valor válido aqui, o TypeError
+        # viria da ASSINATURA (argumento faltando), nunca chegando a
+        # executar _normalize_ref_dt(), e o teste passaria por um motivo
+        # que não prova nada sobre a validação de ref_dt.
         with self.assertRaises(TypeError):
-            evaluate_currency_confluence("AUD", [], [], [], [], [], ref_dt=None)
+            evaluate_currency_confluence("AUD", [], [], [], [], [], ref_dt=None, engine="3tf")
         with self.assertRaises(TypeError):
-            evaluate_currency_confluence("AUD", [], [], [], [], [], ref_dt="2026-08-25")
+            evaluate_currency_confluence("AUD", [], [], [], [], [], ref_dt="2026-08-25", engine="3tf")
 
         with self.assertRaises(TypeError):
             _get_upstream_tf_maturity("W1", None)
@@ -856,28 +859,20 @@ class TestConfluenceEngineFlag(unittest.TestCase):
                 self.assertEqual(result["trade_bias"], expected_bias)
                 self.assertEqual(result["score_total"], expected_score)
 
-    def test_production_3tf_extraction_matched_the_frozen_baseline_at_migration_time(self):
-        """Snapshot histórico, não um gate: em 2026-09-05, no momento da
-        extração de evaluate_currency_confluence_3tf a partir de _run_3tf,
-        os dois batiam byte a byte nestes casos — registrado aqui só como
-        evidência de migração correta, não como trava pra mudanças futuras
-        (ver docstrings dos dois: _run_3tf nunca deve mudar, produção pode).
-        Se um dia divergirem porque a produção evoluiu legitimamente, é
-        esperado — troque este teste por uma nota no commit, não reverta a
-        mudança de produção pra fazer ele passar de novo."""
-        cases = [
-            ("AUD", [0.0], [0.0], [0.30], [0.30], [0.30]),
-            ("AUD", [0.0], [0.0], [-0.30], [-0.30], [-0.30]),
-            ("AUD", [0.0], [0.0], [0.05], [0.05], [0.05]),
-            ("AUD", [0.0], [0.0], [0.0], [0.0], [0.0]),
-            ("AUD", [0.0], [0.0], [0.25], [-0.30], [0.05]),
-            ("AUD", [0.0], [0.0], [], [], []),
-        ]
-        for args in cases:
-            with self.subTest(args=args):
-                prod = evaluate_currency_confluence_3tf(*args, ref_dt=self._REF_DT)
-                frozen = _run_3tf(*args, ref_dt=self._REF_DT)
-                self.assertEqual(prod, frozen)
+    # Achado MFC74-06/P3-1 (herdr-review mfc-74/mfc-75): havia aqui um
+    # teste de comparação VIVA entre evaluate_currency_confluence_3tf
+    # (produção) e _run_3tf (baseline histórico congelado, usado só pra
+    # comparar antes/depois do Port A). mfc-rev apontou corretamente que
+    # isso contradiz a própria docstring dos dois: _run_3tf NUNCA deve
+    # mudar, produção PODE evoluir legitimamente (ex.: recalibrar o
+    # limiar 0.10) — um teste que os compara ao vivo quebraria numa
+    # evolução legítima, exatamente o oposto do que a comparação
+    # antes/depois do Port A precisa. Removido; a evidência de que os
+    # dois batiam no momento da extração (2026-09-05) já está registrada
+    # no commit e862a9b/6cbafa0, não precisa de um teste permanente pra
+    # isso — test_production_3tf_engine_matches_known_fixed_values acima
+    # já cobre o comportamento de produção com valores fixos, que é o que
+    # deve travar uma regressão de verdade.
 
 
 if __name__ == "__main__":
